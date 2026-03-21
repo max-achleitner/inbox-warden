@@ -68,7 +68,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>, 
               : parsed.cc.value.map((v) => v.address || ""))
             : [];
         } finally {
-          lock.release();
+          try { lock.release(); } catch { /* connection may already be dead */ }
         }
 
         // Validate we have a sender to reply to

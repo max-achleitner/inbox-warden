@@ -88,7 +88,7 @@ export function register(
             isError: true,
           };
         } finally {
-          lock.release();
+          try { lock.release(); } catch { /* connection may already be dead */ }
         }
 
         // 2. Send via SMTP
@@ -123,7 +123,7 @@ export function register(
               await client.messageDelete(uid.toString(), { uid: true });
               draftDeleted = true;
             } finally {
-              deleteLock.release();
+              try { deleteLock.release(); } catch { /* ignore */ }
             }
           } catch {
             // Non-fatal: email was sent, draft deletion failed

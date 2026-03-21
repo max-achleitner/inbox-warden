@@ -85,7 +85,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };
         } finally {
-          lock.release();
+          try { lock.release(); } catch { /* connection may already be dead */ }
         }
       } catch (error) {
         return {

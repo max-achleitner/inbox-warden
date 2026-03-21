@@ -53,7 +53,15 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
     async ({ folder, query, subject, from, to, cc, since, before, unread, flagged, answered, hasAttachment, largerThan, smallerThan, header, maxResults, offset }) => {
       try {
         const client = await getClient();
-        const lock = await client.getMailboxLock(folder);
+        let lock;
+        try {
+          lock = await client.getMailboxLock(folder);
+        } catch (lockError) {
+          return {
+            content: [{ type: "text", text: `Error opening folder "${folder}": ${errorMessage(lockError)}` }],
+            isError: true,
+          };
+        }
 
         try {
           const searchCriteria: any = {};
@@ -93,13 +101,23 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
               : await client.search({ all: true }, { uid: true });
             uids = Array.isArray(result) ? result : [];
           } catch (searchError) {
-            // If a text search fails (e.g. IMAP server can't handle the query charset),
-            // fall back to fetching all and report the issue
+            // If a filtered search fails, try without filters
             if (hasSearch) {
-              const fallback = await client.search({ all: true }, { uid: true });
-              uids = Array.isArray(fallback) ? fallback : [];
+              try {
+                const fallback = await client.search({ all: true }, { uid: true });
+                uids = Array.isArray(fallback) ? fallback : [];
+              } catch {
+                // Both searches failed — return the original error
+                return {
+                  content: [{ type: "text", text: `Error searching emails: ${errorMessage(searchError)}` }],
+                  isError: true,
+                };
+              }
             } else {
-              throw searchError;
+              return {
+                content: [{ type: "text", text: `Error searching emails: ${errorMessage(searchError)}` }],
+                isError: true,
+              };
             }
           }
 
@@ -161,7 +179,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
             }],
           };
         } finally {
-          lock.release();
+          try { lock.release(); } catch { /* connection may already be dead */ }
         }
       } catch (error) {
         return {
