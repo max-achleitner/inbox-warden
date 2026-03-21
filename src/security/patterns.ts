@@ -94,7 +94,9 @@ const HTML_PATTERNS: PatternDef[] = [
   },
   {
     type: "html_comment_injection",
-    pattern: /<[^>]+(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|height\s*:\s*0[^0-9]|width\s*:\s*0[^0-9]|position\s*:\s*absolute[^>]*left\s*:\s*-\d{3,})/i,
+    // Match hidden elements but exclude <style>, <head>, <meta>, <title> tags
+    // which legitimately use display:none in email clients (Outlook, Gmail)
+    pattern: /<(?!style|head|meta|title|!\[)[^>]+(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|height\s*:\s*0[^0-9]|width\s*:\s*0[^0-9]|position\s*:\s*absolute[^>]*left\s*:\s*-\d{3,})/i,
     description: "Hidden HTML element with CSS concealment",
     confidence: 0.75,
     locations: ["html"],

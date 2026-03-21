@@ -460,6 +460,20 @@ John`,
     expect(result.hasInjection).toBe(false);
   });
 
+  it("Outlook/Gmail email with display:none on style/head tags", () => {
+    const result = scanForInjection({
+      html: `<html><head><style style="display:none;">
+.ExternalClass { width:100%; }
+div[style*="margin: 16px 0"] { margin:0 !important; }
+</style><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+</head><body>
+<table><tr><td style="padding: 20px;">Hello World</td></tr></table>
+<!--[if mso]><style>body { display:none; }</style><![endif]-->
+</body></html>`,
+    });
+    expect(result.findings.filter((f) => f.type === "html_comment_injection" && f.description.includes("Hidden HTML")).length).toBe(0);
+  });
+
   it("email with legitimate JSON (API error report)", () => {
     const result = scanForInjection({
       subject: "API Error Report",
