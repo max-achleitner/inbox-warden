@@ -125,7 +125,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
           if (hasAttachment && uids.length > 0) {
             const filtered: number[] = [];
             // Fetch bodyStructure for all matched UIDs to filter accurately
-            for await (const msg of client.fetch(uids, { uid: true, bodyStructure: true })) {
+            for await (const msg of client.fetch(uids, { uid: true, bodyStructure: true }, { uid: true })) {
               if (hasAttachmentPart(msg.bodyStructure)) {
                 filtered.push(msg.uid);
               }
@@ -153,7 +153,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
             flags: true,
             bodyStructure: true,
             size: true,
-          })) {
+          }, { uid: true })) {
             const subject = msg.envelope?.subject;
             const _injectionScan = subject ? scanSubjectOnly(subject) : undefined;
             messages.push({
