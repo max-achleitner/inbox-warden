@@ -20,7 +20,15 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
 
         try {
           const uidStr = uids.join(",");
-          await client.messageMove(uidStr, destination, { uid: true });
+          const result = await client.messageMove(uidStr, destination, { uid: true });
+
+          // Build UID mapping (old → new) if server supports UIDPLUS
+          const uidMapping: Record<number, number> = {};
+          if (result && result.uidMap) {
+            for (const [oldUid, newUid] of result.uidMap) {
+              uidMapping[oldUid] = newUid;
+            }
+          }
 
           return {
             content: [{
@@ -30,6 +38,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
                 uids,
                 from: folder,
                 to: destination,
+                ...(Object.keys(uidMapping).length > 0 ? { uidMapping } : {}),
               }, null, 2),
             }],
           };
