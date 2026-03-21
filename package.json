@@ -1,0 +1,35 @@
+{
+  "name": "imap-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for IMAP/SMTP email access",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "setup": "node dist/setup.js"
+  },
+  "keywords": [
+    "mcp",
+    "imap",
+    "smtp",
+    "email"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "dotenv": "^16.4.7",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.9.16",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^6.4.17",
+    "typescript": "^5.7.0"
+  }
+}
