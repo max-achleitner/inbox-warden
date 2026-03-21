@@ -37,7 +37,7 @@ const VERSION = "0.1.0";
 async function main() {
   log.initLogger();
 
-  const creds = loadCredentials();
+  const creds = await loadCredentials();
   const perms = getPermissions(creds);
 
   const active = Object.entries(perms)

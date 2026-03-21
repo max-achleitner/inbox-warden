@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as readline from "node:readline";
-import { saveCredentials, loadCredentials, credentialsExist, DEFAULT_PERMISSIONS } from "./credentials.js";
+import { saveCredentials, loadCredentials, configExists, DEFAULT_PERMISSIONS } from "./credentials.js";
 import type { Credentials, Permissions } from "./credentials.js";
 
 const rl = readline.createInterface({
@@ -29,10 +29,10 @@ async function main() {
   console.log("\n=== IMAP MCP Server Setup ===\n");
 
   let defaults: Partial<Credentials> = {};
-  if (credentialsExist()) {
+  if (configExists()) {
     console.log("Existing configuration found. Press Enter to keep current values.\n");
     try {
-      defaults = loadCredentials();
+      defaults = await loadCredentials();
     } catch {
       // ignore
     }
@@ -67,7 +67,7 @@ async function main() {
     delete: await askBool("Enable delete?", existingPerms.delete),
   };
 
-  saveCredentials({
+  await saveCredentials({
     user,
     imapHost,
     imapPort,
@@ -77,7 +77,8 @@ async function main() {
     permissions,
   });
 
-  console.log("\nCredentials saved to ~/.imap-mcp/credentials.json");
+  console.log("\nConfiguration saved to ~/.imap-mcp/config.json");
+  console.log("Password stored securely in OS keychain");
   console.log(`Permissions: read=${permissions.read}, write=${permissions.write}, send=${permissions.send}, delete=${permissions.delete}`);
   console.log("You can now start the server with: npm start\n");
 
