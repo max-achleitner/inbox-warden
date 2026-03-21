@@ -53,8 +53,8 @@ Tools are grouped into four tiers. You choose what the AI can do during setup. D
 
 | Tier | Default | What it can do |
 |------|---------|----------------|
-| **read** | on | List folders, search, read emails, download attachments |
-| **write** | on | Mark read/unread, move emails, create/reply drafts, manage folders |
+| **read** | on | List folders, search, read emails, download attachments, check quota |
+| **write** | on | Mark read/unread, move emails, flag emails, create/reply drafts, manage folders |
 | **send** | **off** | Send emails via SMTP |
 | **delete** | **off** | Permanently delete emails |
 
@@ -87,7 +87,7 @@ By default the server can read and organize your mail, draft replies for your re
 ### Send Tier (off by default)
 | Tool | Description |
 |------|-------------|
-| `send_email` | Send an email via SMTP |
+| `send_email` | Send a new email via SMTP |
 | `send_draft` | Send an existing draft via SMTP (create_draft → review → send_draft workflow) |
 
 ### Delete Tier (off by default)
@@ -118,7 +118,7 @@ Scan results are attached as `_injectionScan` metadata — the original email co
 
 ### Credentials
 
-Stored in `~/.imap-mcp/credentials.json` with restricted file permissions (0o600). Passwords are stored locally, never transmitted except to your configured IMAP/SMTP server.
+Config is stored in `~/.imap-mcp/config.json` (file mode 0o600) and your password is kept in the **OS keychain** (via `keytar`) — never in a plaintext file. Legacy `credentials.json` files are automatically migrated on first run. You can also set `IMAP_PASSWORD` as an environment variable.
 
 ### MCP Annotations
 

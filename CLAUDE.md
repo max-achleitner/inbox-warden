@@ -25,18 +25,19 @@ To run a single test file: `npx vitest run src/security/__tests__/injection-dete
 - `src/setup.ts` — Interactive CLI for configuring credentials and permissions.
 
 **Infrastructure modules:**
-- `src/credentials.ts` — Loads/saves credentials and permissions from `~/.imap-mcp/credentials.json` (file mode 0o600). Validates required fields at load time. Exports `Permissions` interface, `DEFAULT_PERMISSIONS`, and `getPermissions()`.
-- `src/imap-client.ts` — Factory that creates an `ImapFlow` client from credentials. Auto-detects TLS on port 993.
+- `src/credentials.ts` — Loads config from `~/.imap-mcp/config.json` (file mode 0o600) and password from OS keychain via `keytar`. Auto-migrates legacy `credentials.json` files. Falls back to `IMAP_PASSWORD` env var. Validates required fields at load time. Exports `Permissions` interface, `DEFAULT_PERMISSIONS`, `getPermissions()`, `saveCredentials()`.
+- `src/imap-client.ts` — `ImapConnectionManager` class with auto-reconnect (exponential backoff, max 5 retries), keep-alive (NOOP every 5 min), and connection mutex. Exports `ConnectionStats` for health monitoring. Auto-detects TLS on port 993.
 - `src/smtp-client.ts` — Factory that creates a `nodemailer` transport. Auto-detects TLS on port 465.
-- `src/errors.ts` — `errorMessage()` helper that safely extracts error messages without leaking stack traces.
+- `src/errors.ts` — `errorMessage()` helper that safely extracts error messages without leaking stack traces. `ImapConnectionError` class for connection failures.
+- `src/logging/logger.ts` — Structured JSON logging to stderr (stdout reserved for MCP stdio transport).
 
 **Permission system:** Tools are grouped into four tiers. Each tier can be enabled/disabled in `~/.imap-mcp/credentials.json` under the `permissions` key. Tools in disabled tiers are never registered with the MCP server.
 
 | Tier | Default | Tools |
 |------|---------|-------|
-| `read` | on | list_folders, search_emails, read_email, get_email_count, download_attachment |
-| `write` | on | mark_as_read, move_email, create_draft, reply_draft, create/delete/rename_folder |
-| `send` | off | send_email |
+| `read` | on | list_folders, search_emails, read_email, get_email_count, download_attachment, get_quota |
+| `write` | on | mark_as_read, move_email, flag_email, create_draft, reply_draft, create/delete/rename_folder |
+| `send` | off | send_email, send_draft |
 | `delete` | off | delete_email |
 
 **Tools (src/tools/):** Each file exports a `register()` function. All tools have MCP annotations (`readOnlyHint`, `destructiveHint`).
@@ -46,13 +47,17 @@ To run a single test file: `npx vitest run src/security/__tests__/injection-dete
 - `read-email.ts` — `read_email`: Downloads and parses a single email by UID. Runs full injection scan (subject + body + html + attachment names) and includes `_injectionScan` in response.
 - `get-email-count.ts` — `get_email_count`: Returns total/unread counts for one or all folders.
 - `download-attachment.ts` — `download_attachment`: Downloads a specific attachment. Text files returned as UTF-8, binary as base64. Scans text content for injection.
+- `get-quota.ts` — `get_quota`: Returns mailbox storage quota (usage, limit, percentage). Handles servers that don't support QUOTA or return no resource data gracefully.
 - `mark-as-read.ts` — `mark_as_read`: Sets/removes `\Seen` flag. UIDs validated with `.min(1)`.
-- `move-email.ts` — `move_email`: Moves emails between folders.
+- `move-email.ts` — `move_email`: Moves emails between folders. Returns UID mapping for tracking across folders.
+- `flag-email.ts` — `flag_email`: Adds/removes IMAP flags (standard: `\Seen`, `\Flagged`, `\Answered`, `\Deleted`, `\Draft`; also custom keywords).
 - `create-draft.ts` — `create_draft`: Composes email and saves to Drafts via IMAP APPEND. All header values sanitized against CRLF injection. Non-ASCII subjects RFC 2047 encoded. Also exports `buildRfc822Message()`, `findDraftsFolder()`, `sanitizeHeaderValue()`.
 - `reply-draft.ts` — `reply_draft`: Creates a threaded reply draft with `In-Reply-To`/`References` headers. Case-insensitive `Re:` prefix handling. Validates original sender exists.
 - `manage-folders.ts` — `create_folder`, `delete_folder`, `rename_folder`: Three separate register functions. `delete_folder` checks message count and subfolders before allowing deletion.
 - `send-email.ts` — `send_email`: Sends email via SMTP (nodemailer handles header safety).
+- `send-draft.ts` — `send_draft`: Fetches a draft by UID from the Drafts folder, sends it via SMTP, then deletes the draft. Full create_draft → review → send_draft workflow.
 - `delete-email.ts` — `delete_email`: Moves to Trash (or expunges if already in Trash). Case-insensitive Trash folder detection via `specialUse` flag then name fallback.
+- `health-check.ts` — `health_check`: Returns server health status including IMAP connection state, SMTP config, security scan stats, and uptime. Always registered (not gated by permissions).
 
 **Security layer (src/security/):**
 - `patterns.ts` — All regex patterns and keyword lists organized by detection category. Pre-compiled at module load. Confidence scores per pattern. `computeRiskLevel()` for compound scoring (multiple low-confidence findings escalate).

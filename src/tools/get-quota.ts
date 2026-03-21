@@ -40,6 +40,11 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
           result.messageLimit = quota.messages.limit;
         }
 
+        if (!quota.storage && !quota.messages) {
+          result.supported = false;
+          result.note = "Server returned quota root but no storage or message limits. The server may not enforce quotas.";
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
