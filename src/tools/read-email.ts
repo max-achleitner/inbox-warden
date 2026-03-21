@@ -2,7 +2,11 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { convert } from "html-to-text";
 import { errorMessage } from "../errors.js";
+import * as log from "../logging/logger.js";
+import { scanForInjection } from "../security/injection-detector.js";
+import { recordScan } from "./health-check.js";
 
 export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
   server.tool(
@@ -22,7 +26,39 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
           const raw = await client.download(uid.toString(), undefined, { uid: true });
           const parsed = await simpleParser(raw.content);
 
-          const result = {
+          // Full injection scan: subject + body + html + attachment names
+          const _injectionScan = scanForInjection({
+            subject: parsed.subject,
+            body: parsed.text || undefined,
+            html: parsed.html || undefined,
+            attachmentNames: parsed.attachments?.map((a) => a.filename).filter(Boolean) as string[],
+          });
+          recordScan(_injectionScan.hasInjection);
+          if (_injectionScan.hasInjection) {
+            log.warn("injection.detected", {
+              uid,
+              folder,
+              riskLevel: _injectionScan.riskLevel,
+              findingCount: _injectionScan.findings.length,
+              types: [...new Set(_injectionScan.findings.map((f) => f.type))],
+            });
+          }
+
+          // Generate plaintext from HTML if no text body
+          let text = parsed.text || "";
+          let textGenerated = false;
+          if (!text && parsed.html) {
+            text = convert(parsed.html, {
+              wordwrap: 120,
+              selectors: [
+                { selector: "a", options: { linkBrackets: ["[", "]"] } },
+                { selector: "img", format: "skip" },
+              ],
+            });
+            textGenerated = true;
+          }
+
+          const result: any = {
             uid,
             subject: parsed.subject,
             from: parsed.from?.value,
@@ -33,7 +69,8 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
               ? (Array.isArray(parsed.cc) ? parsed.cc.flatMap((c) => c.value) : parsed.cc.value)
               : [],
             date: parsed.date?.toISOString(),
-            text: parsed.text || "",
+            text,
+            ...(textGenerated ? { textGenerated: true } : {}),
             html: parsed.html || undefined,
             attachments: parsed.attachments?.map((a, index) => ({
               index,
@@ -41,6 +78,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
               contentType: a.contentType,
               size: a.size,
             })),
+            _injectionScan,
           };
 
           return {

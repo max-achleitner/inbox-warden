@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import * as readline from "node:readline";
 import { saveCredentials, loadCredentials, credentialsExist, DEFAULT_PERMISSIONS } from "./credentials.js";
 import type { Credentials, Permissions } from "./credentials.js";

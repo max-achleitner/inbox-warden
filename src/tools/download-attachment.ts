@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { errorMessage } from "../errors.js";
+import { scanForInjection } from "../security/injection-detector.js";
 
 export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
   server.tool(
@@ -43,6 +44,11 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
             /\.(txt|csv|json|xml|log|md|html|htm|yaml|yml|toml|ini|cfg|conf|sh|bat|ps1|py|js|ts|java|c|cpp|h|rb|go|rs|sql)$/i.test(filename);
 
           if (isText) {
+            const textContent = attachment.content.toString("utf-8");
+            const _injectionScan = scanForInjection({
+              body: textContent,
+              attachmentNames: [filename],
+            });
             return {
               content: [{
                 type: "text",
@@ -51,12 +57,15 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
                   contentType,
                   size: attachment.size,
                   encoding: "utf-8",
-                  content: attachment.content.toString("utf-8"),
+                  content: textContent,
+                  ...(_injectionScan.hasInjection ? { _injectionScan } : {}),
                 }, null, 2),
               }],
             };
           }
 
+          // Scan filename even for binary attachments
+          const filenameScan = scanForInjection({ attachmentNames: [filename] });
           return {
             content: [{
               type: "text",
@@ -66,6 +75,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
                 size: attachment.size,
                 encoding: "base64",
                 content: attachment.content.toString("base64"),
+                ...(filenameScan.hasInjection ? { _injectionScan: filenameScan } : {}),
               }, null, 2),
             }],
           };

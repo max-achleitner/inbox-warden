@@ -50,6 +50,18 @@ export function loadCredentials(): Credentials {
     }
   }
 
+  // Validate SMTP fields if send permission is enabled
+  const perms = parsed.permissions || DEFAULT_PERMISSIONS;
+  if (perms.send) {
+    for (const field of ["smtpHost", "smtpPort"] as const) {
+      if (parsed[field] === undefined || parsed[field] === null || parsed[field] === "") {
+        throw new Error(
+          `Invalid credentials: missing "${field}" (required when send permission is enabled). Run "npm run setup" to reconfigure.`
+        );
+      }
+    }
+  }
+
   const creds = parsed as Credentials;
   // Backfill defaults for configs saved before permissions existed
   if (!creds.permissions) {

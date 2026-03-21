@@ -3,7 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { errorMessage } from "../errors.js";
-import { buildRfc822Message, findDraftsFolder } from "./create-draft.js";
+import { buildRfc822Message, findDraftsFolder, validateAttachments } from "./create-draft.js";
+import type { DraftAttachment } from "./create-draft.js";
 
 export function register(server: McpServer, getClient: () => Promise<ImapFlow>, fromAddress: string) {
   server.tool(
@@ -15,10 +16,26 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>, 
       body: z.string().describe("Reply body (plain text)"),
       replyAll: z.boolean().default(false).describe("Reply to all recipients, not just sender"),
       html: z.string().optional().describe("HTML reply body (optional)"),
+      attachments: z.array(z.object({
+        filename: z.string().describe("Attachment filename"),
+        content: z.string().describe("Base64-encoded file content"),
+        contentType: z.string().describe("MIME type, e.g. application/pdf"),
+      })).optional().describe("File attachments (base64-encoded)"),
     },
     { readOnlyHint: false, destructiveHint: false },
-    async ({ folder, uid, body, replyAll, html }) => {
+    async ({ folder, uid, body, replyAll, html, attachments }) => {
       try {
+        // Validate attachments
+        if (attachments) {
+          const validationError = validateAttachments(attachments);
+          if (validationError) {
+            return {
+              content: [{ type: "text", text: validationError }],
+              isError: true,
+            };
+          }
+        }
+
         const client = await getClient();
 
         // Fetch the original email to get headers
@@ -95,6 +112,7 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>, 
           html,
           inReplyTo: originalMessageId,
           references,
+          attachments,
         });
 
         await client.append(draftsFolder, rawMessage, ["\\Draft", "\\Seen"]);

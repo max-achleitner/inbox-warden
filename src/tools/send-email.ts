@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transporter } from "nodemailer";
 import { errorMessage } from "../errors.js";
+import * as log from "../logging/logger.js";
 
 export function register(server: McpServer, transport: Transporter, fromAddress: string) {
   server.tool(
@@ -25,6 +26,8 @@ export function register(server: McpServer, transport: Transporter, fromAddress:
           subject,
           text: body,
         });
+
+        log.info("email.sent", { to, subject, messageId: info.messageId });
 
         return {
           content: [{

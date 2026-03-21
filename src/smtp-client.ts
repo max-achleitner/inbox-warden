@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import type { Credentials } from "./credentials.js";
+import * as log from "./logging/logger.js";
 
 /** Create an SMTP transport for sending emails */
 export function createSmtpTransport(creds: Credentials): Transporter {
@@ -14,6 +15,6 @@ export function createSmtpTransport(creds: Credentials): Transporter {
     },
   });
 
-  console.error(`[SMTP] Transport configured for ${creds.smtpHost}`);
+  log.info("smtp.configured", { server: creds.smtpHost, port: creds.smtpPort });
   return transport;
 }

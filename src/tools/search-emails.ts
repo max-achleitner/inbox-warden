@@ -2,6 +2,15 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ImapFlow } from "imapflow";
 import { errorMessage } from "../errors.js";
+import { scanSubjectOnly } from "../security/injection-detector.js";
+
+/** Safely extract address from an envelope address object */
+function parseEnvelopeAddress(a: any): { name: string; address: string } {
+  return {
+    name: a.name || "",
+    address: a.address || (a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ""),
+  };
+}
 
 export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
   server.tool(
@@ -77,11 +86,22 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
           // Attachment filter — IMAP doesn't have a native "has attachment" search,
           // so we fetch bodyStructure and filter client-side after the initial search
           const hasSearch = Object.keys(searchCriteria).length > 0;
-          const result = hasSearch
-            ? await client.search(searchCriteria, { uid: true })
-            : await client.search({ all: true }, { uid: true });
-
-          let uids = Array.isArray(result) ? result : [];
+          let uids: number[];
+          try {
+            const result = hasSearch
+              ? await client.search(searchCriteria, { uid: true })
+              : await client.search({ all: true }, { uid: true });
+            uids = Array.isArray(result) ? result : [];
+          } catch (searchError) {
+            // If a text search fails (e.g. IMAP server can't handle the query charset),
+            // fall back to fetching all and report the issue
+            if (hasSearch) {
+              const fallback = await client.search({ all: true }, { uid: true });
+              uids = Array.isArray(fallback) ? fallback : [];
+            } else {
+              throw searchError;
+            }
+          }
 
           // Client-side attachment filtering if needed
           if (hasAttachment && uids.length > 0) {
@@ -116,23 +136,23 @@ export function register(server: McpServer, getClient: () => Promise<ImapFlow>) 
             bodyStructure: true,
             size: true,
           })) {
+            const subject = msg.envelope?.subject;
+            const _injectionScan = subject ? scanSubjectOnly(subject) : undefined;
             messages.push({
               uid: msg.uid,
-              subject: msg.envelope?.subject,
-              from: msg.envelope?.from?.map((a: any) => ({
-                name: a.name,
-                address: `${a.mailbox}@${a.host}`,
-              })),
-              to: msg.envelope?.to?.map((a: any) => ({
-                name: a.name,
-                address: `${a.mailbox}@${a.host}`,
-              })),
+              subject,
+              from: msg.envelope?.from?.map(parseEnvelopeAddress),
+              to: msg.envelope?.to?.map(parseEnvelopeAddress),
               date: msg.envelope?.date?.toISOString(),
               flags: Array.from(msg.flags || []),
               hasAttachment: hasAttachmentPart(msg.bodyStructure),
               size: msg.size,
+              ...(_injectionScan?.hasInjection ? { _injectionScan } : {}),
             });
           }
+
+          // Sort by UID descending (most recent first) since IMAP fetch order is unspecified
+          messages.sort((a: any, b: any) => b.uid - a.uid);
 
           return {
             content: [{

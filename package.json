@@ -1,35 +1,65 @@
 {
   "name": "imap-mcp-server",
-  "version": "1.0.0",
-  "description": "MCP Server for IMAP/SMTP email access",
+  "version": "0.1.0",
+  "description": "MCP server that provides AI assistants with email access via IMAP/SMTP. Search, read, draft, organize — with permission-gated safety controls.",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "imap-mcp-server": "dist/index.js",
+    "imap-mcp-setup": "dist/setup.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "setup": "node dist/setup.js"
+    "setup": "node dist/setup.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "imap",
     "smtp",
-    "email"
+    "email",
+    "ai",
+    "claude",
+    "llm"
   ],
+  "author": "Max Achleitner",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/max-achleitner/imapmcp.git"
+  },
+  "homepage": "https://github.com/max-achleitner/imapmcp#readme",
+  "bugs": {
+    "url": "https://github.com/max-achleitner/imapmcp/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "dotenv": "^16.4.7",
+    "html-to-text": "^9.0.5",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.2",
     "nodemailer": "^6.9.16",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^6.4.17",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.9"
   }
 }
