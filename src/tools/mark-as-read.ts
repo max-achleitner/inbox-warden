@@ -1,51 +1,54 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
-import { errorMessage } from "../errors.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
+import { resolvePolicyFolder } from "../policy/folder-access.js";
+import { existingUids, strictStoreFlags } from "../imap/strict.js";
+import { uniqueUids } from "../imap/flags.js";
+import { defineTool } from "./shared/define-tool.js";
+import { errorResult, jsonResult } from "./shared/result.js";
 
-export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "mark_as_read",
-    "Mark one or more emails as read/unread by UID",
+export function register(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      folder: z.string().default("INBOX").describe("Mailbox folder path"),
-      uids: z.array(z.number()).min(1).describe("Email UIDs to mark"),
-      read: z.boolean().default(true).describe("true = mark read, false = mark unread"),
+      name: "mark_as_read",
+      title: "Mark as read or unread",
+      description: "Mark one or more emails as read/unread by UID",
+      tier: "write",
+      input: {
+        folder: z.string().default("INBOX").describe("Mailbox folder path"),
+        uids: z.array(z.number().int().positive()).min(1).max(1000).describe("Email UIDs to mark"),
+        read: z.boolean().default(true).describe("true = mark read, false = mark unread"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      errorPrefix: "Error marking emails",
     },
-    { readOnlyHint: false, destructiveHint: false },
-    async ({ folder, uids, read }) => {
+    async ({ folder, uids, read }, inv) => {
+      const client = await inv.account.getClient();
+      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const lock = await client.getMailboxLock(path);
       try {
-        const client = await getClient();
-        const lock = await client.getMailboxLock(folder);
-
-        try {
-          // ImapFlow expects a SequenceString like "1,2,3" for UIDs
-          const uidStr = uids.join(",");
-          if (read) {
-            await client.messageFlagsAdd(uidStr, ["\\Seen"], { uid: true });
-          } else {
-            await client.messageFlagsRemove(uidStr, ["\\Seen"], { uid: true });
-          }
-
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                success: true,
-                uids,
-                markedAs: read ? "read" : "unread",
-              }, null, 2),
-            }],
-          };
-        } finally {
-          try { lock.release(); } catch { /* connection may already be dead */ }
+        const requested = uniqueUids(uids);
+        const present = await existingUids(client, requested);
+        const missingUids = requested.filter((u) => !present.includes(u));
+        if (present.length === 0) {
+          return errorResult("Error marking emails", `None of the UIDs exist in "${path}". Nothing was changed.`);
         }
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error marking emails: ${errorMessage(error)}` }],
-          isError: true,
-        };
+
+        inv.account.policy.checkBulk(present.length, "mark");
+        await strictStoreFlags(client, present, ["\\Seen"], read ? "add" : "remove");
+        inv.record({ folder: path, uids: present, action: read ? "mark_read" : "mark_unread" });
+        return jsonResult({
+          success: true,
+          folder: path,
+          uids: present,
+          markedAs: read ? "read" : "unread",
+          ...(missingUids.length > 0 ? { missingUids } : {}),
+        });
+      } finally {
+        try { lock.release(); } catch { /* connection may already be dead */ }
       }
-    }
+    },
   );
 }

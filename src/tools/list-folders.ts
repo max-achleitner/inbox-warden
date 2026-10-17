@@ -1,38 +1,37 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
-import { errorMessage } from "../errors.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
+import { visibleFolders } from "../policy/folder-access.js";
+import { defineTool } from "./shared/define-tool.js";
+import { jsonResult } from "./shared/result.js";
 
-export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "list_folders",
-    "List all mail folders (mailboxes) with message counts",
-    {},
-    { readOnlyHint: true, destructiveHint: false },
-    async () => {
-      try {
-        const client = await getClient();
-        const tree = await client.listTree();
+export function register(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
+    {
+      name: "list_folders",
+      title: "List folders",
+      description: "List all mail folders (mailboxes) with their special use (Drafts, Sent, Trash, …)",
+      tier: "read",
+      input: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      errorPrefix: "Error listing folders",
+    },
+    async (_args, inv) => {
+      const client = await inv.account.getClient();
+      const tree = await client.listTree();
 
-        const folders: Array<{
-          name: string;
-          path: string;
-          delimiter: string;
-          flags: string[];
-          specialUse?: string;
-        }> = [];
+      const folders: Array<{
+        name: string;
+        path: string;
+        delimiter: string;
+        flags: string[];
+        specialUse?: string;
+      }> = [];
 
-        flattenTree(tree, folders);
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(folders, null, 2) }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error listing folders: ${errorMessage(error)}` }],
-          isError: true,
-        };
-      }
-    }
+      flattenTree(tree, folders);
+      return jsonResult(visibleFolders(inv.account, folders));
+    },
   );
 }
 

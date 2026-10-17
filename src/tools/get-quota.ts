@@ -1,66 +1,61 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
 import { errorMessage } from "../errors.js";
+import { resolvePolicyFolder } from "../policy/folder-access.js";
+import { defineTool } from "./shared/define-tool.js";
+import { jsonResult } from "./shared/result.js";
 
-export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "get_quota",
-    "Get mailbox storage quota (usage and limits). Not all IMAP servers support this.",
+const NOT_SUPPORTED = { supported: false, note: "This mail server does not report storage quotas." };
+
+export function register(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      path: z.string().optional().describe("Quota root path (usually omit for default)"),
+      name: "get_quota",
+      title: "Mailbox storage quota",
+      description: "Get mailbox storage quota (usage and limits). Not all IMAP servers support this.",
+      tier: "read",
+      input: {
+        path: z.string().optional().describe("Quota root path (usually omit for default)"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      errorPrefix: "Error getting quota",
     },
-    { readOnlyHint: true, destructiveHint: false },
-    async ({ path }) => {
+    async ({ path }, inv) => {
+      const client = await inv.account.getClient();
+      // Without a path imapflow asks for the account's default quota root (via INBOX)
+      const folder = path === undefined ? undefined : await resolvePolicyFolder(inv.account, client, path);
+      let quota;
       try {
-        const client = await getClient();
-        const quota = await client.getQuota(path);
-
-        if (quota === false) {
-          return {
-            content: [{ type: "text", text: "QUOTA not supported by this IMAP server" }],
-            isError: true,
-          };
-        }
-
-        const result: any = {
-          path: quota.path,
-        };
-
-        if (quota.storage) {
-          result.usage = quota.storage.used;
-          result.limit = quota.storage.limit;
-          result.usagePercent = quota.storage.limit > 0
-            ? Math.round((quota.storage.used / quota.storage.limit) * 10000) / 100
-            : 0;
-        }
-
-        if (quota.messages) {
-          result.messageCount = quota.messages.used;
-          result.messageLimit = quota.messages.limit;
-        }
-
-        if (!quota.storage && !quota.messages) {
-          result.supported = false;
-          result.note = "Server returned quota root but no storage or message limits. The server may not enforce quotas.";
-        }
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
+        quota = await client.getQuota(folder);
       } catch (error) {
-        const msg = errorMessage(error);
-        if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("not supported") || msg.toLowerCase().includes("unknown command")) {
-          return {
-            content: [{ type: "text", text: "QUOTA not supported by this IMAP server" }],
-            isError: true,
-          };
+        const msg = errorMessage(error).toLowerCase();
+        if (msg.includes("quota") || msg.includes("not supported") || msg.includes("unknown command")) {
+          return jsonResult(NOT_SUPPORTED);
         }
-        return {
-          content: [{ type: "text", text: `Error getting quota: ${msg}` }],
-          isError: true,
-        };
+        throw error;
       }
-    }
+      if (!quota) return jsonResult(NOT_SUPPORTED);
+
+      const result: Record<string, unknown> = { path: quota.path };
+      if (quota.storage) {
+        result.usage = quota.storage.usage;
+        result.limit = quota.storage.limit;
+        const { usage, limit } = quota.storage;
+        if (usage !== undefined && limit !== undefined && limit > 0) {
+          result.usagePercent = Math.round((usage / limit) * 10000) / 100;
+        }
+      }
+      if (quota.message) {
+        result.messageCount = quota.message.usage;
+        result.messageLimit = quota.message.limit;
+      }
+      if (!quota.storage && !quota.message) {
+        Object.assign(result, { supported: false, note: "The server returned a quota root but no storage or message limits." });
+      }
+      return jsonResult(result);
+    },
   );
 }

@@ -1,56 +1,66 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
-import { errorMessage } from "../errors.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
+import { listFolderInfo } from "../imap/folders.js";
+import { resolvePolicyFolder } from "../policy/folder-access.js";
+import { checkTrashMove, movesIntoTrash } from "../policy/trash-move.js";
+import { existingUids, strictMove } from "../imap/strict.js";
+import { uniqueUids } from "../imap/flags.js";
+import { defineTool } from "./shared/define-tool.js";
+import { errorResult, jsonResult } from "./shared/result.js";
 
-export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "move_email",
-    "Move emails from one folder to another",
+export function register(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      folder: z.string().default("INBOX").describe("Source folder path"),
-      uids: z.array(z.number()).min(1).describe("Email UIDs to move"),
-      destination: z.string().describe("Destination folder path (e.g., Archive, Trash)"),
+      name: "move_email",
+      title: "Move emails",
+      description: "Move emails from one folder to another. The destination folder must already exist.",
+      tier: "write",
+      input: {
+        folder: z.string().default("INBOX").describe("Source folder path"),
+        uids: z.array(z.number().int().positive()).min(1).max(1000).describe("Email UIDs to move"),
+        destination: z.string().describe("Destination folder path (e.g., Archive). Moving into Trash counts as deleting and needs the delete permission"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      errorPrefix: "Error moving emails",
     },
-    { readOnlyHint: false, destructiveHint: false },
-    async ({ folder, uids, destination }) => {
-      try {
-        const client = await getClient();
-        const lock = await client.getMailboxLock(folder);
-
-        try {
-          const uidStr = uids.join(",");
-          const result = await client.messageMove(uidStr, destination, { uid: true });
-
-          // Build UID mapping (old → new) if server supports UIDPLUS
-          const uidMapping: Record<number, number> = {};
-          if (result && result.uidMap) {
-            for (const [oldUid, newUid] of result.uidMap) {
-              uidMapping[oldUid] = newUid;
-            }
-          }
-
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                success: true,
-                uids,
-                from: folder,
-                to: destination,
-                ...(Object.keys(uidMapping).length > 0 ? { uidMapping } : {}),
-              }, null, 2),
-            }],
-          };
-        } finally {
-          try { lock.release(); } catch { /* connection may already be dead */ }
-        }
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error moving emails: ${errorMessage(error)}` }],
-          isError: true,
-        };
+    async ({ folder, uids, destination }, inv) => {
+      const client = await inv.account.getClient();
+      const folders = await listFolderInfo(client);
+      const source = await resolvePolicyFolder(inv.account, client, folder, folders);
+      const target = await resolvePolicyFolder(inv.account, client, destination, folders);
+      if (source === target) {
+        return errorResult("Error moving emails", `Source and destination are the same folder ("${source}"). Nothing was moved.`);
       }
-    }
+      const intoTrash = movesIntoTrash(folders, target);
+      if (intoTrash) checkTrashMove(inv.account);
+
+      const lock = await client.getMailboxLock(source);
+      try {
+        const requested = uniqueUids(uids);
+        const present = await existingUids(client, requested);
+        const missingUids = requested.filter((u) => !present.includes(u));
+        if (present.length === 0) {
+          return errorResult("Error moving emails", `None of the UIDs exist in "${source}". Nothing was moved.`);
+        }
+
+        inv.account.policy.checkBulk(present.length, intoTrash ? "delete" : "move");
+        const uidMap = await strictMove(client, present, target);
+        inv.record({ folder: source, destination: target, uids: present });
+        return jsonResult({
+          success: true,
+          from: source,
+          to: target,
+          moved: present.length,
+          uids: present,
+          ...(missingUids.length > 0 ? { missingUids } : {}),
+          ...(uidMap.size > 0 ? { uidMapping: Object.fromEntries(uidMap) } : {}),
+        });
+      } finally {
+        try { lock.release(); } catch { /* connection may already be dead */ }
+      }
+    },
   );
 }

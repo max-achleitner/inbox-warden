@@ -1,137 +1,151 @@
-# imap-mcp-server
+# Inbox Warden
 
-An MCP server that gives AI assistants (Claude, etc.) access to your email via IMAP/SMTP. Search, read, draft, and organize emails — with permission controls that keep you in charge.
+**Email for Claude — safely.** Let Claude search, read, sort and draft your email in any mailbox
+that speaks IMAP/SMTP: Gmail and Google Workspace, Microsoft 365 and Outlook.com (preview), GMX, Web.de, IONOS,
+iCloud, Yahoo, or your own mail server.
 
-## Quick Start
+*Deutsch:* [Benutzerhandbuch](docs/guide/de/README.md) · *English:* [User guide](docs/guide/en/README.md)
+
+## Install — pick the way that fits you
+
+| | Claude Desktop extension | Claude Code plugin | Command line (npm) |
+|---|---|---|---|
+| Install | double-click a file | two commands | `npm install -g` + `setup` |
+| Password / app password (Gmail, GMX, IONOS, iCloud, own server …) | ✓ | ✓ | ✓ |
+| Microsoft 365 sign-in (preview) | ✓ (ask Claude "please sign me in") | ✓ | ✓ |
+| Google Workspace sign-in (your organisation's OAuth client) | ✓ | ✓ | ✓ |
+| Several mailboxes in one installation | — | — | ✓ |
+| Own server with a self-signed certificate (pinned) | — | — | ✓ |
+| Needs Node.js on the computer | no | no | yes (20.18+) |
+
+**Microsoft 365 and Outlook.com are a preview.** Inbox Warden does not ship its own Microsoft app yet, so your
+administrator registers one once ([steps](docs/guide/providers.md#microsoft-365--exchange-online--for-the-administrator)),
+and the Microsoft sign-in has not yet been tested against a real Microsoft 365 tenant.
+
+### Claude Desktop (recommended for most people)
+
+1. Download `inbox-warden-<version>.mcpb` from the [latest release](https://github.com/max-achleitner/inbox-warden/releases/latest).
+2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
+3. Enter your email address and choose the sign-in method:
+   - `password` (default): enter your password; Gmail, Yahoo and iCloud need an
+     [app password](docs/guide/en/README.md#app-passwords).
+   - `microsoft` (Microsoft 365, preview) or `google` (Google Workspace): leave the password empty, enter the
+     OAuth client ID from your administrator, then ask Claude
+     *"Please sign me in"* — your browser opens the sign-in page. See
+     [Microsoft 365 and Google Workspace](docs/guide/en/README.md#microsoft-365-and-google-workspace).
+
+   Leave the server fields empty; they are detected from your address.
+4. Start a new chat: *"What's new in my inbox?"*
+
+Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain. By default Claude
+can read and create drafts, but cannot send or delete — you send drafts from your mail program.
+
+**Team and Enterprise administrators** can upload the bundle once for the whole organisation
+(Organization settings → Connectors → Desktop), allow-list it, and require signed extensions
+(`isDesktopExtensionSignatureRequired`). See [Verify downloads](#verify-downloads) and the
+[hardening guide](docs/security/hardening-guide.md).
+
+### Claude Code
 
 ```bash
-# Install
-npm install -g imap-mcp-server
-
-# Configure your email account
-imap-mcp-setup
-
-# Or run from source
-git clone https://github.com/max-achleitner/imapmcp.git
-cd imapmcp
-npm install && npm run build
-npm run setup
+claude plugin marketplace add max-achleitner/inbox-warden
+claude plugin install inbox-warden@achleitner
 ```
 
-### Claude Desktop
+Then `/plugin` → **inbox-warden** → **Configure**. The plugin adds skills for inbox triage,
+reply drafting and mailbox clean-up.
 
-Add to your `claude_desktop_config.json`:
+### Command line (several mailboxes, own certificates)
+
+Requires Node.js 20.18 or newer.
+
+```bash
+npm install -g inbox-warden
+inbox-warden setup     # guided: detects your provider, signs in, tests the connection, stores secrets in the OS keychain
+inbox-warden doctor    # checks everything and explains problems in plain language
+```
+
+Claude Desktop (`claude_desktop_config.json`):
 
 ```json
-{
-  "mcpServers": {
-    "email": {
-      "command": "imap-mcp-server"
-    }
-  }
-}
+{ "mcpServers": { "email": { "command": "inbox-warden", "args": ["serve"] } } }
 ```
 
-Or if running from source:
+Claude Code: `claude mcp add email -- inbox-warden serve`
 
-```json
-{
-  "mcpServers": {
-    "email": {
-      "command": "node",
-      "args": ["/path/to/imapmcp/dist/index.js"]
-    }
-  }
-}
+## Remote mode (HTTPS) — optional
+
+Need claude.ai in the browser, colleagues sharing one server, or scheduled automations while your PC is off? Run the server remotely with Docker behind Caddy:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+claude mcp add --transport http mail https://mail.example.com/mcp --header "Authorization: Bearer imcp_…"
 ```
 
-Restart Claude Desktop — the email tools will appear automatically.
+Authentication is mandatory: bearer tokens (`inbox-warden http token create --id <name>`) or your organisation's OAuth provider (Microsoft Entra ID, Keycloak). Each token or person only sees the mailboxes you assign. Full guide: [docs/deploy/http.md](docs/deploy/http.md) · Security notes: [docs/security/remote-mode.md](docs/security/remote-mode.md).
+## What Claude can do
 
-## Permissions
+You decide per mailbox which of four permission levels are active:
 
-Tools are grouped into four tiers. You choose what the AI can do during setup. Disabled tiers = those tools are never registered.
+| Level | Default | Examples |
+|---|---|---|
+| **read** | on | search with filters and previews, read messages and whole conversations, attachments |
+| **write** | on | mark read, flag, move, sort many messages at once (with preview and confirmation), create reply and forward drafts, manage folders |
+| **send** | off | send email or drafts — each send confirmed by you unless you choose otherwise |
+| **delete** | off | move to Trash, empty Trash |
 
-| Tier | Default | What it can do |
-|------|---------|----------------|
-| **read** | on | List folders, search, read emails, download attachments, check quota |
-| **write** | on | Mark read/unread, move emails, flag emails, create/reply drafts, manage folders |
-| **send** | **off** | Send emails via SMTP |
-| **delete** | **off** | Permanently delete emails |
+## Security at a glance
 
-By default the server can read and organize your mail, draft replies for your review — but cannot send or delete anything.
+- **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
+  action fails and says so — it never falls back to "all mail".
+- **You approve what leaves your mailbox.** Sending is off by default; when enabled, sends are confirmed,
+  limited by recipient rules and rate limits, and recorded.
+- **Tamper-evident audit log** of every change and every sent message (no message contents).
+- **Encrypted connections only** (TLS 1.2+, no plaintext fallback); self-signed servers are pinned by fingerprint.
+- **Prompt-injection screening** of email content before Claude sees it.
+- **No telemetry.** See [PRIVACY.md](PRIVACY.md), the [security overview](SECURITY.md) and the
+  security documentation in [docs/security/](docs/security/threat-model.md) (threat model, data flow,
+  hardening guide, [Sicherheitsübersicht für IT-Verantwortliche](docs/security/sicherheitsuebersicht.md)).
 
-## Tools
+Provider-specific notes (app passwords, Microsoft 365 admin consent and SMTP AUTH, own servers):
+[docs/guide/providers.md](docs/guide/providers.md).
 
-### Read Tier
-| Tool | Description |
-|------|-------------|
-| `list_folders` | List all mailbox folders |
-| `search_emails` | Search with filters: from, to, cc, date range, unread, flagged, has attachment, size, headers |
-| `read_email` | Read full email content by UID |
-| `get_email_count` | Get total/unread counts per folder |
-| `download_attachment` | Download attachment content (text returned as UTF-8, binary as base64) |
-| `get_quota` | Get mailbox storage quota (usage, limit, percentage) |
+## Verify downloads
 
-### Write Tier
-| Tool | Description |
-|------|-------------|
-| `mark_as_read` | Mark emails as read or unread |
-| `move_email` | Move emails between folders |
-| `flag_email` | Add or remove IMAP flags (starred, answered, custom keywords) |
-| `create_draft` | Compose an email and save to Drafts (supports attachments) |
-| `reply_draft` | Create a threaded reply draft (with proper In-Reply-To/References headers) |
-| `create_folder` | Create a new mail folder |
-| `delete_folder` | Delete an empty folder (refuses if it contains messages or subfolders) |
-| `rename_folder` | Rename or move a folder |
+Every release is built by GitHub Actions from a tagged commit and includes `SHA256SUMS`, a CycloneDX SBOM,
+build-provenance attestations, a signed `.mcpb` and an npm package with provenance:
 
-### Send Tier (off by default)
-| Tool | Description |
-|------|-------------|
-| `send_email` | Send a new email via SMTP |
-| `send_draft` | Send an existing draft via SMTP (create_draft → review → send_draft workflow) |
+```bash
+sha256sum -c SHA256SUMS
+gh attestation verify inbox-warden-<version>.mcpb --repo max-achleitner/inbox-warden
+node scripts/verify-mcpb.mjs inbox-warden-<version>.mcpb mcpb-signing-cert.pem   # from a checkout of this repository
+```
 
-### Delete Tier (off by default)
-| Tool | Description |
-|------|-------------|
-| `delete_email` | Move to Trash, or permanently expunge if already in Trash |
+`npx @anthropic-ai/mcpb verify` (2.1.2) reports every bundle as "not signed" because its PKCS#7 check is not
+implemented; `scripts/verify-mcpb.mjs` checks the signature with openssl instead
+(see [release signing](docs/maintainers/release-signing.md)).
 
-### Always Available
-| Tool | Description |
-|------|-------------|
-| `health_check` | Server health status: IMAP connection, SMTP config, security stats, uptime |
+## Upgrading from a pre-1.0 version
 
-## Security
+Configuration (`~/.imap-mcp`) and stored passwords carry over. The old start commands
+(`node …/dist/index.js`, `imap-mcp-server`, `imap-mcp-setup`) still work until 2.0 and print a
+deprecation warning; switch to `inbox-warden serve` / `inbox-warden setup`.
+Note: the npm package named `imap-mcp-server` belongs to a different author and is unrelated to this project.
 
-### Prompt Injection Defense
+## Support and versions
 
-Every email returned by the server is scanned for prompt injection attempts before reaching the AI. The scanner detects:
-
-- Direct instruction injection (`[SYSTEM]`, "ignore previous instructions")
-- Unicode obfuscation (fullwidth, math symbols, regional indicators, superscript)
-- Invisible text (zero-width characters, bidi overrides)
-- HTML comment injection and hidden elements
-- Structured data injection (fake JSON/XML/YAML with role/system fields)
-- Social engineering (fake authority claims, secrecy instructions)
-- Encoding evasion (base64/URL/hex-encoded instructions)
-
-Scan results are attached as `_injectionScan` metadata — the original email content is never modified.
-
-### Credentials
-
-Config is stored in `~/.imap-mcp/config.json` (file mode 0o600) and your password is kept in the **OS keychain** (via `keytar`) — never in a plaintext file. Legacy `credentials.json` files are automatically migrated on first run. You can also set `IMAP_PASSWORD` as an environment variable.
-
-### MCP Annotations
-
-All tools carry `readOnlyHint` and `destructiveHint` annotations so MCP clients can display appropriate warnings.
+[Changelog](CHANGELOG.md) · [Support policy](docs/support-policy.md) ·
+[Report a problem](https://github.com/max-achleitner/inbox-warden/issues) · Security issues: see [SECURITY.md](SECURITY.md)
 
 ## Development
 
 ```bash
-npm run build        # Compile TypeScript
-npm run dev          # Watch mode
-npm test             # Run tests
-npm start            # Start server
-npm run setup        # Configure credentials
+npm ci
+npm run build && npm test          # unit tests, no network
+npm run typecheck
+docker compose -f test/docker-compose.greenmail.yml up -d
+IMAP_IT_HOST=localhost npm run test:integration
+npm run build:mcpb && npm run smoke:mcpb
 ```
 
 ## License

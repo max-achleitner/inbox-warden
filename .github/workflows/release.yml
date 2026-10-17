@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.14@sha256:1ef95a966418cd09b7ea91d504d8c0826bbe7a2f6e679a75c601a831587c1626
+        env:
+          GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled"
+        ports:
+          - 3025:3025
+          - 3143:3143
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Tag must match package.json
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run check:versions
+      - run: npm run build
+      - run: npm run test:integration
+        env:
+          IMAP_IT_HOST: localhost
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build:mcpb
+      - run: npm run smoke:mcpb
+      - name: Collect unsigned artefacts
+        run: |
+          mkdir -p unsigned
+          cp build/*.mcpb unsigned/
+          npm pack --pack-destination unsigned
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned
+          path: unsigned/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned
+          path: release
+      - name: Sign bundle
+        env:
+          CERT_PEM: ${{ secrets.MCPB_SIGNING_CERT_PEM }}
+          KEY_PEM: ${{ secrets.MCPB_SIGNING_KEY_PEM }}
+          INTERMEDIATE_PEM: ${{ secrets.MCPB_SIGNING_INTERMEDIATE_PEM }}
+        run: |
+          umask 077
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf '%s\n' "$CERT_PEM" > "$RUNNER_TEMP/cert.pem"
+          printf '%s\n' "$KEY_PEM" > "$RUNNER_TEMP/key.pem"
+          export MCPB_SIGNING_CERT_FILE="$RUNNER_TEMP/cert.pem" MCPB_SIGNING_KEY_FILE="$RUNNER_TEMP/key.pem"
+          if [ -n "$INTERMEDIATE_PEM" ]; then
+            printf '%s\n' "$INTERMEDIATE_PEM" > "$RUNNER_TEMP/intermediate.pem"
+            export MCPB_SIGNING_INTERMEDIATE_FILES="$RUNNER_TEMP/intermediate.pem"
+          fi
+          npm run sign:mcpb -- "release/inbox-warden-$VERSION.mcpb"
+          rm -f "$RUNNER_TEMP"/*.pem
+      - name: SBOM, release notes and checksums
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm sbom --sbom-format cyclonedx --omit dev > "release/inbox-warden-$VERSION.cdx.json"
+          npm run --silent release-notes -- "$VERSION" > release-notes.md
+          (cd release && sha256sum * > SHA256SUMS)
+          cat release/SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/*.mcpb
+            release/*.tgz
+      # Trusted publishing (OIDC, no token) needs npm >= 11.5.1
+      - run: npm install -g npm@11.20.0
+      - name: Publish to npm
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          case "$VERSION" in
+            *-*) npm publish "release/inbox-warden-$VERSION.tgz" --provenance --access public --tag next ;;
+            *) npm publish "release/inbox-warden-$VERSION.tgz" --provenance --access public ;;
+          esac
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            release/
+            release-notes.md
+          if-no-files-found: error
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PRERELEASE=""
+          case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            $PRERELEASE

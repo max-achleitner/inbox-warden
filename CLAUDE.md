@@ -4,72 +4,108 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-An MCP (Model Context Protocol) server that exposes IMAP/SMTP email operations as tools for AI clients. Built with TypeScript (ES modules), uses `@modelcontextprotocol/sdk` for the MCP layer, `imapflow` for IMAP, `nodemailer` for SMTP, and `mailparser` for parsing emails. Includes a prompt injection detection layer that scans all email content before returning it to the AI consumer.
+Inbox Warden (`inbox-warden`) is an MCP (Model Context Protocol) server that exposes IMAP/SMTP email operations for one or more mail accounts as tools for AI clients. Built with TypeScript (ES modules, Node ≥ 20.18), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`), zod 4, `imapflow` 2 for IMAP, `nodemailer` 10 for SMTP and message composition, and `mailparser` for parsing. A prompt injection detection layer scans email content before it is returned to the AI.
+
+Production-readiness work is specified in `docs/superpowers/specs/2026-10-14-production-readiness-design.md` and executed through the plans in `docs/superpowers/plans/`.
 
 ## Commands
 
 - **Build:** `npm run build` (runs `tsc`)
 - **Dev:** `npm run dev` (runs `tsc --watch`)
-- **Start:** `npm start` (runs `node dist/index.js`)
-- **Setup:** `npm run setup` (interactive credential + permissions wizard)
-- **Test:** `npm test` (runs `vitest run`)
+- **Start:** `npm start` (runs `node dist/bin.js serve`)
+- **CLI help:** `node dist/bin.js help` (`inbox-warden [serve | setup | doctor | accounts … | audit verify | help | version]`)
+- **Setup:** `npm run setup` (guided: provider detection, hidden password, OAuth sign-in, connection test, certificate trust)
+- **Doctor:** `npm run doctor` (non-interactive health report; exit code 1 on problems)
+- **Sign in again (OAuth):** `node dist/bin.js accounts login <id> [--device-code | --no-browser [--listen-host <host>] [--port <n>]]`
+- **Test:** `npm test` (unit tests, no network)
+- **Typecheck incl. tests:** `npm run typecheck`
+- **Integration tests:** `docker compose -f test/docker-compose.greenmail.yml up -d` then `IMAP_IT_HOST=localhost npm run test:integration` (skipped when `IMAP_IT_HOST` is unset)
 - **Test watch:** `npm run test:watch`
 - **Clean:** `npm run clean` (removes `dist/`)
+- **Remote server:** `node dist/bin.js serve --http` (refuses to start without `httpAuth`); tokens: `node dist/bin.js http token create --id <name>`
+- **Docker:** `docker build -t inbox-warden:dev .`; stack in `deploy/docker-compose.yml`
 
-To run a single test file: `npx vitest run src/security/__tests__/injection-detector.test.ts`
+To run a single test file: `npx vitest run src/tools/__tests__/search-emails.test.ts`
 
 ## Architecture
 
 **Entry points:**
-- `src/index.ts` — MCP server setup, permission-gated tool registration, stdio transport. IMAP client is lazy-initialized on first tool use with a mutex to prevent concurrent connection races. SMTP transport is only created when `send` permission is enabled.
-- `src/setup.ts` — Interactive CLI for configuring credentials and permissions.
+- `src/bin.ts` — the `inbox-warden` command: `src/cli/dispatch.ts` (`parseCommand`, `helpText`, `legacyInvocation`; no argument = `serve`) and `src/cli/program.ts` (`run`/`main`/`runLegacy`: `serve`, `help`, `version` itself; `setup`, `doctor`, `accounts …`, `audit …` go to `runCli`). Applies `applyBundleEnv` (MCPB/plugin environment) before every command.
+- `src/serve.ts` — `serve(args)`: `loadConfig()` → `createAppContext()` → `serveStdio(() => createServer(app))`, graceful shutdown.
+- `src/index.ts`, `src/cli/main.ts` — pre-1.0 shims (`imap-mcp-server`/`node dist/index.js` → serve, `imap-mcp-setup`/`node dist/cli/main.js` → setup or the named admin command), warn on stderr, removed in 2.0.
+- `src/server.ts` — side-effect-free `createServer(app)`: `McpServer` with `SERVER_INSTRUCTIONS` (`src/instructions.ts`) and every tool from `ALL_TOOLS` (`src/tools/index.ts`).
+- `runCli()` in `src/cli/run.ts`: `inbox-warden [setup | doctor | accounts list | accounts login <id> … | audit verify]`. Parsing in `args.ts` (pure), commands in `setup.ts`, `doctor.ts`, `login.ts` (dependency-injected, tested with fakes and a scripted prompter).
 
-**Infrastructure modules:**
-- `src/credentials.ts` — Loads config from `~/.imap-mcp/config.json` (file mode 0o600) and password from OS keychain via `keytar`. Auto-migrates legacy `credentials.json` files. Falls back to `IMAP_PASSWORD` env var. Validates required fields at load time. Exports `Permissions` interface, `DEFAULT_PERMISSIONS`, `getPermissions()`, `saveCredentials()`.
-- `src/imap-client.ts` — `ImapConnectionManager` class with auto-reconnect (exponential backoff, max 5 retries), keep-alive (NOOP every 5 min), and connection mutex. Exports `ConnectionStats` for health monitoring. Auto-detects TLS on port 993.
-- `src/smtp-client.ts` — Factory that creates a `nodemailer` transport. Auto-detects TLS on port 465.
-- `src/errors.ts` — `errorMessage()` helper that safely extracts error messages without leaking stack traces. `ImapConnectionError` class for connection failures.
-- `src/logging/logger.ts` — Structured JSON logging to stderr (stdout reserved for MCP stdio transport).
+**Configuration and secrets:**
+- `src/config/schema.ts` — zod schema for config v2: `accounts[]` with `id`, `email`, `imap`/`smtp` endpoints (optional certificate pin `tlsFingerprint256` + `tlsCertificatePem`), `auth` (password or OAuth2 Microsoft/Google), `identities` (display name, signature, aliases), `permissions`, `sentCopy`, `locale`, `policy`; top-level `defaultAccount`, `files`, `audit`. `policy`/`files`/`audit` are loose objects filled by later plans.
+- `src/config/load.ts` — `loadConfig(env, { secrets })`: `IMAP_MCP_CONFIG` file, or env-only single account (`IMAP_MCP_EMAIL`, `IMAP_MCP_IMAP_HOST`, …), or `~/.imap-mcp/config.json` (`IMAP_MCP_HOME` overrides the directory). v1 files are migrated (password moved to the secret store, backup without password); the file is only rewritten once the password is safe — without a secret store, or when the old keytar entry cannot be read here, the migration stays in memory. `saveConfig()` writes atomically with mode 0600.
+- `src/secrets/` — `SecretStore` chain: env vars first (`IMAP_MCP_PASSWORD_<ID>`, `*_FILE`, legacy `IMAP_PASSWORD` for `main`; refresh tokens are read from the keychain first, because rotation and sign-in store newer ones there), then the OS keychain: `createKeychainStore` uses `@napi-rs/keyring` (service `imap-mcp`, account `<id>:<key>`, Linux pinned to Secret Service) or, when the native module cannot load (MCPB bundle), the OS tools (`/usr/bin/security`, DPAPI files in `~/.imap-mcp/secrets`, `secret-tool`). `MigratingSecretStore` moves keytar-era secrets once; `lookupLegacyKeytarPassword` (found/absent/unknown) serves the v1 config migration. `MacSecurityStore` reads with `security find-generic-password -g` (`parseSecurityPassword`), because `-w` prints non-ASCII values as ambiguous bare hex. `MemorySecretStore` stages secrets during setup.
+- `src/auth/provider.ts` — `AuthProvider` (`imapAuth`, `smtpAuth`, `invalidate`); password implementation caches the secret; `oauth2` accounts get `OAuthAuthProvider`. Env-only accounts choose the method with `IMAP_MCP_AUTH` (`src/config/env-auth.ts`).
+- Microsoft 365 / Outlook.com sign-in is parked as a **preview** (owner decision O2 deferred 2026-10-17): `MICROSOFT_DEFAULT_CLIENT_ID` stays undefined, every organisation brings its own client ID, and Microsoft is not part of the 1.0 acceptance gate. Keep the code and tests.
+- `src/auth/oauth/` — PKCE loopback sign-in (`flow.ts`; `listenHost`/`port` for containers, `openBrowser: false` for headless), Microsoft device-code fallback, token client, `OAuthAuthProvider` (2-minute expiry skew, single-flight refresh, rotated refresh tokens persisted), `SignInManager` behind the `sign_in` tool (45 s per call, 5 min flow).
+- `src/onboarding/` — provider presets + detection (domain table → MX → autoconfig → guess), certificate probe, connection test, `diagnose()` (plain-language de/en messages).
 
-**Permission system:** Tools are grouped into four tiers. Each tier can be enabled/disabled in `~/.imap-mcp/credentials.json` under the `permissions` key. Tools in disabled tiers are never registered with the MCP server.
+**Runtime:**
+- `src/context.ts` — `AppContext` (accounts, `defaultAccountId`, `observers`, `resolveAccount`, `anyAccountAllows`) and per-account `AccountRuntime` (`getClient`, `getSendDeps` with a fresh SMTP connection per message, `identityFor`, `ownAddresses`). `AppContextDeps` are test seams.
+- `src/imap-client.ts` — `ImapConnectionManager(endpoint, auth, accountId)`: reconnect with backoff, keep-alive, mutex; on a rejected login it refreshes credentials once and then stops (no account lockouts).
+- `src/connection-security.ts` — implicit TLS on 993/465, mandatory STARTTLS elsewhere (loopback excepted unless pinned), TLS ≥ 1.2; certificate pinning (`TlsPin`, `pinnedTlsOptions`): the pinned certificate is the only trust anchor and its SHA-256 fingerprint replaces the hostname check. `ConfigSchema` validates pins with `pinProblem()`.
+
+**IMAP layer (`src/imap/`):** `strict.ts` (fail-closed wrappers incl. `strictStatus`; imapflow resolves refusals to `false`/`undefined`), `folders.ts` (`resolveFolder`, special folders), `search-query.ts` (`searchFilterShape`, `compileSearch`), `flags.ts`.
+
+**Mail layer (`src/mail/`):** `compose.ts` (MailComposer), `headers.ts`, `reply.ts`, `identity.ts` (`fromHeader`, `withSignature`), `send.ts` (`deliver()`, Sent-copy policy, `MailTransport`).
+
+**Tools (`src/tools/`):** every tool is registered through `defineTool()` (`src/tools/shared/define-tool.ts`), which adds the optional `account` parameter, registers the tool only if some account grants its tier, checks the selected account's tier on every call, maps exceptions to `errorResult`, and notifies `app.observers` with `inv.record()` details. Tool modules export `register(server, app)`; add new tools to `ALL_TOOLS`.
 
 | Tier | Default | Tools |
 |------|---------|-------|
-| `read` | on | list_folders, search_emails, read_email, get_email_count, download_attachment, get_quota |
-| `write` | on | mark_as_read, move_email, flag_email, create_draft, reply_draft, create/delete/rename_folder |
+| always | — | list_accounts, health_check, sign_in |
+| `read` | on | list_folders, search_emails, read_email, get_thread, get_email_count, download_attachment, get_quota |
+| `write` | on | mark_as_read, move_email, flag_email, organize_by_filter, create_draft, reply_draft, forward_draft, save_attachment, create/delete/rename_folder |
 | `send` | off | send_email, send_draft |
 | `delete` | off | delete_email |
 
-**Tools (src/tools/):** Each file exports a `register()` function. All tools have MCP annotations (`readOnlyHint`, `destructiveHint`).
+Compose tools accept `from` (must be one of the account's identities) and `signature` (default true). `flag_email` refuses `\Deleted`. Moving into Trash (or below it) with `move_email`/`organize_by_filter`, or moving a folder there with `rename_folder`, counts as deleting: it needs the delete tier and `bulk.maxDelete` (`src/policy/trash-move.ts`). New folder names go through `serverFolderPath()` (namespace prefix) before policy checks; pass an already listed `folders` array to `resolvePolicyFolder`/`requireSpecialFolder` instead of listing again. Every tool has a `title` and explicit `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`; send tools are destructive and open-world.
 
-- `list-folders.ts` — `list_folders`: Lists all mailboxes via `client.listTree()`. Skips synthetic root node.
-- `search-emails.ts` — `search_emails`: Gmail/Outlook-style filters (query, subject, from, to, cc, date range, unread, flagged, answered, hasAttachment, size, header). Pagination via offset + maxResults. Returns `_injectionScan` per message when detected (subject-only lightweight scan).
-- `read-email.ts` — `read_email`: Downloads and parses a single email by UID. Runs full injection scan (subject + body + html + attachment names) and includes `_injectionScan` in response.
-- `get-email-count.ts` — `get_email_count`: Returns total/unread counts for one or all folders.
-- `download-attachment.ts` — `download_attachment`: Downloads a specific attachment. Text files returned as UTF-8, binary as base64. Scans text content for injection.
-- `get-quota.ts` — `get_quota`: Returns mailbox storage quota (usage, limit, percentage). Handles servers that don't support QUOTA or return no resource data gracefully.
-- `mark-as-read.ts` — `mark_as_read`: Sets/removes `\Seen` flag. UIDs validated with `.min(1)`.
-- `move-email.ts` — `move_email`: Moves emails between folders. Returns UID mapping for tracking across folders.
-- `flag-email.ts` — `flag_email`: Adds/removes IMAP flags (standard: `\Seen`, `\Flagged`, `\Answered`, `\Deleted`, `\Draft`; also custom keywords).
-- `create-draft.ts` — `create_draft`: Composes email and saves to Drafts via IMAP APPEND. All header values sanitized against CRLF injection. Non-ASCII subjects RFC 2047 encoded. Also exports `buildRfc822Message()`, `findDraftsFolder()`, `sanitizeHeaderValue()`.
-- `reply-draft.ts` — `reply_draft`: Creates a threaded reply draft with `In-Reply-To`/`References` headers. Case-insensitive `Re:` prefix handling. Validates original sender exists.
-- `manage-folders.ts` — `create_folder`, `delete_folder`, `rename_folder`: Three separate register functions. `delete_folder` checks message count and subfolders before allowing deletion.
-- `send-email.ts` — `send_email`: Sends email via SMTP (nodemailer handles header safety).
-- `send-draft.ts` — `send_draft`: Fetches a draft by UID from the Drafts folder, sends it via SMTP, then deletes the draft. Full create_draft → review → send_draft workflow.
-- `delete-email.ts` — `delete_email`: Moves to Trash (or expunges if already in Trash). Case-insensitive Trash folder detection via `specialUse` flag then name fallback.
-- `health-check.ts` — `health_check`: Returns server health status including IMAP connection state, SMTP config, security scan stats, and uptime. Always registered (not gated by permissions).
+**Daily-business modules (Plan 3):**
+- `src/imap/select.ts` — `selectByFilter` (compile + `strictSearch` + client-side attachment filter, fail-closed), `keywordsSupported`.
+- `src/mail/preview.ts` — `previewFor`: partial BODY.PEEK of the first text part (4 KiB plain / 16 KiB HTML), QP/base64 + charset decoding, HTML→text.
+- `src/mail/text.ts` — `boundedText` (paging without splitting surrogate pairs), `fullText`, `truncate`, `stripQuotedHistory`.
+- `src/mail/thread.ts` — `threadIds`, `threadQuery` (Message-ID/References/In-Reply-To header searches); `get_thread` uses the Gmail thread id in `\All` when available.
+- `src/mail/forward.ts` — forward subject/header block; `src/mail/answered.ts` — `markOriginalAnswered` after `send_draft` (best effort, `originalFolder` from `reply_draft`).
+- `src/bulk/selection.ts` + `src/bulk/run.ts` — preview → single-use `confirmToken` (10 min; bound to account, folder, UIDVALIDITY, UID-set hash, action) → `commitBulk`; cap `bulkLimit()` = 500. Used by `organize_by_filter` and `delete_email` filter mode.
+- `src/files/sandbox.ts` — real-path containment for `files.attachmentDirs`, filename sanitising, blocked executable/macro types, no-overwrite targets in `files.downloadDir`; `src/files/attachments.ts` — `{ path }` or base64 attachments for compose tools.
+- `download_attachment` returns only text (≤ `files.maxInlineTextBytes`) and images (≤ `files.maxInlineImageBytes`); everything else goes through `save_attachment` (write tier).
 
-**Security layer (src/security/):**
-- `patterns.ts` — All regex patterns and keyword lists organized by detection category. Pre-compiled at module load. Confidence scores per pattern. `computeRiskLevel()` for compound scoring (multiple low-confidence findings escalate).
-- `unicode-normalizer.ts` — `normalizeToASCII()` converts trick Unicode to ASCII for detection only: Regional Indicators, Enclosed Supplement, Fullwidth, Mathematical Alphanumeric (bold/italic/script/fraktur/double-struck/monospace), Superscript/Subscript, Circled, Small Caps, NFKD + combining mark stripping. `hasNonAscii()` for fast-path bypass.
-- `injection-detector.ts` — `scanForInjection(input)` and `scanSubjectOnly(subject)`. Runs 7 detection categories: direct instruction (EN/DE), unicode obfuscation, invisible text, HTML/comment injection, structured data injection, social engineering/authority claims, encoding evasion (base64/URL/hex). Early exit on critical. Multi-vector detection adds compound finding when 3+ techniques detected.
+**Security layer (src/security/):** `patterns.ts`, `unicode-normalizer.ts`, `injection-detector.ts` (`scanForInjection`, `scanSubjectOnly`).
 
+**Policy and audit (src/policy/, src/audit/):**
+- `policy/schema.ts` — strict `PolicySchema` per account (send mode drafts-only/confirm/direct, recipient allow/block lists, rate limits, folder allow/deny globs, bulk caps, protected folders, attachment limits); unknown keys fail.
+- `policy/engine.ts` — `PolicyEngine` (attached as `AccountRuntime.policy`); every violation throws `PolicyDeniedError`, which `defineTool` reports as outcome `"denied"`. `tierAllowed` hides the send tier for drafts-only accounts.
+- `policy/folder-access.ts` — tools use `resolvePolicyFolder`/`visibleFolders`, never `resolveFolder` directly (guarded by `src/__tests__/policy-coverage.test.ts`).
+- `policy/outbound.ts` — `guardOutbound` runs before every `deliver()`: recipients, rate limit, new-recipient check, injection escalation, confirmation. Right before `deliver()` the send tools call `policy.reserveSend()` (`SendCounter.reserve`: check + count in one step under the cross-process lock in `src/file-lock.ts`) and `release()` it when delivery throws — no counter I/O may follow a successful send.
+- `policy/confirm.ts` — human confirmation via SDK v2 `inputRequired` elicitation; the answer is bound to an HMAC-signed digest of the exact operation. No model-visible confirm tokens for sending. Unknown client capabilities (stateless HTTP with a 2025-era client) refuse instead of falling back to client approval; `checkHttpDeployment` warns about confirm-mode accounts.
+- `audit/audit-log.ts` — hash-chained JSONL audit log (`~/.imap-mcp/audit/`), cross-process lock, retention; check with `inbox-warden audit verify` (`src/cli/audit.ts`).
+- `logging/redact.ts` — secrets and message content never reach logs; `IMAP_MCP_PROTOCOL_LOG=1` enables a redacted IMAP protocol log for troubleshooting.
+
+**Remote transport (src/transport/, Plan 7):**
+- `http-app.ts` — fetch-style router: `/healthz`, RFC 9728 metadata, `/mcp` → Host/Origin checks → IP allowlist → `HttpAuthenticator` → principal → mailbox mapping → rate limit → SDK v2 `createMcpHandler` with a fresh `createRemoteServer(scopedApp)` per request (= `createServer(app, { exclude: LOCAL_ONLY_TOOLS })`, so `sign_in` is never offered remotely; add any future tool that acts on the server machine to `LOCAL_ONLY_TOOLS` in `src/server.ts`). `http-server.ts` adapts it to `node:http` via `@hono/node-server`. `http-runtime.ts` composes config, auth and app; `checkHttpDeployment` (src/config/http-schema.ts) decides whether `serve --http` may start.
+- `auth/bearer.ts` (hashed tokens), `auth/oauth.ts` (jose JWT validation, JWKS discovery), `auth/metadata.ts` (protected resource metadata, WWW-Authenticate), `auth/principals.ts` (caller → mailbox rules, `scopeAppContext` adds `principal` to audit events), `auth/authenticator.ts`, `guards.ts` (client IP, CIDR, rate limiter, security headers).
+- Start-up: `serve(args)` in `src/serve.ts` hands `--http` to `src/cli/serve-http.ts` (`startServeHttp`: runtime secret store, host autodetection, `setupAudit`, then the listener; `runServeHttp` waits for SIGINT/SIGTERM). The `http` command (`src/cli/dispatch.ts`, `src/cli/program.ts`) runs `runHttpCli` from `src/cli/http-command.ts`.
+- `src/secrets/container.ts` — container secret store (env + `*_FILE` + AES-GCM state file, never keychain); `serve`, `serve --http`, `http` and Plan 4's admin CLI (`CliDeps.createSecrets`) all use `createRuntimeSecretStore`.
 **Key patterns:**
-- All tool handlers return JSON content blocks (`{ type: "text", text: JSON.stringify(...) }`).
-- IMAP operations that read mailboxes acquire a lock via `getMailboxLock()` and release in a `finally` block.
-- Zod schemas define tool input validation.
-- Logging goes to stderr (stdout is reserved for MCP stdio transport).
-- Draft tools build RFC 822 messages manually with `sanitizeHeaderValue()` on all headers and use IMAP APPEND with `\Draft` flag.
-- Folder discovery helpers (`findDraftsFolder`, Trash detection) use `specialUse` flags first, then fall back to case-insensitive name matching.
-- Error messages use `errorMessage()` helper to avoid leaking stack traces.
-- Injection scan metadata (`_injectionScan`) is attached to responses — original email content is never modified.
+- Product name and version come from `src/version.ts` (`SERVER_NAME`, `VERSION`, read from package.json); never hard-code them.
+- Register tools only with `defineTool`; get IMAP clients and SMTP deps from `inv.account`.
+- Never call imapflow's `search`, `status`, `messageMove`, `messageCopy`, `messageFlagsAdd/Remove`, `messageDelete`, `append` or `download` directly from a tool — use `src/imap/strict.ts`.
+- Never pass a folder name from tool input straight to imapflow — use `resolveFolder` / `requireSpecialFolder`.
+- A tool must never select more messages than requested; responses echo what was applied.
+- Build messages only with `composeMessage`, sender via `fromHeader(identity)`; send only with `deliver()`.
+- zod 4: `z.record(keySchema, valueSchema)`, `z.email()`, `.prefault({})` for object defaults.
+- Logs go to stderr; never log message bodies or secrets.
+- Error messages say whether anything was changed.
+
+**Testing:**
+- `createTestApp(accounts?, config?)` (`src/__tests__/helpers/test-app.ts`) builds an `AppContext` on `FakeImap` + capture transports (default account `main`, all tiers on); `t.connect(...registers)` returns a `Harness` talking to the server over the SDK v2 `InMemoryTransport`.
+- `FakeImap` mimics imapflow including soft failures (`failOn(method, "false" | "throw")`), `quota`, `mailboxRename` (moves subfolders) and imapflow's MOVE fallback (COPY + plain EXPUNGE once `MOVE`/`UIDPLUS` are deleted from `capabilities`). `t.stateDir` is where the send counters live.
+- `createCaptureTransport()` behaves like SMTP (Bcc stripped) and records messages.
+- `buildRaw()` builds fixture messages; `header()` reads a header from raw bytes.
+- Integration tests (`src/__tests__/integration/`) run against GreenMail; CI runs them on every push.

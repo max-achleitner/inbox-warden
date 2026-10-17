@@ -1,0 +1,170 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { ConfigError, configFromEnv, loadConfig, saveConfig } from "../load.js";
+import type { SecretKey, SecretStore } from "../../secrets/store.js";
+
+class MemorySecrets implements SecretStore {
+  readonly values = new Map<string, string>();
+  async get(accountId: string, key: SecretKey) {
+    return this.values.get(`${accountId}:${key}`) ?? null;
+  }
+  async set(accountId: string, key: SecretKey, value: string) {
+    this.values.set(`${accountId}:${key}`, value);
+  }
+  async delete(accountId: string, key: SecretKey) {
+    this.values.delete(`${accountId}:${key}`);
+  }
+}
+
+describe("loadConfig", () => {
+  let dir: string;
+  let env: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "imap-mcp-"));
+    env = { IMAP_MCP_HOME: dir };
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("explains how to start when nothing is configured", async () => {
+    await expect(loadConfig(env)).rejects.toThrow(/No configuration found.*inbox-warden setup/);
+  });
+
+  it("migrates a v1 file with a plaintext password: secret moves to the store, backup has no password", async () => {
+    fs.writeFileSync(
+      path.join(dir, "credentials.json"),
+      JSON.stringify({
+        imapHost: "mail.firma.example",
+        imapPort: 143,
+        smtpHost: "mail.firma.example",
+        smtpPort: 587,
+        user: "max@firma.example",
+        password: "hunter2",
+        permissions: { send: true },
+      }),
+    );
+    const secrets = new MemorySecrets();
+
+    const config = await loadConfig(env, { secrets });
+
+    expect(config.accounts[0]).toMatchObject({
+      id: "main",
+      email: "max@firma.example",
+      imap: { host: "mail.firma.example", port: 143 },
+      smtp: { host: "mail.firma.example", port: 587 },
+      permissions: { read: true, write: true, send: true, delete: false },
+    });
+    expect(await secrets.get("main", "password")).toBe("hunter2");
+    expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8"));
+    expect(saved.version).toBe(2);
+    const backup = fs.readFileSync(path.join(dir, "config.v1.backup.json"), "utf8");
+    expect(backup).not.toContain("hunter2");
+  });
+
+  describe("never loses the v1 password", () => {
+    const v1 = (extra: Record<string, unknown> = {}) =>
+      JSON.stringify({ imapHost: "mail.example.com", imapPort: 993, user: "max@example.com", ...extra });
+    const legacy = (entries: Record<string, string>) => async () => ({
+      removed: [] as string[],
+      async read(l: { service: string; account: string }) {
+        return entries[`${l.service}|${l.account}`] ?? null;
+      },
+      async remove() {},
+    });
+
+    it("without a secret store (e.g. audit verify) it migrates in memory and leaves the file alone", async () => {
+      const original = v1({ password: "hunter2" });
+      fs.writeFileSync(path.join(dir, "credentials.json"), original);
+      const config = await loadConfig(env);
+      expect(config.accounts[0].email).toBe("max@example.com");
+      expect(fs.readFileSync(path.join(dir, "credentials.json"), "utf8")).toBe(original);
+      expect(fs.existsSync(path.join(dir, "config.json"))).toBe(false);
+    });
+
+    it("waits when the old keychain cannot be read here (bundle without keytar)", async () => {
+      const original = v1();
+      fs.writeFileSync(path.join(dir, "credentials.json"), original);
+      const secrets = new MemorySecrets();
+      await loadConfig(env, { secrets, legacyKeytar: async () => null });
+      expect(fs.readFileSync(path.join(dir, "credentials.json"), "utf8")).toBe(original);
+      expect(fs.existsSync(path.join(dir, "config.json"))).toBe(false);
+    });
+
+    it("moves a password from the old keychain entry, then rewrites", async () => {
+      fs.writeFileSync(path.join(dir, "credentials.json"), v1());
+      const secrets = new MemorySecrets();
+      await loadConfig(env, { secrets, legacyKeytar: legacy({ "imap-mcp-server|max@example.com": "v01-pw" }) });
+      expect(await secrets.get("main", "password")).toBe("v01-pw");
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8")).version).toBe(2);
+    });
+
+    it("rewrites when the old keychain is readable and has no entry (nothing to lose)", async () => {
+      fs.writeFileSync(path.join(dir, "credentials.json"), v1());
+      await loadConfig(env, { secrets: new MemorySecrets(), legacyKeytar: legacy({}) });
+      expect(fs.existsSync(path.join(dir, "config.json"))).toBe(true);
+    });
+
+    it("leaves the file alone when storing the password fails", async () => {
+      const original = v1({ password: "hunter2" });
+      fs.writeFileSync(path.join(dir, "credentials.json"), original);
+      const secrets = new MemorySecrets();
+      secrets.set = async () => {
+        throw new Error("keychain locked");
+      };
+      await expect(loadConfig(env, { secrets })).rejects.toThrow(/keychain locked/);
+      expect(fs.readFileSync(path.join(dir, "credentials.json"), "utf8")).toBe(original);
+    });
+  });
+
+  it("loads an existing v2 file unchanged", async () => {
+    const config = configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" });
+    await saveConfig(config, env);
+    expect(await loadConfig(env)).toEqual(config);
+  });
+
+  it("reports schema problems with the field path", async () => {
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ version: 2, accounts: [{ id: "main", email: "x", imap: { host: "h", port: 0 } }] }));
+    await expect(loadConfig(env)).rejects.toThrow(ConfigError);
+    await expect(loadConfig(env)).rejects.toThrow(/accounts/);
+  });
+
+  it("uses environment-only mode when IMAP_MCP_EMAIL is set", async () => {
+    const config = await loadConfig({
+      ...env,
+      IMAP_MCP_EMAIL: "office@firma.at",
+      IMAP_MCP_DISPLAY_NAME: "Firma GmbH",
+      IMAP_MCP_IMAP_HOST: "imap.firma.at",
+      IMAP_MCP_SMTP_HOST: "smtp.firma.at",
+      IMAP_MCP_SMTP_PORT: "587",
+      IMAP_MCP_PERMISSIONS: "read,write,send",
+      IMAP_MCP_LOCALE: "de",
+      IMAP_MCP_SENT_COPY: "",
+    });
+    expect(config.accounts[0]).toMatchObject({
+      id: "main",
+      email: "office@firma.at",
+      imap: { host: "imap.firma.at", port: 993 },
+      smtp: { host: "smtp.firma.at", port: 587 },
+      identities: [{ email: "office@firma.at", name: "Firma GmbH" }],
+      permissions: { read: true, write: true, send: true, delete: false },
+      locale: "de",
+      sentCopy: "auto",
+    });
+  });
+
+  it("rejects unknown permission names in environment mode", () => {
+    expect(() => configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "h", IMAP_MCP_PERMISSIONS: "read,admin" })).toThrow(/admin/);
+  });
+
+  it("saves the file with owner-only permissions", async () => {
+    await saveConfig(configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "h" }), env);
+    const mode = fs.statSync(path.join(dir, "config.json")).mode & 0o777;
+    if (process.platform !== "win32") expect(mode).toBe(0o600);
+  });
+});

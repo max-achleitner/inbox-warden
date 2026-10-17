@@ -1,0 +1,91 @@
+import { describe, it, expect } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const TOOLS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tools");
+
+function toolSources(): Array<{ file: string; source: string }> {
+  const out: Array<{ file: string; source: string }> = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "__tests__") walk(full);
+      } else if (entry.name.endsWith(".ts")) {
+        out.push({ file: path.relative(TOOLS_DIR, full).replace(/\\/g, "/"), source: fs.readFileSync(full, "utf8") });
+      }
+    }
+  };
+  walk(TOOLS_DIR);
+  return out;
+}
+
+/** Tool files that match `uses` but not `requires` (minus exemptions). */
+function offenders(uses: RegExp, requires: RegExp, exempt: string[] = []): string[] {
+  return toolSources()
+    .filter(({ file, source }) => uses.test(source) && !requires.test(source) && !exempt.includes(file))
+    .map(({ file }) => file);
+}
+
+describe("policy coverage of tool sources", () => {
+  it("no tool resolves folders without the account policy", () => {
+    expect(toolSources().filter(({ source }) => /\bresolveFolder\(|\bmatchFolder\(/.test(source)).map(({ file }) => file)).toEqual([]);
+  });
+
+  it("every tool that enumerates folders applies the folder policy", () => {
+    expect(offenders(/\blistTree\(|\blistFolderInfo\(/, /\bvisibleFolders\(|\bfolderAllowed\(|\bresolvePolicyFolder\(/)).toEqual([]);
+  });
+
+  it("every tool that reads folder status applies the folder policy", () => {
+    expect(offenders(/\bstrictStatus\(|\.status\(/, /\bresolvePolicyFolder\(|\bfolderAllowed\(/)).toEqual([]);
+  });
+
+  it("get_thread only searches folders the policy allows", () => {
+    expect(offenders(/name: "get_thread"/, /\bfolderAllowed\(/)).toEqual([]);
+  });
+
+  it("every bulk mutation checks the policy cap", () => {
+    // send-draft.ts only removes the one draft it just sent; organize-by-filter.ts mutates only inside commitBulk (next rule)
+    expect(
+      offenders(/\bstrictMove\(|\bstrictStoreFlags\(|\bsafeExpunge\(/, /\.checkBulk\(/, ["send-draft.ts", "organize-by-filter.ts"]),
+    ).toEqual([]);
+  });
+
+  it("filter-based bulk operations are capped in previewBulk and commitBulk", () => {
+    const run = fs.readFileSync(path.join(TOOLS_DIR, "..", "bulk", "run.ts"), "utf8");
+    expect(run.match(/\.checkBulk\(/g)).toHaveLength(2);
+  });
+
+  it("folder rename/delete checks protected folders, folder creation checks the scope", () => {
+    expect(offenders(/\bmailboxRename\(|\bmailboxDelete\(/, /\.checkProtectedFolder\(/)).toEqual([]);
+    expect(offenders(/\bmailboxCreate\(|\bmailboxRename\(/, /\.checkFolder\(/)).toEqual([]);
+  });
+
+  it("attachment downloads and saves check the attachment policy", () => {
+    const attachmentTools = toolSources().filter(({ file }) => file === "download-attachment.ts" || file === "save-attachment.ts");
+    expect(attachmentTools.length).toBeGreaterThan(0);
+    for (const { file, source } of attachmentTools) expect(source, file).toMatch(/\.checkAttachment\(/);
+  });
+
+  it("every tool that sends mail passes the outbound guard", () => {
+    expect(offenders(/\bdeliver\(/, /\bguardOutbound\(/)).toEqual([]);
+  });
+
+  it("every send reserves its rate-limit slot before SMTP (atomic, nothing to fail after a send)", () => {
+    expect(offenders(/\bdeliver\(/, /\.reserveSend\(/)).toEqual([]);
+  });
+
+  it("every tool that asks for a quota resolves the folder through the policy", () => {
+    expect(offenders(/\.getQuota\(/, /\bresolvePolicyFolder\(/)).toEqual([]);
+  });
+
+  it("every move checks whether it goes into Trash (that is a delete)", () => {
+    // delete-email.ts is the delete tier itself
+    expect(offenders(/\bstrictMove\(/, /\bmovesIntoTrash\(/, ["delete-email.ts"])).toEqual([]);
+  });
+
+  it("every tool that scans for injection records the risk for the policy", () => {
+    expect(offenders(/\bscanForInjection\(|\bscanSubjectOnly\(/, /injectionRisk/)).toEqual([]);
+  });
+});

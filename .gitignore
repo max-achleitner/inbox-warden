@@ -2,3 +2,15 @@ node_modules/
 dist/
 .env
 *.tsbuildinfo
+
+# Local debug output (may contain protocol traces)
+*.log
+*.stackdump
+coverage/
+
+# Bundle staging and output
+build/
+
+# Remote deployment secrets and local config
+deploy/secrets/
+deploy/config/

@@ -1,69 +1,48 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
-import { errorMessage } from "../errors.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
+import { listFolderInfo } from "../imap/folders.js";
+import { resolvePolicyFolder, visibleFolders } from "../policy/folder-access.js";
+import { strictStatus } from "../imap/strict.js";
+import { defineTool } from "./shared/define-tool.js";
+import { jsonResult } from "./shared/result.js";
 
-export function register(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "get_email_count",
-    "Get message counts (total and unread) for one or all folders",
+export function register(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      folder: z.string().optional().describe("Specific folder path, or omit for all folders"),
+      name: "get_email_count",
+      title: "Count emails",
+      description: "Get message counts (total and unread) for one or all folders",
+      tier: "read",
+      input: {
+        folder: z.string().optional().describe("Specific folder path, or omit for all folders"),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      errorPrefix: "Error getting email count",
     },
-    { readOnlyHint: true, destructiveHint: false },
-    async ({ folder }) => {
-      try {
-        const client = await getClient();
+    async ({ folder }, inv) => {
+      const client = await inv.account.getClient();
 
-        if (folder) {
-          const status = await client.status(folder, { messages: true, unseen: true });
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                folder,
-                total: status.messages ?? 0,
-                unread: status.unseen ?? 0,
-              }, null, 2),
-            }],
-          };
-        }
-
-        // All folders
-        const tree = await client.listTree();
-        const folders: Array<{ path: string; total: number; unread: number }> = [];
-
-        async function walkTree(node: any) {
-          if (node.path) {
-            try {
-              const status = await client.status(node.path, { messages: true, unseen: true });
-              folders.push({
-                path: node.path,
-                total: status.messages ?? 0,
-                unread: status.unseen ?? 0,
-              });
-            } catch {
-              // Some virtual folders may not support STATUS
-            }
-          }
-          if (node.folders) {
-            for (const child of node.folders) {
-              await walkTree(child);
-            }
-          }
-        }
-
-        await walkTree(tree);
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(folders, null, 2) }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error getting email count: ${errorMessage(error)}` }],
-          isError: true,
-        };
+      if (folder) {
+        const path = await resolvePolicyFolder(inv.account, client, folder);
+        const status = await strictStatus(client, path, { messages: true, unseen: true });
+        return jsonResult({ folder: path, total: status.messages ?? 0, unread: status.unseen ?? 0 });
       }
-    }
+
+      // All folders; some virtual folders do not support STATUS and are reported as unavailable
+      const folders: Array<{ path: string; total?: number; unread?: number; unavailable?: true }> = [];
+      const selectable = (await listFolderInfo(client)).filter((f) => f.selectable);
+      for (const info of visibleFolders(inv.account, selectable)) {
+        try {
+          const status = await strictStatus(client, info.path, { messages: true, unseen: true });
+          folders.push({ path: info.path, total: status.messages ?? 0, unread: status.unseen ?? 0 });
+        } catch {
+          folders.push({ path: info.path, unavailable: true });
+        }
+      }
+      return jsonResult(folders);
+    },
   );
 }

@@ -1,138 +1,123 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ImapFlow } from "imapflow";
-import { errorMessage } from "../errors.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { AppContext } from "../context.js";
+import { listFolderInfo, serverFolderPath } from "../imap/folders.js";
+import { isSystemFolder, resolvePolicyFolder } from "../policy/folder-access.js";
+import { PolicyDeniedError } from "../policy/engine.js";
+import { checkTrashMove, movesIntoTrash } from "../policy/trash-move.js";
+import { strictStatus } from "../imap/strict.js";
+import { defineTool } from "./shared/define-tool.js";
+import { errorResult, jsonResult } from "./shared/result.js";
 
-export function registerCreate(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "create_folder",
-    "Create a new mail folder (mailbox)",
+export function registerCreate(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      path: z.string().describe("Full folder path to create (e.g., 'Projects/Work')"),
+      name: "create_folder",
+      title: "Create folder",
+      description: "Create a new mail folder (mailbox)",
+      tier: "write",
+      input: {
+        path: z.string().min(1).describe("Full folder path to create (e.g., 'Projects/Work')"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      errorPrefix: "Error creating folder",
     },
-    { readOnlyHint: false, destructiveHint: false },
-    async ({ path }) => {
-      try {
-        const client = await getClient();
-        const result = await client.mailboxCreate(path);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              path: result.path,
-              created: true,
-            }, null, 2),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error creating folder: ${errorMessage(error)}` }],
-          isError: true,
-        };
-      }
-    }
+    async ({ path }, inv) => {
+      const client = await inv.account.getClient();
+      const folders = await listFolderInfo(client);
+      const target = serverFolderPath(client, path);
+      inv.account.policy.checkFolder(target, client.namespace?.delimiter ?? folders[0]?.delimiter);
+      const result = await client.mailboxCreate(target);
+      inv.record({ folder: result.path, action: "create_folder" });
+      return jsonResult({ success: true, path: result.path, created: result.created });
+    },
   );
 }
 
-export function registerDelete(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "delete_folder",
-    "Delete a mail folder (mailbox). Refuses to delete folders that still contain messages or subfolders.",
+export function registerDelete(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      path: z.string().describe("Full folder path to delete"),
+      name: "delete_folder",
+      title: "Delete folder",
+      description: "Delete an empty mail folder. Refuses folders that still contain messages or subfolders.",
+      tier: "write",
+      input: {
+        path: z.string().min(1).describe("Full folder path to delete"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      errorPrefix: "Error deleting folder",
     },
-    { readOnlyHint: false, destructiveHint: true },
-    async ({ path }) => {
-      try {
-        const client = await getClient();
+    async ({ path }, inv) => {
+      const client = await inv.account.getClient();
+      const folders = await listFolderInfo(client);
+      const resolved = await resolvePolicyFolder(inv.account, client, path, folders);
+      inv.account.policy.checkProtectedFolder(resolved, isSystemFolder(folders, resolved));
 
-        // Check for messages
-        const status = await client.status(path, { messages: true });
-        if (status.messages && status.messages > 0) {
-          return {
-            content: [{
-              type: "text",
-              text: `Error: Folder "${path}" contains ${status.messages} message(s). Move or delete them first.`,
-            }],
-            isError: true,
-          };
-        }
-
-        // Check for subfolders
-        const tree = await client.listTree();
-        function hasSubfolders(node: any): boolean {
-          if (node.path === path) {
-            return !!(node.folders && node.folders.length > 0);
-          }
-          if (node.folders) {
-            return node.folders.some(hasSubfolders);
-          }
-          return false;
-        }
-        if (hasSubfolders(tree)) {
-          return {
-            content: [{
-              type: "text",
-              text: `Error: Folder "${path}" has subfolders. Delete or move them first.`,
-            }],
-            isError: true,
-          };
-        }
-
-        await client.mailboxDelete(path);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              path,
-              deleted: true,
-            }, null, 2),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error deleting folder: ${errorMessage(error)}` }],
-          isError: true,
-        };
+      const status = await strictStatus(client, resolved, { messages: true });
+      if (status.messages && status.messages > 0) {
+        return errorResult("Error deleting folder", `Folder "${resolved}" contains ${status.messages} message(s). Move or delete them first. Nothing was deleted.`);
       }
-    }
+
+      const target = folders.find((f) => f.path === resolved)!;
+      if (folders.some((f) => f.path.startsWith(resolved + target.delimiter))) {
+        return errorResult("Error deleting folder", `Folder "${resolved}" has subfolders. Delete or move them first. Nothing was deleted.`);
+      }
+
+      await client.mailboxDelete(resolved);
+      inv.record({ folder: resolved, action: "delete_folder" });
+      return jsonResult({ success: true, path: resolved, deleted: true });
+    },
   );
 }
 
-export function registerRename(server: McpServer, getClient: () => Promise<ImapFlow>) {
-  server.tool(
-    "rename_folder",
-    "Rename or move a mail folder (mailbox)",
+export function registerRename(server: McpServer, app: AppContext) {
+  defineTool(
+    server,
+    app,
     {
-      path: z.string().describe("Current folder path"),
-      newPath: z.string().describe("New folder path"),
+      name: "rename_folder",
+      title: "Rename folder",
+      description: "Rename or move a mail folder (mailbox)",
+      tier: "write",
+      input: {
+        path: z.string().min(1).describe("Current folder path"),
+        newPath: z.string().min(1).describe("New folder path"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      errorPrefix: "Error renaming folder",
     },
-    { readOnlyHint: false, destructiveHint: false },
-    async ({ path, newPath }) => {
-      try {
-        const client = await getClient();
-        const result = await client.mailboxRename(path, newPath);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              oldPath: path,
-              newPath: result.newPath || newPath,
-            }, null, 2),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error renaming folder: ${errorMessage(error)}` }],
-          isError: true,
-        };
+    async ({ path, newPath }, inv) => {
+      const client = await inv.account.getClient();
+      const folders = await listFolderInfo(client);
+      const resolved = await resolvePolicyFolder(inv.account, client, path, folders);
+      inv.account.policy.checkProtectedFolder(resolved, isSystemFolder(folders, resolved));
+      const delimiter = folders.find((f) => f.path === resolved)?.delimiter;
+      const target = serverFolderPath(client, newPath);
+      inv.account.policy.checkFolder(target, delimiter);
+      // RENAME moves every subfolder too: a hidden one would land where its deny rule no longer applies
+      const descendants = delimiter ? folders.filter((f) => f.path.startsWith(resolved + delimiter)) : [];
+      if (descendants.some((f) => !inv.account.policy.folderAllowed(f.path, f.delimiter))) {
+        throw new PolicyDeniedError(
+          `"${resolved}" cannot be renamed or moved because of your administrator's folder policy. Nothing was renamed.`,
+          "folders",
+        );
       }
-    }
+      // Moving a folder below Trash deletes all of its mail, subfolders included
+      if (movesIntoTrash(folders, target)) {
+        checkTrashMove(inv.account);
+        let messages = 0;
+        for (const f of [folders.find((x) => x.path === resolved)!, ...descendants].filter((x) => x.selectable)) {
+          messages += (await strictStatus(client, f.path, { messages: true })).messages ?? 0;
+        }
+        inv.account.policy.checkBulk(messages, "delete");
+      }
+      const result = await client.mailboxRename(resolved, target);
+      inv.record({ folder: resolved, destination: result.newPath, action: "rename_folder" });
+      return jsonResult({ success: true, oldPath: resolved, newPath: result.newPath || target });
+    },
   );
 }
