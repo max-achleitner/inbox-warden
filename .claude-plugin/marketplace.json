@@ -1,0 +1,15 @@
+{
+  "name": "achleitner",
+  "description": "Plugins by Max Achleitner",
+  "owner": {
+    "name": "Max Achleitner",
+    "url": "https://github.com/max-achleitner"
+  },
+  "plugins": [
+    {
+      "name": "inbox-warden",
+      "source": "./plugin",
+      "description": "Safe email access for Claude (IMAP/SMTP) with triage, reply and clean-up skills"
+    }
+  ]
+}

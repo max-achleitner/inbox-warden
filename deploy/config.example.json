@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "defaultAccount": "office",
+  "accounts": [
+    {
+      "id": "office",
+      "label": "Büro",
+      "email": "office@example.com",
+      "imap": { "host": "imap.example.com", "port": 993 },
+      "smtp": { "host": "smtp.example.com", "port": 465 },
+      "auth": { "type": "password" },
+      "identities": [{ "email": "office@example.com", "name": "Example GmbH" }],
+      "permissions": { "read": true, "write": true, "send": false, "delete": false },
+      "locale": "de"
+    },
+    {
+      "id": "office-readonly",
+      "label": "Büro (nur lesen, für Automatisierungen)",
+      "email": "office@example.com",
+      "imap": { "host": "imap.example.com", "port": 993 },
+      "auth": { "type": "password" },
+      "permissions": { "read": true, "write": false, "send": false, "delete": false }
+    }
+  ],
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "publicUrl": "https://mail.example.com",
+    "trustProxy": 1,
+    "ipAllowlist": []
+  },
+  "httpAuth": {
+    "mode": "bearer",
+    "tokens": [],
+    "principals": [
+      { "match": { "tokenId": "laptop" }, "accounts": ["office"] },
+      { "match": { "tokenId": "morning-routine" }, "accounts": ["office-readonly"] }
+    ]
+  }
+}

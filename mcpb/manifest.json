@@ -1,0 +1,198 @@
+{
+  "manifest_version": "0.3",
+  "name": "inbox-warden",
+  "display_name": "Inbox Warden",
+  "version": "0.0.0",
+  "description": "Let Claude search, read, sort and draft your email: Gmail, Microsoft 365, GMX, Web.de, IONOS, iCloud or your own mail server.",
+  "long_description": "Connects Claude to one mailbox over IMAP and SMTP.\n\n**What Claude can do** depends on the permissions you grant: *read* (search, read, attachments), *write* (sort into folders, flag, create reply drafts), *send* (send email, each send confirmed by you unless you choose otherwise) and *delete* (move to Trash).\n\n**Sign-in:** password or app password, or Microsoft 365 / Google Workspace sign-in in your browser — choose the sign-in method, then ask Claude \"please sign me in\".\n\n**Files:** Claude reads attachments to send only from folders you choose, and saves attachments only into the folder you choose.\n\n**Safe by default:** Claude can read and prepare drafts; you send them from your mail program. Nothing is ever selected by guesswork: if a search or folder cannot be matched exactly, the action fails instead of touching more mail. Email content is screened for prompt-injection attempts. Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain.\n\nSeveral mailboxes or a server with a self-signed certificate: install the command-line version instead (see Documentation).",
+  "author": {
+    "name": "Max Achleitner",
+    "url": "https://github.com/max-achleitner"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/max-achleitner/inbox-warden.git"
+  },
+  "homepage": "https://github.com/max-achleitner/inbox-warden#readme",
+  "documentation": "https://github.com/max-achleitner/inbox-warden/blob/master/docs/guide/en/README.md",
+  "support": "https://github.com/max-achleitner/inbox-warden/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "server/preflight.cjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/preflight.cjs",
+        "serve",
+        "--attachment-dirs",
+        "${user_config.attachment_dirs}"
+      ],
+      "env": {
+        "IMAP_MCP_EMAIL": "${user_config.email}",
+        "IMAP_MCP_AUTH": "${user_config.auth_method}",
+        "IMAP_MCP_PASSWORD": "${user_config.password}",
+        "IMAP_MCP_OAUTH_CLIENT_ID": "${user_config.oauth_client_id}",
+        "IMAP_MCP_OAUTH_TENANT": "${user_config.oauth_tenant}",
+        "IMAP_MCP_OAUTH_CLIENT_SECRET": "${user_config.oauth_client_secret}",
+        "IMAP_MCP_USERNAME": "${user_config.username}",
+        "IMAP_MCP_DISPLAY_NAME": "${user_config.display_name}",
+        "IMAP_MCP_IMAP_HOST": "${user_config.imap_host}",
+        "IMAP_MCP_IMAP_PORT": "${user_config.imap_port}",
+        "IMAP_MCP_SMTP_HOST": "${user_config.smtp_host}",
+        "IMAP_MCP_SMTP_PORT": "${user_config.smtp_port}",
+        "IMAP_MCP_NO_AUTOCONFIG": "${user_config.skip_server_lookup}",
+        "IMAP_MCP_DOWNLOAD_DIR": "${user_config.download_dir}",
+        "IMAP_MCP_PERMISSIONS": "${user_config.permissions}",
+        "IMAP_MCP_SEND_MODE": "${user_config.send_mode}",
+        "IMAP_MCP_LOCALE": "${user_config.language}",
+        "IMAP_MCP_LANG": "${user_config.language}"
+      }
+    }
+  },
+  "tools": [],
+  "tools_generated": false,
+  "keywords": [
+    "email",
+    "imap",
+    "smtp",
+    "gmail",
+    "outlook",
+    "microsoft 365",
+    "e-mail"
+  ],
+  "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/max-achleitner/inbox-warden/blob/master/PRIVACY.md"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32"
+    ],
+    "runtimes": {
+      "node": ">=20.18.0"
+    }
+  },
+  "user_config": {
+    "email": {
+      "type": "string",
+      "title": "Email address / E-Mail-Adresse",
+      "description": "The mailbox Claude may use, e.g. office@your-company.at.",
+      "required": true
+    },
+    "auth_method": {
+      "type": "string",
+      "title": "Sign-in method / Anmeldung",
+      "description": "password (default): password or app password. microsoft: Microsoft 365 / Exchange Online (preview, needs the OAuth client ID from your administrator), you sign in in the browser — afterwards ask Claude \"please sign me in\". google: Google Workspace with your organisation's own OAuth client.",
+      "default": "password",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "title": "Password or app password / Passwort oder App-Passwort",
+      "description": "Needed for sign-in method password. Gmail, Yahoo and iCloud require an app password (see the guide). Stored encrypted by Claude Desktop, never in a file. Leave empty for microsoft or google.",
+      "sensitive": true,
+      "required": false
+    },
+    "oauth_client_id": {
+      "type": "string",
+      "title": "OAuth client ID (Microsoft 365 / Google)",
+      "description": "The application (client) ID your administrator gives you. Required for google and microsoft. Leave empty for password sign-in.",
+      "required": false
+    },
+    "oauth_tenant": {
+      "type": "string",
+      "title": "Microsoft 365 tenant",
+      "description": "Microsoft 365 only and optional: your organisation's domain (e.g. firma.at) or directory ID, if your administrator asks for it.",
+      "required": false
+    },
+    "oauth_client_secret": {
+      "type": "string",
+      "title": "OAuth client secret (Google only)",
+      "description": "Google Workspace only: the client secret of your organisation's OAuth client. Stored encrypted by Claude Desktop.",
+      "sensitive": true,
+      "required": false
+    },
+    "display_name": {
+      "type": "string",
+      "title": "Your name / Ihr Name",
+      "description": "Shown to recipients as the sender, e.g. Maximilian Achleitner. Optional.",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "title": "Login name (only if different) / Benutzername",
+      "description": "Leave empty when you log in with your email address (almost all providers).",
+      "required": false
+    },
+    "imap_host": {
+      "type": "string",
+      "title": "Incoming mail server (IMAP)",
+      "description": "Leave empty to detect it from your address. Only needed for your own or an unusual provider, e.g. imap.example.com.",
+      "required": false
+    },
+    "imap_port": {
+      "type": "number",
+      "title": "IMAP port",
+      "description": "Leave empty for automatic (993 with encryption).",
+      "required": false,
+      "min": 1,
+      "max": 65535
+    },
+    "smtp_host": {
+      "type": "string",
+      "title": "Outgoing mail server (SMTP)",
+      "description": "Leave empty to detect it from your address, e.g. smtp.example.com.",
+      "required": false
+    },
+    "smtp_port": {
+      "type": "number",
+      "title": "SMTP port",
+      "description": "Leave empty for automatic (465; Microsoft 365 uses 587).",
+      "required": false,
+      "min": 1,
+      "max": 65535
+    },
+    "skip_server_lookup": {
+      "type": "boolean",
+      "title": "Do not look up server settings online",
+      "description": "Empty server fields are detected from your address: DNS and Mozilla's autoconfig service see your domain, never your password. Turn this on to forbid the lookups and enter the servers yourself.",
+      "default": false,
+      "required": false
+    },
+    "attachment_dirs": {
+      "type": "directory",
+      "title": "Folders Claude may attach files from / Ordner für Anhänge",
+      "description": "Optional. Claude can attach files to drafts only from these folders (and their subfolders). Leave empty to switch file attachments off.",
+      "multiple": true,
+      "required": false
+    },
+    "download_dir": {
+      "type": "directory",
+      "title": "Folder for saved attachments / Ablageordner",
+      "description": "Optional. Claude saves email attachments only into this folder. Leave empty to switch saving off.",
+      "required": false
+    },
+    "permissions": {
+      "type": "string",
+      "title": "What Claude may do / Was Claude darf",
+      "description": "Comma-separated: read (search and read), write (sort, flag, create drafts), send (send email), delete (move to Trash). Recommended: read,write — Claude prepares drafts, you send them.",
+      "default": "read,write",
+      "required": false
+    },
+    "send_mode": {
+      "type": "string",
+      "title": "Sending / Versand",
+      "description": "Only used when 'send' is allowed above. confirm = Claude asks you before every email (recommended); direct = no extra question; drafts-only = never send.",
+      "default": "confirm",
+      "required": false
+    },
+    "language": {
+      "type": "string",
+      "title": "Language / Sprache",
+      "description": "de or en: language of quote lines (\"Am … schrieb …\"), sign-in pages and messages.",
+      "default": "en",
+      "required": false
+    }
+  }
+}

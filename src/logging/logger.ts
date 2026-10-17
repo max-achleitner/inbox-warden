@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:fs";
+import { redactLogData, redactString } from "./redact.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -43,7 +44,11 @@ function shouldLog(level: LogLevel): boolean {
 }
 
 function emit(entry: LogEntry): void {
-  const line = JSON.stringify(entry);
+  const line = JSON.stringify({
+    ...entry,
+    data: entry.data ? redactLogData(entry.data) : undefined,
+    error: entry.error ? redactString(entry.error) : undefined,
+  });
   process.stderr.write(line + "\n");
   if (logFileStream) {
     logFileStream.write(line + "\n");

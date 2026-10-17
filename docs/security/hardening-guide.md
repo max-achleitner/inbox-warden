@@ -1,0 +1,87 @@
+# Hardening guide
+
+Recommended settings for companies. Start with the baseline, then pick a profile per mailbox.
+
+## 1. Baseline configuration
+
+```json
+{
+  "version": 2,
+  "accounts": [
+    {
+      "id": "office",
+      "email": "office@example-company.at",
+      "imap": { "host": "mail.example-company.at", "port": 993 },
+      "smtp": { "host": "mail.example-company.at", "port": 465 },
+      "permissions": { "read": true, "write": true, "send": false, "delete": false },
+      "policy": {
+        "send": {
+          "mode": "drafts-only",
+          "blockedRecipientDomains": [],
+          "maxRecipients": 10,
+          "maxPerHour": 10,
+          "maxPerDay": 50,
+          "confirmAfterInjectionRisk": "medium"
+        },
+        "bulk": { "maxMessages": 200, "maxDelete": 50 },
+        "folders": { "deny": ["**/HR/**", "**/Personal/**", "**/Geschäftsführung/**"] },
+        "protectedFolders": true,
+        "attachments": { "maxDownloadBytes": 10485760, "blockExecutables": true }
+      }
+    }
+  ],
+  "audit": { "enabled": true, "level": "standard", "retentionDays": 365 }
+}
+```
+
+Every policy setting is checked strictly: a misspelt key stops the server with an error instead of being ignored.
+
+## 2. Profiles
+
+| Profile | Use for | Settings |
+|---|---|---|
+| **Read & draft** (recommended default) | Most staff, shared mailboxes | `send: false` or `policy.send.mode: "drafts-only"`; delete off; people send from their mail program |
+| **Confirmed sending** | Sales/support staff who want the AI to send | `permissions.send: true`, `policy.send.mode: "confirm"`, `requireElicitation: true` if all staff use clients with confirmation dialogs (Claude Code), `allowedRecipientDomains` with your own and your customers' domains |
+| **Automation** (HTTP mode, Plan 7) | Scheduled jobs | Dedicated mailbox, `allowedRecipientDomains` limited to internal domains, low `maxPerDay`, audit level `standard` |
+
+## 3. Claude client settings (Team / Enterprise)
+
+- Use a **Team or Enterprise** plan for business data (admin controls, data processing agreement).
+- **Desktop extensions:** enable the extension allowlist and upload the signed `.mcpb` bundle org-wide (Organization settings → Connectors → Desktop). Turn off installs from the public directory if you do not need them.
+- **Require signed extensions:** set the policy `isDesktopExtensionSignatureRequired` to `true`.
+- **Disable persistent "Always allow":** set `mcpPersistentAlwaysAllowEnabled` to `false`, so users approve sending and deleting each time.
+- **Local developer servers:** set `isLocalDevMcpEnabled` to `false` on staff machines that should only run approved extensions.
+- These policies are set via MDM on macOS (domain `com.anthropic.claudefordesktop`) or via the Windows policy registry; see Anthropic's admin documentation: https://support.claude.com/en/articles/12622667 (verify key names against the current article before rollout).
+
+## 4. Mail server and provider
+
+- Use **app passwords** (Gmail, iCloud, Yahoo, GMX/Web.de) or **OAuth** (Microsoft 365, Google Workspace) — never the main account password where an alternative exists. Revoke the app password or OAuth grant to cut off access immediately.
+- Microsoft 365: enable SMTP AUTH only for the mailboxes that use the send tier.
+- Enable server-side sending limits and outbound spam filtering at the provider.
+- Self-hosted servers: use a certificate from a public CA, or pin the self-signed certificate during setup. Disable plaintext IMAP (143 without STARTTLS) on the server.
+
+## 5. The device
+
+- Full-disk encryption, screen lock, current OS updates.
+- Only one person uses the OS account that runs the server.
+- Keep `IMAP_MCP_PROTOCOL_LOG` unset; enable it only for troubleshooting and delete the log afterwards (it can contain message data).
+- Bundle and env-only installations: fill in the IMAP/SMTP server fields or set `IMAP_MCP_NO_AUTOCONFIG=1`; otherwise the server looks up the email domain at every start (DNS MX, `autoconfig.<domain>`, `autoconfig.thunderbird.net`).
+
+## 6. Operations
+
+- **Verify the audit log** monthly and after incidents: `inbox-warden audit verify` (exit code 1 when records were changed or removed). Store the printed head hash somewhere else (ticket, password manager); a later verification that ends at an older hash reveals deleted records.
+- **Review** `denied` outcomes and injection findings in the audit log; repeated denials show the AI being steered.
+- **Update** with every security release (see `SECURITY.md`); install only signed bundles.
+- **Incident response:** (1) revoke the app password/OAuth grant, (2) run `inbox-warden audit verify`, (3) review the audit log and the Sent folder for the time window, (4) report to the data protection officer if personal data left the company.
+
+## 7. Checklist for approval
+
+- [ ] Commercial Claude plan with DPA
+- [ ] Signed bundle distributed via the org allowlist; signature requirement on
+- [ ] Persistent "Always allow" disabled
+- [ ] Send tier off or `drafts-only` for general staff; `confirm` with domain allowlist where enabled
+- [ ] Delete tier off
+- [ ] Sensitive folders in `policy.folders.deny`
+- [ ] Audit enabled, retention matches company policy, monthly `inbox-warden audit verify`
+- [ ] App passwords / OAuth instead of main passwords
+- [ ] Threat model (`threat-model.md`) and data flow (`data-flow.md`) reviewed

@@ -1,0 +1,19 @@
+# Replace mail.example.com with your DNS name (must point at this host; ports 80 and 443 open).
+mail.example.com {
+	# Optional network allowlist in front of the app (Anthropic egress + your office):
+	# @blocked not remote_ip 160.79.104.0/21 203.0.113.0/24
+	# respond @blocked 403
+
+	reverse_proxy mcp:8787 {
+		# Stream MCP responses (SSE) without buffering
+		flush_interval -1
+	}
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+	log {
+		output stderr
+		format json
+	}
+}

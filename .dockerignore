@@ -1,0 +1,11 @@
+.git
+.github
+.plancheck
+node_modules
+dist
+coverage
+docs
+deploy
+test
+*.log
+*.mcpb

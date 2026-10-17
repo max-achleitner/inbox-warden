@@ -1,0 +1,56 @@
+# Remote inbox-warden behind Caddy (TLS). See docs/deploy/http.md.
+services:
+  mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: inbox-warden:1.1.0
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      IMAP_MCP_CONFIG: /config/config.json
+      IMAP_MCP_PASSWORD_OFFICE_FILE: /run/secrets/office_password
+      IMAP_MCP_PASSWORD_OFFICE_READONLY_FILE: /run/secrets/office_password
+      IMAP_MCP_STATE_KEY_FILE: /run/secrets/state_key
+    secrets:
+      - office_password
+      - state_key
+    volumes:
+      - ./config:/config:ro
+      - mcp-data:/data
+    expose:
+      - "8787"
+    networks: [internal]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      mcp:
+        condition: service_healthy
+    networks: [internal]
+
+secrets:
+  office_password:
+    file: ./secrets/office_password.txt
+  state_key:
+    file: ./secrets/state_key.txt
+
+volumes:
+  mcp-data: {}
+  caddy-data: {}
+  caddy-config: {}
+
+networks:
+  internal: {}
