@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, type FileHandle } from "node:fs/promises";
 import * as path from "node:path";
 import { z } from "zod";
 import type { OutgoingAttachment } from "../mail/compose.js";
@@ -59,6 +60,18 @@ export function contentTypeFor(filename: string): string {
   return CONTENT_TYPES[path.extname(filename).slice(1).toLowerCase()] ?? "application/octet-stream";
 }
 
+/** O_NONBLOCK keeps a FIFO from blocking the open; Windows refuses directories with EISDIR. */
+async function openForReading(real: string, shown: string): Promise<FileHandle> {
+  try {
+    return await open(real, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EISDIR") {
+      throw new SandboxError(`"${shown}" is not a file. Nothing was attached.`);
+    }
+    throw err;
+  }
+}
+
 function checkFilename(filename: string): void {
   if (/[/\\]|\.\./.test(filename)) {
     throw new SandboxError(`Invalid attachment filename "${filename}" — must not contain /, \\, or .. Nothing was attached.`);
@@ -79,17 +92,23 @@ export async function resolveOutgoingAttachments(
   for (const input of inputs) {
     if ("path" in input) {
       const real = await resolveInside(files.attachmentDirs, input.path);
-      const info = await stat(real);
-      if (!info.isFile()) throw new SandboxError(`"${input.path}" is not a file. Nothing was attached.`);
-      totalBytes += info.size;
-      if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) break;
-      const filename = input.filename ?? path.basename(real);
-      checkFilename(filename);
-      result.push({
-        filename,
-        content: (await readFile(real)).toString("base64"),
-        contentType: input.contentType ?? contentTypeFor(filename),
-      });
+      // Size check and read go through one handle, so the file cannot be swapped in between.
+      const handle = await openForReading(real, input.path);
+      try {
+        const info = await handle.stat();
+        if (!info.isFile()) throw new SandboxError(`"${input.path}" is not a file. Nothing was attached.`);
+        totalBytes += info.size;
+        if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) break;
+        const filename = input.filename ?? path.basename(real);
+        checkFilename(filename);
+        result.push({
+          filename,
+          content: (await handle.readFile()).toString("base64"),
+          contentType: input.contentType ?? contentTypeFor(filename),
+        });
+      } finally {
+        await handle.close();
+      }
     } else {
       checkFilename(input.filename);
       const clean = input.content.replace(/\s/g, "");

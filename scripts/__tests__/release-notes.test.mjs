@@ -28,6 +28,12 @@ describe("extractReleaseNotes", () => {
     expect(extractReleaseNotes(changelog, "1.0.0-rc.1")).toBe("- Release candidate");
   });
 
+  it("matches the version literally, not as a regular expression", () => {
+    expect(() => extractReleaseNotes(changelog, "2.0.0|1.0.0")).toThrow(/no section for 2\.0\.0\|1\.0\.0/);
+    expect(() => extractReleaseNotes(changelog, "1.0.(0)")).toThrow(/no section/);
+    expect(() => extractReleaseNotes(changelog, "1.0.0\\")).toThrow(/no section/);
+  });
+
   it("refuses to release without notes", () => {
     expect(() => extractReleaseNotes(changelog, "2.0.0")).toThrow(/no section for 2\.0\.0/);
     expect(() => extractReleaseNotes(changelog, "Unreleased")).toThrow(/is empty/);

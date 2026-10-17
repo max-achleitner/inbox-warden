@@ -56,6 +56,7 @@ All notable changes to this project are documented here. The format follows
 - Containers: an unreadable `secrets.enc.json` (changed `IMAP_MCP_STATE_KEY`, damaged file) no longer breaks accounts whose secrets come from environment variables, and the error names the state key.
 - Remote OAuth mode: an unreachable or slow key server (JWKS) is reported as temporarily unavailable (503) instead of rejecting valid tokens.
 - `http token create`/`revoke` refuse to save while `IMAP_MCP_EMAIL` selects the environment-only configuration (they used to overwrite `config.json`); `revoke` now says a restart is needed.
+- File attachments are size-checked and read through one file handle, so a file swapped after the check is not attached; a named pipe in an attachment folder is refused instead of blocking.
 
 ### Deprecated
 - Start commands `imap-mcp-server`, `imap-mcp-setup` and `node dist/index.js` — removed in 2.0.

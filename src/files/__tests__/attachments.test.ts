@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { contentTypeFor, outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../attachments.js";
@@ -21,6 +22,16 @@ describe("resolveOutgoingAttachments", () => {
     expect(att.filename).toBe("Angebot_Größe.pdf");
     expect(att.contentType).toBe("application/pdf");
     expect(Buffer.from(att.content, "base64").toString()).toBe("%PDF-1.7");
+  });
+
+  it("refuses a folder instead of a file", async () => {
+    await mkdir(path.join(dir, "Ordner"));
+    await expect(resolveOutgoingAttachments({ attachmentDirs: [dir] }, [{ path: "Ordner" }])).rejects.toThrow(/"Ordner" is not a file/);
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a named pipe without waiting for a writer", async () => {
+    execFileSync("mkfifo", [path.join(dir, "pipe")]);
+    await expect(resolveOutgoingAttachments({ attachmentDirs: [dir] }, [{ path: "pipe" }])).rejects.toThrow(/"pipe" is not a file/);
   });
 
   it("accepts base64 attachments as before", async () => {
