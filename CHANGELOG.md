@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 - Claude Desktop extension (`.mcpb`), signed, with a setup form and safe defaults.
 - Claude Code plugin with inbox-triage, reply-drafting and mailbox-clean-up skills.

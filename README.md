@@ -125,6 +125,13 @@ node scripts/verify-mcpb.mjs inbox-warden-<version>.mcpb mcpb-signing-cert.pem  
 implemented; `scripts/verify-mcpb.mjs` checks the signature with openssl instead
 (see [release signing](docs/maintainers/release-signing.md)).
 
+Until an organisation-validated code-signing certificate is available, bundles are signed with a self-signed
+certificate ([`mcpb-signing-cert.pem`](mcpb-signing-cert.pem), valid until 17 October 2028). Pin its SHA-256 fingerprint:
+
+```
+7E:29:A7:6C:AF:E4:25:A4:F6:03:07:45:C3:76:B0:1E:74:CE:F5:4E:DD:8B:D2:B2:C5:91:13:8B:39:AE:5E:26
+```
+
 ## Upgrading from a pre-1.0 version
 
 Configuration (`~/.imap-mcp`) and stored passwords carry over. The old start commands
