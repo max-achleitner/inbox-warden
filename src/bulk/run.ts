@@ -8,6 +8,8 @@ import { existingUids } from "../imap/strict.js";
 import { selectByFilter } from "../imap/select.js";
 import { envelopeDate } from "../imap/envelope.js";
 import { summarizeSenders } from "../imap/senders.js";
+import { highestRisk } from "../policy/observer.js";
+import { scanSubjectOnly, type InjectionScanResult } from "../security/injection-detector.js";
 import type { SearchFilters } from "../imap/search-query.js";
 import { jsonResult } from "../tools/shared/result.js";
 import { SelectionError, SelectionStore, type BulkAction } from "./selection.js";
@@ -79,18 +81,24 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
     }
     inv.account.policy.checkBulk(count, policyBulkAction(req.action));
 
-    const sample: Array<{ uid: number; date?: string; from: string; subject: string }> = [];
+    const sample: Array<{ uid: number; date?: string; from: string; subject: string; _injectionScan?: InjectionScanResult }> = [];
     for await (const msg of client.fetch(selection.uids.slice(-SAMPLE_SIZE), { uid: true, envelope: true }, { uid: true })) {
+      const subject = msg.envelope?.subject ?? "";
+      const scan = subject ? scanSubjectOnly(subject) : undefined;
       sample.push({
         uid: msg.uid,
         date: envelopeDate(msg.envelope?.date),
         from: msg.envelope?.from?.[0]?.address ?? "",
-        subject: msg.envelope?.subject ?? "",
+        subject,
+        ...(scan?.hasInjection ? { _injectionScan: scan } : {}),
       });
     }
     sample.sort((a, b) => b.uid - a.uid);
     // Over the whole selection (at most the bulk cap): a stray sender in a mixed filter shows up here
     const senders = await summarizeSenders(client, selection.uids, { groupBy: "address", limit: TOP_SENDERS });
+    inv.record({
+      injectionRisk: highestRisk([...sample, ...senders.senders].map((entry) => entry._injectionScan?.riskLevel)),
+    });
 
     const { token, expiresAt } = selectionStore(app).issue({
       accountId: inv.account.id,
