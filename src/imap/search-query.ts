@@ -70,6 +70,9 @@ export function compileSearch(filters: SearchFilters, mailbox: MailboxObject | f
   const query: SearchObject = {};
   const applied: Record<string, unknown> = {};
 
+  // Gmail evaluates X-GM-RAW inside the selected mailbox and ANDs it with the other criteria:
+  // "in:anywhere", "in:spam" or "label:X" never reach past the folder (checked on Gmail, 2026-10-18).
+  // The folder policy holds either way, since the UIDs that come back belong to the selected mailbox.
   if (filters.gmailQuery) {
     if (!server.gmail) {
       throw new UnsupportedFilterError("gmailQuery only works with Gmail and Google Workspace accounts. Not searching.");
