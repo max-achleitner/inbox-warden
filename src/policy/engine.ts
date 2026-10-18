@@ -151,8 +151,8 @@ export class PolicyEngine {
     };
   }
 
-  folderAllowed(folderPath: string, delimiter?: string): boolean {
-    return folderAllowed(folderPath, delimiter, this.policy.folders);
+  folderAllowed(folderPath: string, delimiter?: string, aggregate?: boolean): boolean {
+    return folderAllowed(folderPath, delimiter, this.policy.folders, aggregate);
   }
 
   checkFolder(folderPath: string, delimiter?: string): void {

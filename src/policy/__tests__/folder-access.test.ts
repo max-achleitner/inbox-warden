@@ -73,6 +73,35 @@ describe("folder access", () => {
     expect(visible).toEqual(["INBOX", "Archive", "Gesendet"]);
   });
 
+  describe("folders that show the mail of every other folder", () => {
+    const gmail = new FakeImap();
+    gmail.addFolder("Persönlich");
+    gmail.addFolder("[Gmail]/All Mail", { specialUse: "\\All", flags: ["\\HasNoChildren", "\\All"] });
+    gmail.addFolder("[Gmail]/Important", { flags: ["\\HasNoChildren", "\\Important"] });
+    gmail.addFolder("[Gmail]/Starred", { specialUse: "\\Flagged", flags: ["\\HasNoChildren", "\\Flagged"] });
+    const gmailClient = gmail.asClient();
+    const aggregates = ["[Gmail]/All Mail", "[Gmail]/Important", "[Gmail]/Starred"];
+
+    it.each(aggregates)("hides %s while a deny rule hides another folder", async (name) => {
+      await expect(resolvePolicyFolder(account({ deny: ["Persönlich"] }), gmailClient, name)).rejects.toBeInstanceOf(PolicyDeniedError);
+    });
+
+    it.each(aggregates)("hides %s under an allow list, even one whose pattern matches it", async (name) => {
+      await expect(resolvePolicyFolder(account({ allow: ["INBOX", "[Gmail]/**"] }), gmailClient, name)).rejects.toBeInstanceOf(
+        PolicyDeniedError,
+      );
+    });
+
+    it.each(aggregates)("keeps %s without folder rules", async (name) => {
+      expect(await resolvePolicyFolder(account({}), gmailClient, name)).toBe(name);
+    });
+
+    it("leaves them out of listings while folder rules apply", async () => {
+      const visible = visibleFolders(account({ deny: ["Persönlich"] }), await listFolderInfo(gmailClient)).map((f) => f.path);
+      expect(visible).toEqual(["INBOX"]);
+    });
+  });
+
   it("recognises system folders by SPECIAL-USE or well-known name", async () => {
     const folders = await listFolderInfo(client);
     expect(isSystemFolder(folders, "INBOX")).toBe(true);

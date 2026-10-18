@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Security
 - Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
 - A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
+- Folder rules now also hide Gmail's All Mail, Starred and Important (any folder the server lists as `\All`, `\Flagged` or `\Important`) as soon as they hide any folder. Before, `search_emails` and `read_email` could read the mail of a denied label through All Mail.
 
 ## [0.6.0] - 2026-10-18
 
