@@ -132,12 +132,13 @@ jobs:
             release/*.tgz
       # Trusted publishing (OIDC, no token) needs npm >= 11.5.1
       - run: npm install -g npm@11.20.0
+      # "./" matters: npm reads "release/<file>.tgz" as the GitHub shorthand user/repo and tries git over SSH
       - name: Publish to npm
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           case "$VERSION" in
-            *-*) npm publish "release/inbox-warden-$VERSION.tgz" --provenance --access public --tag next ;;
-            *) npm publish "release/inbox-warden-$VERSION.tgz" --provenance --access public ;;
+            *-*) npm publish "./release/inbox-warden-$VERSION.tgz" --provenance --access public --tag next ;;
+            *) npm publish "./release/inbox-warden-$VERSION.tgz" --provenance --access public ;;
           esac
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
