@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { AuditLog, GENESIS_HASH, listAuditFiles, verifyAuditLog, type AuditRecord } from "../audit-log.js";
+import { AuditLog, GENESIS_HASH, hashRecord, listAuditFiles, verifyAuditLog, type AuditRecord } from "../audit-log.js";
 import type { ToolCallEvent } from "../../context.js";
 
 function event(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
@@ -149,6 +149,31 @@ describe("AuditLog", () => {
     expect(result.ok).toBe(false);
     expect(result.anchored).toBe(false);
     expect(result.problems.map((p) => p.problem).join(" ")).toMatch(/starts at record 3.*no retention record/);
+  });
+
+  it("refuses recent records removed behind a forged retention record", async () => {
+    const audit = new AuditLog(options());
+    for (let i = 0; i < 4; i++) await audit.onToolCall(event());
+    const file = path.join(dir, listAuditFiles(dir)[0]);
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    const kept = lines.slice(2).map((l) => JSON.parse(l) as AuditRecord); // seq 1 and 2 deleted
+    const head = kept.at(-1)!;
+    // Anyone who can write the folder can chain a record like this: the hashes carry no key
+    const forged = {
+      ts: now.toISOString(),
+      seq: head.seq + 1,
+      prevHash: head.hash,
+      account: "-",
+      tool: "audit.retention",
+      tier: "always",
+      outcome: "success",
+      details: { removedFile: "audit-2025-01.jsonl", removedLastSeq: 2, removedLastHash: kept[0].prevHash },
+    };
+    fs.writeFileSync(file, [...lines.slice(2), JSON.stringify({ ...forged, hash: hashRecord(forged) })].join("\n") + "\n");
+
+    const result = verifyAuditLog(dir, { retentionDays: 365, now: () => now });
+    expect(result.ok).toBe(false);
+    expect(result.problems.map((p) => p.problem).join(" ")).toMatch(/newer than the retention period of 365 days/);
   });
 
   it("detects a whole oldest month file deleted by hand", async () => {

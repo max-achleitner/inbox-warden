@@ -1,4 +1,5 @@
 import { verifyAuditLog, type AuditVerification } from "../audit/audit-log.js";
+import { DEFAULT_RETENTION_DAYS } from "../audit/schema.js";
 import { errorMessage } from "../errors.js";
 import { t, type Locale } from "./messages.js";
 
@@ -6,10 +7,15 @@ import { t, type Locale } from "./messages.js";
  * Check the audit log at `target` (folder or single month file) and print the result.
  * Returns the exit code: 0 intact, 1 tampered or incomplete, 2 unreadable.
  */
-export function runAuditVerify(target: string, locale: Locale, print: (line: string) => void): number {
+export function runAuditVerify(
+  target: string,
+  locale: Locale,
+  print: (line: string) => void,
+  retentionDays: number = DEFAULT_RETENTION_DAYS,
+): number {
   let result: AuditVerification;
   try {
-    result = verifyAuditLog(target);
+    result = verifyAuditLog(target, { retentionDays });
   } catch (err) {
     print(t(locale, "auditUnreadable", { path: target, message: errorMessage(err) }));
     return 2;
@@ -26,7 +32,7 @@ export function runAuditVerify(target: string, locale: Locale, print: (line: str
       last: result.lastSeq ?? 0,
     }),
   );
-  if (result.anchored) print(t(locale, "auditAnchored"));
+  if (result.anchored) print(t(locale, "auditAnchored", { days: retentionDays }));
   if (result.ok) {
     print(t(locale, "auditOk"));
     print(t(locale, "auditHead", { hash: result.headHash ?? "" }));

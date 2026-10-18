@@ -169,8 +169,8 @@ const MESSAGES = {
     en: "Checked {records} records in {files} file(s), sequence {first}–{last}.",
   },
   auditAnchored: {
-    de: "Ältere Einträge wurden nach Ablauf der Aufbewahrungsfrist gelöscht; geprüft wird ab dem ältesten vorhandenen Eintrag.",
-    en: "Older records were removed by the retention policy; the chain is verified from the oldest remaining record.",
+    de: "Ältere Einträge wurden nach Ablauf der Aufbewahrungsfrist ({days} Tage) gelöscht; geprüft wird ab dem ältesten vorhandenen Eintrag.",
+    en: "Older records were removed by the retention policy ({days} days); the chain is verified from the oldest remaining record.",
   },
   auditOk: { de: "OK: Das Prüfprotokoll ist vollständig und unverändert.", en: "OK: the audit log is complete and unmodified." },
   auditHead: {
