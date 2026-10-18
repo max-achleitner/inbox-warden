@@ -461,6 +461,7 @@ function matches(m: FakeMessage, q: Record<string, unknown>): boolean {
         if (!includesCI(splitRaw(m.raw).body, value)) return false;
         break;
       case "text":
+      case "gmraw": // stand-in for Gmail's X-GM-RAW: full-text match
         if (!includesCI(m.raw.toString("utf8"), value)) return false;
         break;
       case "since":

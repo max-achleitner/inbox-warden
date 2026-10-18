@@ -27,6 +27,17 @@ describe("compileSearch", () => {
   it("keeps hasAttachment=false for client-side filtering", () => {
     expect(compileSearch({ hasAttachment: false }, mailbox(["\\*"])).hasAttachment).toBe(false);
   });
+
+  it("passes a Gmail query through as X-GM-RAW on Gmail servers, combined with the other filters", () => {
+    const compiled = compileSearch({ gmailQuery: "category:promotions", before: "2026-01-01" }, mailbox(["\\*"]), { gmail: true });
+    expect(compiled.query).toEqual({ gmraw: "category:promotions", before: "2026-01-01" });
+    expect(compiled.applied).toEqual({ gmailQuery: "category:promotions", before: "2026-01-01" });
+  });
+
+  it("refuses a Gmail query on other servers instead of silently dropping it", () => {
+    expect(() => compileSearch({ gmailQuery: "category:promotions" }, mailbox(["\\*"]))).toThrow(UnsupportedFilterError);
+    expect(() => compileSearch({ gmailQuery: "category:promotions" }, mailbox(["\\*"]), { gmail: false })).toThrow(/Gmail/);
+  });
 });
 
 describe("searchFilterShape date validation", () => {

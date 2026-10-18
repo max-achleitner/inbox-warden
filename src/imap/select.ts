@@ -38,7 +38,7 @@ export function hasAttachmentPart(structure: any): boolean {
  * a criterion the server cannot apply raises an error instead of being dropped.
  */
 export async function selectByFilter(client: ImapFlow, filters: SearchFilters): Promise<FilterSelection> {
-  const compiled = compileSearch(filters, client.mailbox);
+  const compiled = compileSearch(filters, client.mailbox, { gmail: client.capabilities.has("X-GM-EXT-1") });
   let uids: number[];
   try {
     uids = await strictSearch(client, compiled.query);

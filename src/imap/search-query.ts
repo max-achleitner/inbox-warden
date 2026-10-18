@@ -26,6 +26,15 @@ export const searchFilterShape = {
   largerThan: z.number().int().positive().optional().describe("Only emails larger than this many bytes"),
   smallerThan: z.number().int().positive().optional().describe("Only emails smaller than this many bytes"),
   header: z.record(z.string().min(1), z.string().min(1)).optional().describe('Header substring matches, e.g. {"List-Id": "newsletter"}'),
+  gmailQuery: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Gmail accounts only: Gmail search syntax, e.g. "category:promotions" or "from:shop.example older_than:1y". ' +
+        'Gmail matches whole words: "Gebühr" does not find "Gebührenbescheinigung", so list compound words explicitly. ' +
+        'An address containing "+" can break an OR group; use the sender domain or display name there.',
+    ),
 };
 
 const searchFilterSchema = z.object(searchFilterShape);
@@ -57,10 +66,17 @@ function canUseKeyword(mailbox: MailboxObject | false, keyword: string): boolean
  * Translate filters into an imapflow SearchObject. Throws instead of dropping a criterion,
  * because a dropped criterion widens the match — up to the whole folder.
  */
-export function compileSearch(filters: SearchFilters, mailbox: MailboxObject | false): CompiledSearch {
+export function compileSearch(filters: SearchFilters, mailbox: MailboxObject | false, server: { gmail?: boolean } = {}): CompiledSearch {
   const query: SearchObject = {};
   const applied: Record<string, unknown> = {};
 
+  if (filters.gmailQuery) {
+    if (!server.gmail) {
+      throw new UnsupportedFilterError("gmailQuery only works with Gmail and Google Workspace accounts. Not searching.");
+    }
+    query.gmraw = filters.gmailQuery;
+    applied.gmailQuery = filters.gmailQuery;
+  }
   if (filters.query) {
     query.or = [{ subject: filters.query }, { body: filters.query }];
     applied.query = filters.query;
@@ -124,6 +140,6 @@ export function compileSearch(filters: SearchFilters, mailbox: MailboxObject | f
 
 /** True when any text filter contains non-ASCII characters (some servers reject CHARSET UTF-8). */
 export function hasNonAsciiText(filters: SearchFilters): boolean {
-  const texts = [filters.query, filters.subject, filters.from, filters.to, filters.cc, ...Object.values(filters.header ?? {})];
+  const texts = [filters.query, filters.subject, filters.from, filters.to, filters.cc, filters.gmailQuery, ...Object.values(filters.header ?? {})];
   return texts.some((t) => typeof t === "string" && /[^\x00-\x7F]/.test(t));
 }
