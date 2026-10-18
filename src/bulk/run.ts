@@ -64,6 +64,13 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
   try {
     await req.validate?.(client);
     const selection = await selectByFilter(client, req.filters);
+    // A forgotten or dropped criterion must not turn into "the whole folder": that takes {"all": true}
+    if (Object.keys(selection.applied).length === 0) {
+      throw new Error(
+        `The filter has no criterion. To select every email in "${req.folder}", pass the filter {"all": true}. ` +
+          `Nothing was ${req.action.type === "delete" ? "deleted" : "changed"}.`,
+      );
+    }
     if (selection.attachmentScanLimited) {
       throw new Error("Too many messages match to check their attachments reliably. Nothing was changed. Narrow the filter (for example with since/before) and preview again.");
     }
@@ -113,9 +120,7 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
       operation: req.action,
       appliedFilters: selection.applied,
       count,
-      ...(Object.keys(selection.applied).length === 0
-        ? { warning: `The filter is empty, so this selects every message in "${req.folder}".` }
-        : {}),
+      ...(selection.applied.all ? { warning: `This selects every message in "${req.folder}".` } : {}),
       topSenders: senders.senders,
       ...(senders.otherSenders ? { otherSenders: senders.otherSenders } : {}),
       sample,

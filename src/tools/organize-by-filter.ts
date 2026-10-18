@@ -114,7 +114,7 @@ export function register(server: McpServer, app: AppContext) {
         "Move, mark read/unread, flag/unflag, or add/remove a keyword on ALL emails in a folder that match a filter (same filters as search_emails). " +
         "Two steps: a call WITHOUT confirmToken only previews (count, sample, confirmToken) and changes nothing — show the preview to the user. " +
         "Then call again with the same folder and action plus confirmToken; it applies to exactly the previewed messages and expires after 10 minutes. " +
-        "An empty filter selects the whole folder.",
+        'For the whole folder pass the filter {"all": true}; a filter without any criterion is refused.',
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder to select messages from"),

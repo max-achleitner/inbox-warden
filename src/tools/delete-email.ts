@@ -21,7 +21,8 @@ export function register(server: McpServer, app: AppContext) {
       description:
         "Delete emails by moving them to Trash (or permanently remove them if they are already in Trash). " +
         "Either pass uids, or pass a filter (same filters as search_emails): a filter call only previews (count, sample, confirmToken) and deletes nothing; " +
-        "after the user agreed, call again with the same folder plus confirmToken to delete exactly the previewed messages.",
+        "after the user agreed, call again with the same folder plus confirmToken to delete exactly the previewed messages. " +
+        'For the whole folder pass the filter {"all": true}; a filter without any criterion is refused.',
       tier: "delete",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the emails"),
