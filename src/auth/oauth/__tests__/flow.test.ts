@@ -86,7 +86,7 @@ describe("loopback receiver", () => {
 describe("browser opening", () => {
   it("never uses a shell on Windows", () => {
     expect(browserCommand("https://x.test/?a=1&b=2", "win32")).toEqual({
-      command: "rundll32.exe",
+      command: expect.stringMatching(/^[A-Za-z]:\\.*\\System32\\rundll32\.exe$/i),
       args: ["url.dll,FileProtocolHandler", "https://x.test/?a=1&b=2"],
     });
     expect(browserCommand("https://x.test", "darwin").command).toBe("open");
