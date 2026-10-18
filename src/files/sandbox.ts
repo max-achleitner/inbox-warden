@@ -41,8 +41,14 @@ export async function resolveInside(roots: string[], requested: string): Promise
     }
   }
   const expanded = expandHome(requested);
-  const candidates = path.isAbsolute(expanded) ? [expanded] : realRoots.map((root) => path.join(root, expanded));
+  const candidates = path.isAbsolute(expanded) ? [path.resolve(expanded)] : realRoots.map((root) => path.join(root, expanded));
+  const textRoots = [...roots.map((root) => path.resolve(expandHome(root))), ...realRoots];
+  const outside = () =>
+    new SandboxError(`"${requested}" is outside the folders allowed for attachments (${roots.join(", ")}). Nothing was attached.`);
   for (const candidate of candidates) {
+    // Touch the file system only for paths that lie inside an allowed folder by their text: on
+    // Windows, merely resolving "\\host\share\x" logs in to that host with the user's credentials
+    if (!textRoots.some((root) => isInside(root, candidate))) throw outside();
     let real: string;
     try {
       real = await realpath(candidate);
@@ -50,9 +56,7 @@ export async function resolveInside(roots: string[], requested: string): Promise
       continue;
     }
     if (realRoots.some((root) => isInside(root, real))) return real;
-    throw new SandboxError(
-      `"${requested}" is outside the folders allowed for attachments (${roots.join(", ")}). Nothing was attached.`,
-    );
+    throw outside();
   }
   throw new SandboxError(`File "${requested}" was not found in the allowed attachment folders (${roots.join(", ")}). Nothing was attached.`);
 }
