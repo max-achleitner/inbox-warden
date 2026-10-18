@@ -1,4 +1,5 @@
 import type { LocalizedText } from "../onboarding/presets.js";
+import type { PermissionTier } from "../config/schema.js";
 
 export type LoginMode = "browser" | "no-browser" | "device-code";
 
@@ -12,11 +13,27 @@ export interface AccountsLoginCommand {
   port?: number;
 }
 
+/** `accounts edit <id> …`: change an existing mailbox without the wizard. */
+export interface AccountsEditCommand {
+  command: "accounts-edit";
+  accountId: string;
+  allow: PermissionTier[];
+  deny: PermissionTier[];
+  makeDefault: boolean;
+  /** policy.bulk.maxMessages */
+  maxMessages?: number;
+  /** policy.bulk.maxDelete */
+  maxDelete?: number;
+  /** Ask for a new password (hidden) and store it in the secret store. */
+  password: boolean;
+}
+
 export type CliCommand =
   | { command: "setup" }
   | { command: "doctor" }
   | { command: "accounts-list" }
   | AccountsLoginCommand
+  | AccountsEditCommand
   | { command: "audit-verify"; path?: string }
   | { command: "help" }
   | { command: "invalid"; message: LocalizedText };
@@ -72,6 +89,55 @@ function parseLogin(args: string[]): CliCommand {
   };
 }
 
+const TIERS: readonly PermissionTier[] = ["read", "write", "send", "delete"];
+
+function parseEdit(args: string[]): CliCommand {
+  const [accountId, ...flags] = args;
+  if (!accountId || accountId.startsWith("-")) {
+    return invalid(
+      "„accounts edit“ braucht die Kennung des Postfachs, z. B.: accounts edit main --allow send",
+      '"accounts edit" needs the mailbox id, e.g.: accounts edit main --allow send',
+    );
+  }
+  const cmd: AccountsEditCommand = { command: "accounts-edit", accountId, allow: [], deny: [], makeDefault: false, password: false };
+  for (let i = 0; i < flags.length; i++) {
+    const flag = flags[i];
+    if (flag === "--default") {
+      cmd.makeDefault = true;
+    } else if (flag === "--password") {
+      cmd.password = true;
+    } else if (flag === "--allow" || flag === "--deny" || flag === "--max-messages" || flag === "--max-delete") {
+      const value = flags[++i];
+      if (value === undefined || value.startsWith("--")) return invalid(`${flag} braucht einen Wert.`, `${flag} needs a value.`);
+      if (flag === "--allow" || flag === "--deny") {
+        if (!TIERS.includes(value as PermissionTier)) {
+          return invalid(`${flag} erwartet read, write, send oder delete (nicht „${value}“).`, `${flag} expects read, write, send or delete (not "${value}").`);
+        }
+        (flag === "--allow" ? cmd.allow : cmd.deny).push(value as PermissionTier);
+      } else {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1) {
+          return invalid(`${flag} muss eine positive ganze Zahl sein (nicht „${value}“).`, `${flag} must be a positive whole number (not "${value}").`);
+        }
+        if (flag === "--max-messages") cmd.maxMessages = n;
+        else cmd.maxDelete = n;
+      }
+    } else {
+      return invalid(`Unbekannte Option: ${flag}`, `Unknown option: ${flag}`);
+    }
+  }
+  const both = cmd.allow.find((tier) => cmd.deny.includes(tier));
+  if (both) return invalid(`„${both}“ ist zugleich erlaubt und verboten.`, `"${both}" is both allowed and denied.`);
+  const changes = cmd.allow.length + cmd.deny.length + (cmd.makeDefault ? 1 : 0) + (cmd.password ? 1 : 0);
+  if (changes === 0 && cmd.maxMessages === undefined && cmd.maxDelete === undefined) {
+    return invalid(
+      "„accounts edit“ braucht mindestens eine Option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --password",
+      '"accounts edit" needs at least one option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --password',
+    );
+  }
+  return cmd;
+}
+
 /** Pure argument parsing for the `inbox-warden` admin commands; no argument means `setup`. */
 export function parseCliArgs(argv: string[]): CliCommand {
   const [first, second, ...rest] = argv;
@@ -83,7 +149,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
   if (first === "accounts") {
     if (second === "list" && rest.length === 0) return { command: "accounts-list" };
     if (second === "login") return parseLogin(rest);
-    return invalid("„accounts“ erwartet „list“ oder „login <id>“.", '"accounts" expects "list" or "login <id>".');
+    if (second === "edit") return parseEdit(rest);
+    return invalid("„accounts“ erwartet „list“, „login <id>“ oder „edit <id>“.", '"accounts" expects "list", "login <id>" or "edit <id>".');
   }
   if (first === "audit") {
     if (second === "verify" && rest.length <= 1) {

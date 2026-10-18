@@ -36,6 +36,14 @@ describe("search_emails", () => {
     expect(res.json.messages.map((m: any) => m.uid)).toEqual([3, 1]);
   });
 
+  it("compact mode leaves out Message-ID, recipients and size", async () => {
+    const res = await h.call("search_emails", { from: "anna@example.com", compact: true, includePreview: false });
+    expect(res.isError).toBe(false);
+    const [first] = res.json.messages;
+    expect(Object.keys(first).sort()).toEqual(["date", "flags", "from", "hasAttachment", "subject", "uid"]);
+    expect(first.from).toEqual([{ name: "", address: "anna@example.com" }]);
+  });
+
   it("fails instead of returning every email when the server rejects the search", async () => {
     imap.failOn("search", "false");
     const res = await h.call("search_emails", { from: "anna@example.com" });

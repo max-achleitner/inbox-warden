@@ -253,6 +253,12 @@ export const ALL_PATTERNS: PatternDef[] = [
 export const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/;
 export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 
+/**
+ * Newsletter preheader padding: invisible characters alternating with spaces ("&#847;&zwnj;&nbsp;" repeated),
+ * used to keep body text out of the inbox preview. Carries no hidden text, so it is neither shown nor counted.
+ */
+export const PREHEADER_PADDING_GLOBAL = /(?:[͏­​‌‍⁠﻿᠎]+\s+){2,}/g;
+
 /** Bidirectional text override characters */
 export const BIDI_OVERRIDES = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 export const BIDI_OVERRIDES_GLOBAL = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;

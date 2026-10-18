@@ -124,20 +124,26 @@ const MESSAGES = {
   usage: {
     de:
       "Verwendung:\n" +
-      `  ${SERVER_NAME} setup                        Postfach einrichten, ändern oder entfernen\n` +
+      `  ${SERVER_NAME} setup                        Postfach einrichten oder entfernen, neu anmelden\n` +
       `  ${SERVER_NAME} doctor                       Einrichtung prüfen (Exit-Code 1 bei Problemen)\n` +
       `  ${SERVER_NAME} accounts list                Eingerichtete Postfächer anzeigen\n` +
       `  ${SERVER_NAME} accounts login <id> [--device-code | --no-browser [--listen-host <host>] [--port <n>]]\n` +
       "                                             Microsoft-/Google-Anmeldung (erneut) durchführen\n" +
+      `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
+      "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
+      "                                             Berechtigungen, Standard-Postfach, Massenlimits oder Passwort ändern\n" +
       `  ${SERVER_NAME} audit verify [<ordner|datei>]\n` +
       "                                             Prüfprotokoll auf Manipulation prüfen (Exit-Code 1 bei Problemen)",
     en:
       "Usage:\n" +
-      `  ${SERVER_NAME} setup                        Add, change or remove mailboxes\n` +
+      `  ${SERVER_NAME} setup                        Add or remove mailboxes, sign in again\n` +
       `  ${SERVER_NAME} doctor                       Check the setup (exit code 1 on problems)\n` +
       `  ${SERVER_NAME} accounts list                Show the configured mailboxes\n` +
       `  ${SERVER_NAME} accounts login <id> [--device-code | --no-browser [--listen-host <host>] [--port <n>]]\n` +
       "                                             Sign in (again) to Microsoft/Google\n" +
+      `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
+      "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
+      "                                             Change permissions, default mailbox, bulk limits or password\n" +
       `  ${SERVER_NAME} audit verify [<folder|file>]\n` +
       "                                             Check the audit log for tampering (exit code 1 on problems)",
   },
@@ -165,9 +171,32 @@ const MESSAGES = {
     en: 'There is no mailbox "{id}". Configured: {ids}.',
   },
   loginNotOAuth: {
-    de: `Das Postfach „{id}“ meldet sich mit Passwort an; eine Anmeldung im Browser ist nicht nötig. Passwort ändern: ${SERVER_NAME} setup`,
-    en: `The mailbox "{id}" signs in with a password; no browser sign-in is needed. To change the password: ${SERVER_NAME} setup`,
+    de: `Das Postfach „{id}“ meldet sich mit Passwort an; eine Anmeldung im Browser ist nicht nötig. Passwort ändern: ${SERVER_NAME} accounts edit {id} --password`,
+    en: `The mailbox "{id}" signs in with a password; no browser sign-in is needed. To change the password: ${SERVER_NAME} accounts edit {id} --password`,
   },
+  editNoConfig: {
+    de: `Es gibt noch keine Konfigurationsdatei. Postfach einrichten mit: ${SERVER_NAME} setup`,
+    en: `There is no configuration file yet. Set up a mailbox with: ${SERVER_NAME} setup`,
+  },
+  editNotPassword: {
+    de: `Das Postfach „{id}“ meldet sich mit Microsoft/Google an, nicht mit Passwort. Neu anmelden: ${SERVER_NAME} accounts login {id}. Nichts wurde geändert.`,
+    en: `The mailbox "{id}" signs in with Microsoft/Google, not with a password. Sign in again: ${SERVER_NAME} accounts login {id}. Nothing was changed.`,
+  },
+  editAskPassword: { de: "Neues Passwort für {email} (wird nicht angezeigt)", en: "New password for {email} (hidden)" },
+  editEmptyPassword: { de: "Kein Passwort eingegeben. Nichts wurde geändert.", en: "No password entered. Nothing was changed." },
+  editInvalid: { de: "✗ Die Änderung ergibt keine gültige Konfiguration: {message} Nichts wurde geändert.", en: "✗ The change would make the configuration invalid: {message} Nothing was changed." },
+  editSaved: { de: "✓ Postfach „{id}“ geändert:", en: '✓ Mailbox "{id}" changed:' },
+  editLine: { de: "  {name}: {before} → {after}", en: "  {name}: {before} → {after}" },
+  editPassword: { de: "  Passwort: neu gespeichert", en: "  password: stored" },
+  editUnchanged: { de: "Alles war schon so eingestellt. Nichts wurde geändert.", en: "Everything was already set like this. Nothing was changed." },
+  editRestart: {
+    de: "Der laufende MCP-Server übernimmt die Änderung erst nach einem Neustart (in Claude: Server neu verbinden).",
+    en: "A running MCP server picks up the change after a restart (in Claude: reconnect the server).",
+  },
+  editFailed: { de: "✗ Ändern fehlgeschlagen: {message}", en: "✗ Editing failed: {message}" },
+  stateOn: { de: "an", en: "on" },
+  stateOff: { de: "aus", en: "off" },
+  editDefaultName: { de: "Standard-Postfach", en: "default account" },
   loginNoDeviceCode: {
     de: "{provider} bietet keine Anmeldung mit Code. Verwenden Sie --no-browser und öffnen Sie den angezeigten Link.",
     en: "{provider} offers no sign-in with a code. Use --no-browser and open the link that is shown.",

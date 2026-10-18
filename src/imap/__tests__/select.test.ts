@@ -57,6 +57,17 @@ describe("selectByFilter", () => {
     expect((await selectByFilter(imap.asClient(), { hasAttachment: true })).uids).toEqual([2, 3]);
   });
 
+  it("sends a Gmail query to servers that offer X-GM-EXT-1", async () => {
+    imap.capabilities.set("X-GM-EXT-1", true);
+    await selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" });
+    expect(imap.callsTo("search").at(-1)).toEqual([{ gmraw: "category:promotions" }]);
+  });
+
+  it("refuses a Gmail query on other servers without searching", async () => {
+    await expect(selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" })).rejects.toThrow(/Gmail/);
+    expect(imap.callsTo("search")).toEqual([]);
+  });
+
   it("adds the non-ASCII hint when the server rejects the search", async () => {
     imap.failOn("search", "false");
     await expect(selectByFilter(imap.asClient(), { subject: "Größe" })).rejects.toThrow(/non-ASCII/);

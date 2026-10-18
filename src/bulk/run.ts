@@ -7,11 +7,13 @@ import type { ToolInvocation } from "../tools/shared/define-tool.js";
 import { existingUids } from "../imap/strict.js";
 import { selectByFilter } from "../imap/select.js";
 import { envelopeDate } from "../imap/envelope.js";
+import { summarizeSenders } from "../imap/senders.js";
 import type { SearchFilters } from "../imap/search-query.js";
 import { jsonResult } from "../tools/shared/result.js";
 import { SelectionError, SelectionStore, type BulkAction } from "./selection.js";
 
 const SAMPLE_SIZE = 10;
+const TOP_SENDERS = 10;
 
 /** Which policy cap applies (policy.bulk.maxMessages, or the stricter maxDelete for deletes). */
 export function policyBulkAction(action: BulkAction): PolicyBulkAction {
@@ -87,6 +89,8 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
       });
     }
     sample.sort((a, b) => b.uid - a.uid);
+    // Over the whole selection (at most the bulk cap): a stray sender in a mixed filter shows up here
+    const senders = await summarizeSenders(client, selection.uids, { groupBy: "address", limit: TOP_SENDERS });
 
     const { token, expiresAt } = selectionStore(app).issue({
       accountId: inv.account.id,
@@ -104,11 +108,13 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
       ...(Object.keys(selection.applied).length === 0
         ? { warning: `The filter is empty, so this selects every message in "${req.folder}".` }
         : {}),
+      topSenders: senders.senders,
+      ...(senders.otherSenders ? { otherSenders: senders.otherSenders } : {}),
       sample,
       confirmToken: token,
       expiresAt,
       next:
-        "Nothing has been changed yet. Show the user the count and the sample. If they agree, call this tool again with the same folder and action plus confirmToken to apply it to exactly these messages.",
+        "Nothing has been changed yet. Show the user the count, the senders and the sample. If they agree, call this tool again with the same folder and action plus confirmToken to apply it to exactly these messages.",
     });
   } finally {
     try { lock.release(); } catch { /* connection may already be dead */ }

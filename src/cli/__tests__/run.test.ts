@@ -43,6 +43,16 @@ describe("runCli", () => {
     expect(lines.at(-1)).toMatch(/signs in with a password/);
   });
 
+  it("edits an account in the config file", async () => {
+    expect(await runCli(["accounts", "edit", "main", "--allow", "send", "--max-messages", "1000"], deps)).toBe(0);
+    const saved = JSON.parse(fs.readFileSync(path.join(home, "config.json"), "utf8"));
+    expect(saved.accounts[0].permissions.send).toBe(true);
+    expect(saved.accounts[0].policy.bulk.maxMessages).toBe(1000);
+    expect(lines.join("\n")).toMatch(/send: off → on/);
+    expect(await runCli(["--help"], deps)).toBe(0);
+    expect(lines.join("\n")).toContain("accounts edit <id>");
+  });
+
   it("lists the accounts of the config file", async () => {
     expect(await runCli(["accounts", "list"], deps)).toBe(0);
     expect(lines[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write/);

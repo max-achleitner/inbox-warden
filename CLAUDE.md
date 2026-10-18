@@ -17,6 +17,7 @@ Production-readiness work is specified in `docs/superpowers/specs/2026-10-14-pro
 - **Setup:** `npm run setup` (guided: provider detection, hidden password, OAuth sign-in, connection test, certificate trust)
 - **Doctor:** `npm run doctor` (non-interactive health report; exit code 1 on problems)
 - **Sign in again (OAuth):** `node dist/bin.js accounts login <id> [--device-code | --no-browser [--listen-host <host>] [--port <n>]]`
+- **Edit an account:** `node dist/bin.js accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default] [--max-messages <n>] [--max-delete <n>] [--password]`
 - **Test:** `npm test` (unit tests, no network)
 - **Typecheck incl. tests:** `npm run typecheck`
 - **Integration tests:** `docker compose -f test/docker-compose.greenmail.yml up -d` then `IMAP_IT_HOST=localhost npm run test:integration` (skipped when `IMAP_IT_HOST` is unset)
@@ -34,7 +35,7 @@ To run a single test file: `npx vitest run src/tools/__tests__/search-emails.tes
 - `src/serve.ts` — `serve(args)`: `loadConfig()` → `createAppContext()` → `serveStdio(() => createServer(app))`, graceful shutdown.
 - `src/index.ts`, `src/cli/main.ts` — pre-1.0 shims (`imap-mcp-server`/`node dist/index.js` → serve, `imap-mcp-setup`/`node dist/cli/main.js` → setup or the named admin command), warn on stderr, removed in 2.0.
 - `src/server.ts` — side-effect-free `createServer(app)`: `McpServer` with `SERVER_INSTRUCTIONS` (`src/instructions.ts`) and every tool from `ALL_TOOLS` (`src/tools/index.ts`).
-- `runCli()` in `src/cli/run.ts`: `inbox-warden [setup | doctor | accounts list | accounts login <id> … | audit verify]`. Parsing in `args.ts` (pure), commands in `setup.ts`, `doctor.ts`, `login.ts` (dependency-injected, tested with fakes and a scripted prompter).
+- `runCli()` in `src/cli/run.ts`: `inbox-warden [setup | doctor | accounts list | accounts login <id> … | accounts edit <id> … | audit verify]`. Parsing in `args.ts` (pure), commands in `setup.ts`, `doctor.ts`, `login.ts`, `edit.ts` (dependency-injected, tested with fakes and a scripted prompter). The setup wizard only adds/removes accounts and signs in again; `accounts edit` changes permissions, default account, `policy.bulk` limits and the password (validated with `ConfigSchema` before saving).
 
 **Configuration and secrets:**
 - `src/config/schema.ts` — zod schema for config v2: `accounts[]` with `id`, `email`, `imap`/`smtp` endpoints (optional certificate pin `tlsFingerprint256` + `tlsCertificatePem`), `auth` (password or OAuth2 Microsoft/Google), `identities` (display name, signature, aliases), `permissions`, `sentCopy`, `locale`, `policy`; top-level `defaultAccount`, `files`, `audit`. `policy`/`files`/`audit` are loose objects filled by later plans.
@@ -54,12 +55,12 @@ To run a single test file: `npx vitest run src/tools/__tests__/search-emails.tes
 
 **Mail layer (`src/mail/`):** `compose.ts` (MailComposer), `headers.ts`, `reply.ts`, `identity.ts` (`fromHeader`, `withSignature`), `send.ts` (`deliver()`, Sent-copy policy, `MailTransport`).
 
-**Tools (`src/tools/`):** every tool is registered through `defineTool()` (`src/tools/shared/define-tool.ts`), which adds the optional `account` parameter, registers the tool only if some account grants its tier, checks the selected account's tier on every call, maps exceptions to `errorResult`, and notifies `app.observers` with `inv.record()` details. Tool modules export `register(server, app)`; add new tools to `ALL_TOOLS`.
+**Tools (`src/tools/`):** every tool is registered through `defineTool()` (`src/tools/shared/define-tool.ts`), which builds a strict input schema (unknown parameters fail instead of being dropped — use `z.strictObject` for nested objects such as `filter` too), adds the optional `account` parameter, registers the tool only if some account grants its tier, checks the selected account's tier on every call, maps exceptions to `errorResult`, and notifies `app.observers` with `inv.record()` details. Tool modules export `register(server, app)`; add new tools to `ALL_TOOLS`.
 
 | Tier | Default | Tools |
 |------|---------|-------|
 | always | — | list_accounts, health_check, sign_in |
-| `read` | on | list_folders, search_emails, read_email, get_thread, get_email_count, download_attachment, get_quota |
+| `read` | on | list_folders, search_emails, read_email, get_thread, get_email_count, download_attachment, get_quota, summarize_senders |
 | `write` | on | mark_as_read, move_email, flag_email, organize_by_filter, create_draft, reply_draft, forward_draft, save_attachment, create/delete/rename_folder |
 | `send` | off | send_email, send_draft |
 | `delete` | off | delete_email |
@@ -67,12 +68,13 @@ To run a single test file: `npx vitest run src/tools/__tests__/search-emails.tes
 Compose tools accept `from` (must be one of the account's identities) and `signature` (default true). `flag_email` refuses `\Deleted`. Moving into Trash (or below it) with `move_email`/`organize_by_filter`, or moving a folder there with `rename_folder`, counts as deleting: it needs the delete tier and `bulk.maxDelete` (`src/policy/trash-move.ts`). New folder names go through `serverFolderPath()` (namespace prefix) before policy checks; pass an already listed `folders` array to `resolvePolicyFolder`/`requireSpecialFolder` instead of listing again. Every tool has a `title` and explicit `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`; send tools are destructive and open-world.
 
 **Daily-business modules (Plan 3):**
-- `src/imap/select.ts` — `selectByFilter` (compile + `strictSearch` + client-side attachment filter, fail-closed), `keywordsSupported`.
-- `src/mail/preview.ts` — `previewFor`: partial BODY.PEEK of the first text part (4 KiB plain / 16 KiB HTML), QP/base64 + charset decoding, HTML→text.
+- `src/imap/select.ts` — `selectByFilter` (compile + `strictSearch` + client-side attachment filter, fail-closed), `keywordsSupported`. Filters include `gmailQuery` (X-GM-RAW, Gmail only; refused elsewhere).
+- `src/imap/senders.ts` — `summarizeSenders` (envelope-only counts per address/domain) behind `summarize_senders` (newest `SENDER_SCAN_LIMIT` = 5000) and the `topSenders` of bulk previews.
+- `src/mail/preview.ts` — `previewFor`: partial BODY.PEEK of the first text part (4 KiB plain / 16 KiB HTML), QP/base64 + charset decoding, HTML→text. Previews and `fullText` drop newsletter preheader padding (`PREHEADER_PADDING_GLOBAL` in `security/patterns.ts`), which the injection scan ignores as well.
 - `src/mail/text.ts` — `boundedText` (paging without splitting surrogate pairs), `fullText`, `truncate`, `stripQuotedHistory`.
 - `src/mail/thread.ts` — `threadIds`, `threadQuery` (Message-ID/References/In-Reply-To header searches); `get_thread` uses the Gmail thread id in `\All` when available.
 - `src/mail/forward.ts` — forward subject/header block; `src/mail/answered.ts` — `markOriginalAnswered` after `send_draft` (best effort, `originalFolder` from `reply_draft`).
-- `src/bulk/selection.ts` + `src/bulk/run.ts` — preview → single-use `confirmToken` (10 min; bound to account, folder, UIDVALIDITY, UID-set hash, action) → `commitBulk`; cap `bulkLimit()` = 500. Used by `organize_by_filter` and `delete_email` filter mode.
+- `src/bulk/selection.ts` + `src/bulk/run.ts` — preview (count, `topSenders`, sample) → single-use `confirmToken` (10 min, in memory; bound to account, folder, UIDVALIDITY, UID-set hash, action) → `commitBulk`; cap `bulkLimit()` = 500. Used by `organize_by_filter` and `delete_email` filter mode. Moves report `uidMapping` only up to 50 messages (`src/tools/shared/uid-mapping.ts`).
 - `src/files/sandbox.ts` — real-path containment for `files.attachmentDirs`, filename sanitising, blocked executable/macro types, no-overwrite targets in `files.downloadDir`; `src/files/attachments.ts` — `{ path }` or base64 attachments for compose tools.
 - `download_attachment` returns only text (≤ `files.maxInlineTextBytes`) and images (≤ `files.maxInlineImageBytes`); everything else goes through `save_attachment` (write tier).
 

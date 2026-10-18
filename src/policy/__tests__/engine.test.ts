@@ -51,6 +51,19 @@ describe("PolicyEngine", () => {
     expect(() => e.checkBulk(3, "delete")).toThrow(/limit of 2 per operation for deleting/);
   });
 
+  it("does not suggest splitting a capped bulk change into smaller ones", () => {
+    const e = engine(policy({}, { bulk: { maxMessages: 10, maxDelete: 2 } }));
+    let message = "";
+    try {
+      e.checkBulk(11, "move");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).not.toMatch(/since\/before/);
+    expect(message).toMatch(/do not split/i);
+    expect(message).toMatch(/inbox-warden accounts edit/);
+  });
+
   it("protects INBOX and special-use folders", () => {
     const e = engine(policy());
     expect(() => e.checkProtectedFolder("inbox", false)).toThrow(/protected/);

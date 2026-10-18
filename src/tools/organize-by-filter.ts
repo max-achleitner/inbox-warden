@@ -11,15 +11,16 @@ import { searchFilterShape } from "../imap/search-query.js";
 import { commitBulk, previewBulk } from "../bulk/run.js";
 import type { BulkAction } from "../bulk/selection.js";
 import { defineTool } from "./shared/define-tool.js";
+import { uidMappingFields } from "./shared/uid-mapping.js";
 
 const actionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("move"), destination: z.string().min(1).describe("Destination folder") }),
-  z.object({ type: z.literal("markRead") }),
-  z.object({ type: z.literal("markUnread") }),
-  z.object({ type: z.literal("flag") }),
-  z.object({ type: z.literal("unflag") }),
-  z.object({ type: z.literal("addKeyword"), keyword: z.string().min(1).describe("Custom keyword, e.g. $Done") }),
-  z.object({ type: z.literal("removeKeyword"), keyword: z.string().min(1).describe("Custom keyword, e.g. $Done") }),
+  z.strictObject({ type: z.literal("move"), destination: z.string().min(1).describe("Destination folder") }),
+  z.strictObject({ type: z.literal("markRead") }),
+  z.strictObject({ type: z.literal("markUnread") }),
+  z.strictObject({ type: z.literal("flag") }),
+  z.strictObject({ type: z.literal("unflag") }),
+  z.strictObject({ type: z.literal("addKeyword"), keyword: z.string().min(1).describe("Custom keyword, e.g. $Done") }),
+  z.strictObject({ type: z.literal("removeKeyword"), keyword: z.string().min(1).describe("Custom keyword, e.g. $Done") }),
 ]);
 
 type ActionInput = z.infer<typeof actionSchema>;
@@ -76,7 +77,7 @@ async function applyAction(client: ImapFlow, uids: number[], action: BulkAction)
   switch (action.type) {
     case "move": {
       const uidMap = await strictMove(client, uids, action.destination);
-      return { destination: action.destination, ...(uidMap.size > 0 ? { uidMapping: Object.fromEntries(uidMap) } : {}) };
+      return { destination: action.destination, ...uidMappingFields(uidMap, action.destination) };
     }
     case "markRead":
       await strictStoreFlags(client, uids, ["\\Seen"], "add");
@@ -117,7 +118,7 @@ export function register(server: McpServer, app: AppContext) {
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder to select messages from"),
-        filter: z.object(searchFilterShape).describe("Which messages, e.g. {\"from\": \"newsletter@shop.example\", \"before\": \"2026-01-01\"}"),
+        filter: z.strictObject(searchFilterShape).describe("Which messages, e.g. {\"from\": \"newsletter@shop.example\", \"before\": \"2026-01-01\"}"),
         action: actionSchema.describe("What to do with the matching messages"),
         confirmToken: z.string().min(1).optional().describe("Token from the preview; only send it after the user agreed"),
       },

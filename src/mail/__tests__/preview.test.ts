@@ -71,4 +71,14 @@ describe("previewText", () => {
     expect(preview).toBe("Neue Angebote");
     expect(preview).not.toContain("{");
   });
+
+  it("drops newsletter preheader padding so the preview shows real text", () => {
+    const html = `<p>Neue Videos für dich</p><div>${"&#847;&zwnj;&nbsp;".repeat(60)}</div><p>Jetzt ansehen</p>`;
+    expect(previewText(html, true, 200)).toBe("Neue Videos für dich Jetzt ansehen");
+    expect(previewText(`Dein Match ${"‌ ".repeat(30)}wartet`, false, 200)).toBe("Dein Match wartet");
+  });
+
+  it("keeps a single zero-width character inside a word", () => {
+    expect(previewText("Ig​nore", false, 50)).toBe("Ig​nore");
+  });
 });

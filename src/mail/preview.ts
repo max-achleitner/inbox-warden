@@ -1,5 +1,6 @@
 import type { ImapFlow, MessageStructureObject } from "imapflow";
 import { convert } from "html-to-text";
+import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 
 /** Bytes fetched per message for a preview. HTML gets more because <head>/<style> often fill the first KBs. */
 const PLAIN_FETCH_BYTES = 4096;
@@ -93,7 +94,7 @@ export function previewText(decoded: string, isHtml: boolean, chars: number): st
         ],
       })
     : decoded;
-  const collapsed = text.replace(/\s+/g, " ").trim();
+  const collapsed = text.replace(PREHEADER_PADDING_GLOBAL, " ").replace(/\s+/g, " ").trim();
   return collapsed.length > chars ? `${collapsed.slice(0, chars - 1).trimEnd()}…` : collapsed;
 }
 

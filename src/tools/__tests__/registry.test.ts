@@ -11,6 +11,7 @@ describe("tool registry", () => {
     expect(names).toContain("organize_by_filter");
     expect(names).toContain("get_thread");
     expect(names).toContain("forward_draft");
+    expect(names).toContain("summarize_senders");
     await h.close();
   });
 });

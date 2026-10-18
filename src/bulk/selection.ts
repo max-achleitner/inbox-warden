@@ -79,7 +79,9 @@ export class SelectionStore {
     const entry = this.entries.get(token);
     this.entries.delete(token);
     if (!entry) {
-      throw new SelectionError("This confirmation token is unknown or was already used. Nothing was changed. Run the preview again.");
+      throw new SelectionError(
+        "This confirmation token is unknown or was already used (tokens are also lost when the server restarts). Nothing was changed. Run the preview again.",
+      );
     }
     if (entry.expiresAt < this.now()) {
       throw new SelectionError("This confirmation token has expired (tokens are valid for 10 minutes). Nothing was changed. Run the preview again.");

@@ -22,14 +22,14 @@ export function register(server: McpServer, app: AppContext) {
     {
       name: "health_check",
       title: "Server health",
-      description: "Check the health of the MCP server: connection state per mail account, SMTP configuration and security scan statistics",
+      description:
+        "Check the health of the MCP server: connection state per mail account, SMTP configuration (smtp.configured) and whether sending is allowed (smtp.sendAllowed), and security scan statistics",
       tier: "always",
       input: {},
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       errorPrefix: "Error checking health",
     },
     async () => {
-      const now = new Date();
       const accounts = [];
       for (const account of app.accounts.values()) {
         let status: "healthy" | "degraded" | "unhealthy" = "unhealthy";
@@ -40,6 +40,8 @@ export function register(server: McpServer, app: AppContext) {
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
         }
+        // Taken after getClient(): when the check opens the connection, connectedSince is newer than the call
+        const checkedAt = new Date();
         const stats = account.connectionStats();
         accounts.push({
           id: account.id,
@@ -49,10 +51,10 @@ export function register(server: McpServer, app: AppContext) {
             connected: stats.connected,
             server: stats.server,
             lastActivity: stats.lastActivity?.toISOString() ?? null,
-            uptime: stats.connectedSince ? Math.floor((now.getTime() - stats.connectedSince.getTime()) / 1000) : 0,
+            uptime: stats.connectedSince ? Math.max(0, Math.floor((checkedAt.getTime() - stats.connectedSince.getTime()) / 1000)) : 0,
             reconnectCount: stats.reconnectCount,
           },
-          smtp: { configured: account.config.smtp !== undefined && account.config.permissions.send },
+          smtp: { configured: account.config.smtp !== undefined, sendAllowed: account.config.permissions.send },
         });
       }
 
@@ -67,7 +69,7 @@ export function register(server: McpServer, app: AppContext) {
         accounts,
         security: { injectionDetection: true, totalScans, totalDetections },
         server: {
-          uptime: Math.floor((now.getTime() - serverStartTime.getTime()) / 1000),
+          uptime: Math.floor((Date.now() - serverStartTime.getTime()) / 1000),
           version: VERSION,
           nodeVersion: process.version,
           platform: process.platform,

@@ -102,6 +102,11 @@ Konfiguration bearbeiten eintragen:
 
 Im Formular tragen Sie die Rechte komma-getrennt ein, z. B. `read,write` (empfohlen) oder `read,write,send`.
 
+In der Kommandozeilen-Version ändern Sie Rechte später mit `inbox-warden accounts edit <id> --allow send` bzw.
+`--deny delete`. Dort lassen sich auch das Standard-Postfach (`--default`), das Limit für Massenaktionen
+(`--max-messages <n>`, Standard 500; `--max-delete <n>`, Standard 100) und das Passwort (`--password`) ändern.
+Ein laufender Server übernimmt die Änderung nach einem Neustart.
+
 **Versand:** Wenn Sie `send` erlauben, bestimmt „Versand“, wie gesendet wird:
 `confirm` — Claude fragt vor jeder E-Mail nach (empfohlen); `direct` — ohne zusätzliche Rückfrage;
 `drafts-only` — nie senden. Zusätzlich fragt Claude Desktop vor jedem Versand nach, sofern Sie das nicht mit
@@ -112,6 +117,7 @@ Im Formular tragen Sie die Rechte komma-getrennt ein, z. B. `read,write` (empfoh
 - *„Fasse meine ungelesenen Mails von heute zusammen und sag mir, was eine Antwort braucht.“*
 - *„Such die letzte Mail von Firma Huber zum Angebot und schreib einen höflichen Antwortentwurf: Liefertermin KW 46 passt.“*
 - *„Zeig mir den ganzen Verlauf zur Rechnung 2026-117.“*
+- *„Wer schickt mir die meisten Mails?“* — Claude zählt die Absender, ohne jede Mail zu öffnen; ein guter Start zum Aufräumen.
 - *„Verschiebe alle Newsletter, die älter als 30 Tage sind, in den Ordner Newsletter.“* — Claude zeigt zuerst,
   wie viele Mails betroffen sind, und fragt nach.
 - *„Leite die Mail mit dem Lieferschein an buchhaltung@meinefirma.at weiter — als Entwurf.“*

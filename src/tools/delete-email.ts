@@ -26,7 +26,7 @@ export function register(server: McpServer, app: AppContext) {
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the emails"),
         uids: z.array(z.number().int().positive()).min(1).max(500).optional().describe("Email UIDs to delete"),
-        filter: z.object(searchFilterShape).optional().describe("Select the emails by filter instead of UIDs (preview first)"),
+        filter: z.strictObject(searchFilterShape).optional().describe("Select the emails by filter instead of UIDs (preview first)"),
         confirmToken: z.string().min(1).optional().describe("Token from a filter preview; only send it after the user agreed"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
