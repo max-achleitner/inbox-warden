@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { open, type FileHandle } from "node:fs/promises";
+import { constants, type BigIntStats } from "node:fs";
+import { open, readlink, realpath, stat, type FileHandle } from "node:fs/promises";
 import * as path from "node:path";
 import { z } from "zod";
 import type { OutgoingAttachment } from "../mail/compose.js";
@@ -72,6 +72,48 @@ async function openForReading(real: string, shown: string): Promise<FileHandle> 
   }
 }
 
+function changedError(shown: string): SandboxError {
+  return new SandboxError(`"${shown}" changed while it was being attached. Nothing was attached.`);
+}
+
+/** The path the kernel has on record for an open handle; only Linux tells Node. */
+async function handlePath(handle: FileHandle): Promise<string | undefined> {
+  if (process.platform !== "linux") return undefined;
+  try {
+    return await readlink(`/proc/self/fd/${handle.fd}`);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the handle still has the file that resolveInside() approved as `real`. Checking and
+ * opening are two steps, so another local process could swap a folder on the path for a link
+ * in between. Linux names the opened file directly. Elsewhere the path must still resolve to
+ * itself and to the same file as the handle; that catches a link swapped in, and one swapped
+ * back, but not a process that flips it again between the realpath() and stat() below.
+ */
+async function opensApprovedFile(handle: FileHandle, held: BigIntStats, real: string): Promise<boolean> {
+  const opened = await handlePath(handle);
+  if (opened !== undefined) return opened === real;
+  if ((await realpath(real)) !== real) return false;
+  const current = await stat(real, { bigint: true });
+  return held.dev === current.dev && held.ino === current.ino;
+}
+
+/** Read exactly `size` bytes, the size the limit was checked against; a file that grew or shrank is refused. */
+async function readCheckedSize(handle: FileHandle, size: number, shown: string): Promise<Buffer> {
+  const buffer = Buffer.alloc(size + 1);
+  let filled = 0;
+  while (filled < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, filled, buffer.length - filled, filled);
+    if (bytesRead === 0) break;
+    filled += bytesRead;
+  }
+  if (filled !== size) throw changedError(shown);
+  return buffer.subarray(0, size);
+}
+
 function checkFilename(filename: string): void {
   if (/[/\\]|\.\./.test(filename)) {
     throw new SandboxError(`Invalid attachment filename "${filename}" — must not contain /, \\, or .. Nothing was attached.`);
@@ -95,15 +137,17 @@ export async function resolveOutgoingAttachments(
       // Size check and read go through one handle, so the file cannot be swapped in between.
       const handle = await openForReading(real, input.path);
       try {
-        const info = await handle.stat();
+        const info = await handle.stat({ bigint: true });
+        if (!(await opensApprovedFile(handle, info, real))) throw changedError(input.path);
         if (!info.isFile()) throw new SandboxError(`"${input.path}" is not a file. Nothing was attached.`);
-        totalBytes += info.size;
+        const size = Number(info.size);
+        totalBytes += size;
         if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) break;
         const filename = input.filename ?? path.basename(real);
         checkFilename(filename);
         result.push({
           filename,
-          content: (await handle.readFile()).toString("base64"),
+          content: (await readCheckedSize(handle, size, input.path)).toString("base64"),
           contentType: input.contentType ?? contentTypeFor(filename),
         });
       } finally {

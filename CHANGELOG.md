@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
+- A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added
