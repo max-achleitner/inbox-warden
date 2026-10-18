@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 - Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
 - A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
 - Folder rules now also hide Gmail's All Mail, Starred and Important (any folder the server lists as `\All`, `\Flagged` or `\Important`) as soon as they hide any folder. Before, `search_emails` and `read_email` could read the mail of a denied label through All Mail.
+- `search_emails`, `read_email` and `get_thread` scan the display names of From, Reply-To, To and Cc for prompt injection (`location: "address_name"`). A manipulative sender name passed unscanned and never raised the send confirmation.
+- Attachment paths are checked against `files.attachmentDirs` by their text before the file system is touched. On Windows, resolving a UNC path such as `\\host\share\x.pdf` alone sent the user's NTLM credentials to that host, even though the attachment was refused afterwards.
 - Previews of `organize_by_filter` and `delete_email` scan the sample subjects for prompt injection (`_injectionScan`), and a finding there or in a sender name raises the one-hour send confirmation like any other read.
 
 ### Added

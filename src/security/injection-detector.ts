@@ -35,7 +35,7 @@ export type InjectionType =
 export interface InjectionFinding {
   type: InjectionType;
   description: string;
-  location: "subject" | "body" | "html" | "headers" | "attachment_name";
+  location: "subject" | "body" | "html" | "headers" | "attachment_name" | "address_name";
   snippet: string;
   confidence: number;
 }
@@ -284,6 +284,8 @@ export interface ScanInput {
   html?: string;
   headers?: string;
   attachmentNames?: string[];
+  /** Display names of From, Reply-To, To and Cc, which the tools show next to the addresses. */
+  addressNames?: string[];
 }
 
 /**
@@ -303,6 +305,9 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
     for (const name of input.attachmentNames) {
       fields.push({ text: name, location: "attachment_name" });
     }
+  }
+  for (const name of input.addressNames ?? []) {
+    if (name) fields.push({ text: name, location: "address_name" });
   }
 
   for (const { text, location } of fields) {

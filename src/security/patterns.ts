@@ -10,7 +10,7 @@ export interface PatternDef {
   pattern: RegExp;
   description: string;
   confidence: number;
-  locations: Array<"subject" | "body" | "html" | "headers" | "attachment_name">;
+  locations: Array<"subject" | "body" | "html" | "headers" | "attachment_name" | "address_name">;
 }
 
 // ─── A. Direct Instruction Injection ─────────────────────────────────────────
@@ -22,7 +22,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\[\s*(SYSTEM|ADMIN|OVERRIDE|INSTRUCTION|ANWEISUNG)\s*\]/i,
     description: "System/admin tag in brackets",
     confidence: 0.7,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "system_prompt_override",
@@ -43,7 +43,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\b(?:ignore (?:all )?previous|ignoriere (?:alle )?vorherigen?)\s+(?:instructions?|prompts?|anweisungen?|context)\b/i,
     description: "Ignore previous instructions",
     confidence: 0.9,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "instruction_injection",
@@ -71,7 +71,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\b(?:disregard|discard|forget|override)\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|context|rules?|guidelines?)\b/i,
     description: "Disregard/override instructions",
     confidence: 0.9,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "instruction_injection",

@@ -143,7 +143,11 @@ export function register(server: McpServer, app: AppContext) {
         }
         const own = stripQuotedHistory(fullText(parsed).text);
         const body = truncate(own.text, maxCharsPerMessage);
-        const scan = scanForInjection({ subject: parsed.subject, body: own.text });
+        const scan = scanForInjection({
+          subject: parsed.subject,
+          body: own.text,
+          addressNames: [...flattenAddresses(parsed.from), ...flattenAddresses(parsed.to)].map((a) => a.name),
+        });
         risks.push(scan.riskLevel);
         messages.push({
           folder: entry.folder,
