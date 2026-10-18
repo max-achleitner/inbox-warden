@@ -31,6 +31,35 @@ describe("organize_by_filter", () => {
     await h.close();
   });
 
+  it("reports new UIDs for small moves, but only the count for large ones", async () => {
+    const { imap, h } = await setup();
+    const small = await h.call("organize_by_filter", moveNews);
+    const smallRes = await h.call("organize_by_filter", { ...moveNews, confirmToken: small.json.confirmToken });
+    expect(Object.keys(smallRes.json.uidMapping)).toHaveLength(3);
+
+    for (let i = 0; i < 60; i++) imap.addMessage("INBOX", raw("bulk@shop.example", `b${i}`));
+    const bulk = { filter: { from: "bulk@shop.example" }, action: { type: "move", destination: "archive" } };
+    const big = await h.call("organize_by_filter", bulk);
+    const bigRes = await h.call("organize_by_filter", { ...bulk, confirmToken: big.json.confirmToken });
+    expect(bigRes.json).toMatchObject({ success: true, count: 60 });
+    expect(bigRes.json.uidMapping).toBeUndefined();
+    expect(bigRes.json.uidMappingOmitted).toMatch(/search "Archive"/);
+    await h.close();
+  });
+
+  it("previews the senders of the whole selection, so mixed matches stand out", async () => {
+    const { h } = await setup();
+    const res = await h.call("organize_by_filter", {
+      filter: { before: "2030-01-01" },
+      action: { type: "move", destination: "archive" },
+    });
+    expect(res.json.topSenders).toEqual([
+      expect.objectContaining({ sender: "news@shop.example", count: 3 }),
+      expect.objectContaining({ sender: "anna@example.com", count: 1 }),
+    ]);
+    await h.close();
+  });
+
   it("applies exactly the previewed messages, not later arrivals", async () => {
     const { imap, h } = await setup();
     const preview = await h.call("organize_by_filter", moveNews);

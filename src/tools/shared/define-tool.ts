@@ -80,7 +80,9 @@ export function defineTool<S extends z.ZodRawShape>(
 ): void {
   if (spec.tier !== "always" && !app.anyAccountAllows(spec.tier)) return;
 
-  const inputSchema = z.object({ ...spec.input, account: accountParam(app) });
+  // Strict: an unknown parameter (typo, stale client schema) fails instead of being dropped, because a
+  // dropped filter widens the selection — up to the whole folder.
+  const inputSchema = z.strictObject({ ...spec.input, account: accountParam(app) });
 
   server.registerTool(
     spec.name,

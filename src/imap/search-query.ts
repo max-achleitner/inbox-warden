@@ -37,7 +37,7 @@ export const searchFilterShape = {
     ),
 };
 
-const searchFilterSchema = z.object(searchFilterShape);
+const searchFilterSchema = z.strictObject(searchFilterShape);
 export type SearchFilters = z.infer<typeof searchFilterSchema>;
 
 export class UnsupportedFilterError extends Error {

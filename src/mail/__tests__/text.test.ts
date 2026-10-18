@@ -41,6 +41,12 @@ describe("boundedText", () => {
 });
 
 describe("fullText", () => {
+  it("drops newsletter preheader padding from text and HTML bodies", () => {
+    const pad = "͏‌ ".repeat(50);
+    expect(fullText({ text: `Hallo${pad}Welt` }).text).toBe("Hallo Welt");
+    expect(fullText({ html: `<p>Hallo</p><div>${"&#847;&zwnj;&nbsp;".repeat(50)}</div><p>Welt</p>` }).text).not.toMatch(/[͏‌]/);
+  });
+
   it("returns an empty string for messages without a body", () => {
     expect(fullText({})).toEqual({ text: "", generated: false });
   });

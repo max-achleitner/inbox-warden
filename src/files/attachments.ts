@@ -7,13 +7,13 @@ import { SandboxError, resolveInside } from "./sandbox.js";
 
 export const MAX_ATTACHMENT_TOTAL_BYTES = 25 * 1024 * 1024; // 25MB
 
-const pathAttachment = z.object({
+const pathAttachment = z.strictObject({
   path: z.string().min(1).describe("File in one of the configured attachment folders (relative to the folder, or absolute)"),
   filename: z.string().min(1).optional().describe("Name shown to the recipient (default: the file name)"),
   contentType: z.string().min(1).optional().describe("MIME type (default: derived from the file extension)"),
 });
 
-const base64Attachment = z.object({
+const base64Attachment = z.strictObject({
   filename: z.string().describe("Attachment filename"),
   content: z.string().describe("Base64-encoded file content"),
   contentType: z.string().describe("MIME type, e.g. application/pdf"),

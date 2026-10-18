@@ -1,4 +1,5 @@
 import { convert } from "html-to-text";
+import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 
 export interface TextSource {
   text?: string;
@@ -26,10 +27,11 @@ export function htmlToText(html: string): string {
   });
 }
 
-/** The message text; generated from HTML when there is no text/plain part. */
+/** The message text; generated from HTML when there is no text/plain part. Preheader padding is dropped. */
 export function fullText(parsed: TextSource): { text: string; generated: boolean } {
-  if (parsed.text) return { text: parsed.text, generated: false };
-  if (parsed.html) return { text: htmlToText(parsed.html), generated: true };
+  const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
+  if (parsed.text) return { text: clean(parsed.text), generated: false };
+  if (parsed.html) return { text: clean(htmlToText(parsed.html)), generated: true };
   return { text: "", generated: false };
 }
 

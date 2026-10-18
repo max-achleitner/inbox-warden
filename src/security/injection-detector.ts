@@ -12,6 +12,7 @@ import {
   BIDI_OVERRIDES_GLOBAL,
   INVISIBLE_CLUSTER_MIN,
   INVISIBLE_RATIO_THRESHOLD,
+  PREHEADER_PADDING_GLOBAL,
   BASE64_BLOCK,
   URL_ENCODED_SEQUENCE,
   HEX_SEQUENCE,
@@ -168,16 +169,17 @@ function scanInvisibleText(
   location: InjectionFinding["location"],
   findings: InjectionFinding[],
 ): void {
-  // Check for zero-width character clusters
-  const invisibleMatches = text.match(INVISIBLE_CHARS_GLOBAL);
+  // Check for zero-width character clusters (preheader padding of newsletters does not count)
+  const scanned = text.replace(PREHEADER_PADDING_GLOBAL, " ");
+  const invisibleMatches = scanned.match(INVISIBLE_CHARS_GLOBAL);
   if (invisibleMatches && invisibleMatches.length >= INVISIBLE_CLUSTER_MIN) {
     // Check ratio
-    const visibleLen = text.replace(INVISIBLE_CHARS_GLOBAL, "").replace(BIDI_OVERRIDES_GLOBAL, "").length;
+    const visibleLen = scanned.replace(INVISIBLE_CHARS_GLOBAL, "").replace(BIDI_OVERRIDES_GLOBAL, "").length;
     const ratio = visibleLen > 0 ? invisibleMatches.length / visibleLen : 1;
 
     if (ratio >= INVISIBLE_RATIO_THRESHOLD || invisibleMatches.length >= 5) {
       // Check if invisible chars appear within/around visible text (not just at boundaries)
-      const interleaved = /\S[\u200B\u200C\u200D\uFEFF\u2060\u180E]+\S/.test(text);
+      const interleaved = /\S[\u200B\u200C\u200D\uFEFF\u2060\u180E]+\S/.test(scanned);
       findings.push({
         type: "invisible_text",
         description: `${invisibleMatches.length} zero-width characters detected${interleaved ? " interleaved with visible text" : ""}`,

@@ -99,6 +99,11 @@ operating system's keychain. Then add this in Claude Desktop under Settings → 
 
 In the form, enter the permissions separated by commas, e.g. `read,write` (recommended) or `read,write,send`.
 
+With the command-line version, change permissions later with `inbox-warden accounts edit <id> --allow send` or
+`--deny delete`. The same command changes the default mailbox (`--default`), the limit for bulk actions
+(`--max-messages <n>`, default 500; `--max-delete <n>`, default 100) and the password (`--password`).
+A running server picks up the change after a restart.
+
 **Sending:** when `send` is allowed, "Sending" decides how: `confirm` — Claude asks before every email
 (recommended); `direct` — no extra question; `drafts-only` — never send. Claude Desktop also asks before every
 send unless you switched that off with "Always allow". We recommend **not** using "Always allow" for sending and deleting.
@@ -108,6 +113,7 @@ send unless you switched that off with "Always allow". We recommend **not** usin
 - *"Summarise today's unread mail and tell me what needs a reply."*
 - *"Find the last email from Huber Ltd about the quote and draft a polite reply: delivery in week 46 works."*
 - *"Show me the whole conversation about invoice 2026-117."*
+- *"Who sends me the most email?"* — Claude counts the senders without opening each message; a good start for a clean-up.
 - *"Move all newsletters older than 30 days into the Newsletter folder."* — Claude first shows how many messages
   match and asks before doing it.
 - *"Forward the email with the delivery note to accounting@mycompany.com — as a draft."*

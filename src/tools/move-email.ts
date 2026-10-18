@@ -8,6 +8,7 @@ import { existingUids, strictMove } from "../imap/strict.js";
 import { uniqueUids } from "../imap/flags.js";
 import { defineTool } from "./shared/define-tool.js";
 import { errorResult, jsonResult } from "./shared/result.js";
+import { uidMappingFields } from "./shared/uid-mapping.js";
 
 export function register(server: McpServer, app: AppContext) {
   defineTool(
@@ -56,7 +57,7 @@ export function register(server: McpServer, app: AppContext) {
           moved: present.length,
           uids: present,
           ...(missingUids.length > 0 ? { missingUids } : {}),
-          ...(uidMap.size > 0 ? { uidMapping: Object.fromEntries(uidMap) } : {}),
+          ...uidMappingFields(uidMap, target),
         });
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }

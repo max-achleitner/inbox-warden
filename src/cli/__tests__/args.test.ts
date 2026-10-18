@@ -33,7 +33,7 @@ describe("parseCliArgs", () => {
     [["accounts", "login", "work", "--no-browser", "--port", "99999"], /between 1 and 65535/],
     [["accounts", "login", "work", "--no-browser", "--listen-host"], /needs a value/],
     [["accounts", "login", "work", "--verbose"], /Unknown option: --verbose/],
-    [["accounts"], /expects "list" or "login <id>"/],
+    [["accounts"], /expects "list", "login <id>" or "edit <id>"/],
     [["doctor", "--fix"], /Unknown option for doctor/],
     [["frobnicate"], /Unknown command: frobnicate/],
   ])("rejects %j", (argv, message) => {

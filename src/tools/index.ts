@@ -22,6 +22,7 @@ import * as saveAttachment from "./save-attachment.js";
 import * as organizeByFilter from "./organize-by-filter.js";
 import * as getThread from "./get-thread.js";
 import * as forwardDraft from "./forward-draft.js";
+import * as summarizeSenders from "./summarize-senders.js";
 
 export type ToolRegistration = (server: McpServer, app: AppContext) => void;
 
@@ -39,6 +40,7 @@ export const ALL_TOOLS: ToolRegistration[] = [
   downloadAttachment.register,
   getQuota.register,
   getThread.register,
+  summarizeSenders.register,
   // write
   markAsRead.register,
   moveEmail.register,

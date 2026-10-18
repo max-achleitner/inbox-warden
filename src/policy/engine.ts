@@ -7,6 +7,7 @@ import type { Policy } from "./schema.js";
 import { folderAllowed } from "./folder-rules.js";
 import { domainOf, evaluateRecipients } from "./recipients.js";
 import { SendCounter } from "./rate-limit.js";
+import { SERVER_NAME } from "../version.js";
 
 export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 export type BulkAction = "move" | "mark" | "flag" | "delete";
@@ -166,7 +167,9 @@ export class PolicyEngine {
       throw new PolicyDeniedError(
         `${count} messages match, more than the limit of ${limit} per operation` +
           `${action === "delete" ? " for deleting" : ""} set by your administrator's policy. Nothing was changed. ` +
-          "Narrow the selection (for example with since/before or a sender) and try again.",
+          "Do not split the same change into smaller batches. Choose a narrower selection only if that is what the user actually wants " +
+          "(one sender or one topic), or let the mailbox owner raise the limit with " +
+          `"${SERVER_NAME} accounts edit <account> ${action === "delete" ? "--max-delete" : "--max-messages"} <n>".`,
         "bulk",
       );
     }

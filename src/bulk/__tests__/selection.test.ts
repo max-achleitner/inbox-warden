@@ -18,6 +18,11 @@ describe("SelectionStore", () => {
     expect(() => store.consume(token, { accountId: "main", folder: "INBOX", action: base.action })).toThrow(/already used/);
   });
 
+  it("explains that tokens do not survive a server restart", () => {
+    const store = new SelectionStore();
+    expect(() => store.consume("never-issued", { accountId: "main", folder: "INBOX", action: base.action })).toThrow(/restart/);
+  });
+
   it("rejects a token for a different action and burns it", () => {
     const store = new SelectionStore();
     const { token } = store.issue(base);

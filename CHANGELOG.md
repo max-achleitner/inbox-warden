@@ -17,8 +17,17 @@ All notable changes to this project are documented here. The format follows
 - Hardening: Host/Origin validation, optional IP allowlist, proxy-aware client IP, rate limits, body limit, security headers; every call is audited with the caller's identity.
 - Docker image (distroless, non-root, read-only) and Caddy compose stack; container secret store with Docker secrets and an encrypted state file.
 - Docs: `docs/deploy/http.md`, `docs/security/remote-mode.md`.
+- `summarize_senders` (read): counts the emails of a folder per sender address or domain, with oldest and newest date; reads only envelopes.
+- Bulk previews of `organize_by_filter` and `delete_email` list the senders of the whole selection (`topSenders`), so a stray match stands out before anything is changed.
+- `gmailQuery` search filter for Gmail and Google Workspace accounts (Gmail search syntax via X-GM-RAW).
+- `search_emails` `compact: true` leaves out Message-ID, recipients and size.
+- `inbox-warden accounts edit <id>` changes permissions, the default mailbox, bulk limits (`--max-messages`, `--max-delete`) and the password without the wizard.
 
 ### Changed
+- Unknown tool parameters and filter keys are rejected instead of being dropped. A dropped filter widened the selection, up to the whole folder.
+- Moves of more than 50 emails report the count instead of every old→new UID pair (`uidMappingOmitted`).
+- `health_check`: `smtp.configured` now only says whether an SMTP server is set up; the new `smtp.sendAllowed` says whether sending is permitted.
+- The bulk-limit denial no longer suggests narrowing the selection by date (which amounts to splitting the change); it names `accounts edit` for raising the limit.
 - Package renamed from `imap-mcp-server` to `inbox-warden`.
 - Microsoft 365 and Outlook.com sign-in is a preview: no Microsoft client ID ships with Inbox Warden, so an administrator registers the app once (see `docs/guide/providers.md`); not yet tested against a real Microsoft 365 tenant.
 - Moving emails into Trash with `move_email` or `organize_by_filter` now needs the delete permission and counts against `bulk.maxDelete`, like `delete_email`. The same applies to moving a folder into Trash with `rename_folder` (all its messages, subfolders included, count).
@@ -29,6 +38,9 @@ All notable changes to this project are documented here. The format follows
 - OAuth remote mode: `email` principal rules only match verified addresses (`email` with `email_verified`/`xms_edov`, or Entra `upn` of members); `preferred_username` is no longer used.
 
 ### Fixed
+- Newsletter preheader padding (`&#847;&zwnj;&nbsp;` runs) no longer counts as hidden text in the injection scan, and previews and `read_email` text drop it.
+- `health_check` no longer reports a negative IMAP uptime when the check itself opens the connection.
+- An unknown confirmation token explains that tokens are lost when the server restarts.
 - Moves on servers without MOVE/UIDPLUS no longer erase other messages already marked as deleted.
 - Attachments named like `invoice.exe.` are blocked like `invoice.exe`.
 - Certificates issued by a private CA can be pinned.

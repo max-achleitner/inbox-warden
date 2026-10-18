@@ -38,11 +38,15 @@ export function register(server: McpServer, app: AppContext) {
         offset: z.number().int().min(0).default(0).describe("Skip this many results (for pagination)"),
         includePreview: z.boolean().default(true).describe("Include the first characters of each message body"),
         previewChars: z.number().int().min(50).max(500).default(200).describe("Maximum length of each preview"),
+        compact: z
+          .boolean()
+          .default(false)
+          .describe("Leave out Message-ID, recipients and size of each email; saves tokens when going through many emails"),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       errorPrefix: "Error searching emails",
     },
-    async ({ folder, maxResults, offset, includePreview, previewChars, ...filters }, inv) => {
+    async ({ folder, maxResults, offset, includePreview, previewChars, compact, ...filters }, inv) => {
       const client = await inv.account.getClient();
       const path = await resolvePolicyFolder(inv.account, client, folder);
       const lock = await client.getMailboxLock(path);
@@ -78,14 +82,14 @@ export function register(server: McpServer, app: AppContext) {
           const _injectionScan = subject || preview ? scanForInjection({ subject, body: preview }) : undefined;
           messages.push({
             uid: msg.uid,
-            messageId: msg.envelope?.messageId,
+            ...(compact ? {} : { messageId: msg.envelope?.messageId }),
             subject,
             from: msg.envelope?.from?.map(parseEnvelopeAddress),
-            to: msg.envelope?.to?.map(parseEnvelopeAddress),
+            ...(compact ? {} : { to: msg.envelope?.to?.map(parseEnvelopeAddress) }),
             date: envelopeDate(msg.envelope?.date),
             flags: Array.from(msg.flags || []),
             hasAttachment: hasAttachmentPart(msg.bodyStructure),
-            size: msg.size,
+            ...(compact ? {} : { size: msg.size }),
             ...(includePreview ? { preview: preview ?? "" } : {}),
             ...(_injectionScan?.hasInjection ? { _injectionScan } : {}),
           });

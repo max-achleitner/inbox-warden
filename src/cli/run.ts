@@ -11,12 +11,13 @@ import { probeCertificate } from "../onboarding/cert-probe.js";
 import { testAccountConnection } from "../onboarding/connection-test.js";
 import { errorMessage } from "../errors.js";
 import { auditDir } from "../audit/setup.js";
-import { parseCliArgs, type AccountsLoginCommand } from "./args.js";
+import { parseCliArgs, type AccountsEditCommand, type AccountsLoginCommand } from "./args.js";
 import { runAuditVerify } from "./audit.js";
 import { formatAccountList, runDoctor } from "./doctor.js";
 import { runAccountsLogin } from "./login.js";
 import { detectLocale, t, type Locale } from "./messages.js";
-import { createTerminalPrompter } from "./prompt.js";
+import { runAccountsEdit } from "./edit.js";
+import { createTerminalPrompter, type Prompter } from "./prompt.js";
 import { runSetup } from "./setup.js";
 
 /** What every CLI command needs. Tests replace parts; Plan 7 replaces `createSecrets` for containers. */
@@ -100,6 +101,24 @@ export async function accountsListCommand(deps: CliDeps): Promise<number> {
   }
 }
 
+export async function accountsEditCommand(cmd: AccountsEditCommand, deps: CliDeps): Promise<number> {
+  const secrets = deps.createSecrets(deps.env);
+  if (deps.env.IMAP_MCP_EMAIL) deps.print(t(deps.locale, "envMode"));
+  let prompter: Prompter | undefined;
+  try {
+    return await runAccountsEdit(cmd, {
+      locale: deps.locale,
+      print: deps.print,
+      secrets,
+      loadConfig: () => loadFileConfig(deps.env, secrets),
+      saveConfig: (config) => saveConfig(config, deps.env),
+      readSecret: (question) => (prompter ??= createTerminalPrompter(deps.locale)).secret(question),
+    });
+  } finally {
+    prompter?.close();
+  }
+}
+
 export async function accountsLoginCommand(cmd: AccountsLoginCommand, deps: CliDeps): Promise<number> {
   const secrets = deps.createSecrets(deps.env);
   return runAccountsLogin(cmd, {
@@ -123,7 +142,7 @@ export async function auditVerifyCommand(deps: CliDeps, target?: string): Promis
 }
 
 /**
- * `inbox-warden [setup | doctor | accounts list | accounts login <id> … | audit verify [<folder|file>]]`. Returns the exit code.
+ * `inbox-warden [setup | doctor | accounts list | accounts login <id> … | accounts edit <id> … | audit verify [<folder|file>]]`. Returns the exit code.
  * New commands: extend CliCommand + parseCliArgs (args.ts), add a `case` here and a `<name>Command(deps)` function.
  */
 export async function runCli(argv: string[], deps: CliDeps = defaultCliDeps()): Promise<number> {
@@ -137,6 +156,8 @@ export async function runCli(argv: string[], deps: CliDeps = defaultCliDeps()): 
       return accountsListCommand(deps);
     case "accounts-login":
       return accountsLoginCommand(cmd, deps);
+    case "accounts-edit":
+      return accountsEditCommand(cmd, deps);
     case "audit-verify":
       return auditVerifyCommand(deps, cmd.path);
     case "help":
