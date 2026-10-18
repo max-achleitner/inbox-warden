@@ -50,6 +50,7 @@ export function register(server: McpServer, app: AppContext) {
       inv.account.policy.checkAttachment(filename, attachment.size, true);
       const target = await resolveDownloadTarget(app.config.files.downloadDir, filename);
       await writeFile(target, attachment.content, { flag: "wx", mode: 0o600 });
+      await markAsDownloaded(target);
       const sha256 = createHash("sha256").update(attachment.content).digest("hex");
       const nameScan = scanForInjection({ attachmentNames: [filename] });
       inv.record({ injectionRisk: nameScan.riskLevel });
@@ -66,4 +67,17 @@ export function register(server: McpServer, app: AppContext) {
       });
     },
   );
+}
+
+/**
+ * Windows' Mark of the Web: Office then blocks macros from the internet, and SmartScreen and the
+ * help viewer treat the file as downloaded, whatever its extension.
+ */
+async function markAsDownloaded(file: string): Promise<void> {
+  if (process.platform !== "win32") return;
+  try {
+    await writeFile(`${file}:Zone.Identifier`, "[ZoneTransfer]\r\nZoneId=3\r\n");
+  } catch {
+    // FAT drives and some network shares have no alternate data streams; the file stays unmarked
+  }
 }
