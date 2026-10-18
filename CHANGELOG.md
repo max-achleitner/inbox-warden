@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 - `search_emails`, `read_email` and `get_thread` scan the display names of From, Reply-To, To and Cc for prompt injection (`location: "address_name"`). A manipulative sender name passed unscanned and never raised the send confirmation.
 - Attachment paths are checked against `files.attachmentDirs` by their text before the file system is touched. On Windows, resolving a UNC path such as `\\host\share\x.pdf` alone sent the user's NTLM credentials to that host, even though the attachment was refused afterwards.
 - `save_attachment` also refuses `.ppsm`, `.xlsb`, `.chm`, `.xll`, `.msc`, `.appxbundle`, `.msixbundle` and `.appinstaller`, and on Windows marks every saved file as downloaded from the internet (`Zone.Identifier`, Mark of the Web), so Office blocks macros in older formats such as `.doc` and SmartScreen applies.
+- `send_draft` refuses a draft with more than one sender (two `From` headers, or several addresses in one). The check read the last `From`, while many mail programs show the first.
 - Previews of `organize_by_filter` and `delete_email` scan the sample subjects for prompt injection (`_injectionScan`), and a finding there or in a sender name raises the one-hour send confirmation like any other read.
 
 ### Added
