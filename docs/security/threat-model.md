@@ -35,7 +35,7 @@
                                                          Claude client (approval prompts) ◄─┘──► LLM provider (Anthropic)
 ```
 
-1. **Mail server ↔ imap-mcp:** TLS is mandatory (implicit TLS or STARTTLS that cannot be stripped; TLS ≥ 1.2; certificate pinning for self-signed servers).
+1. **Mail server ↔ imap-mcp:** TLS is mandatory (implicit TLS or STARTTLS that cannot be stripped; TLS ≥ 1.2; certificate pinning for self-signed servers and certificates from a private CA).
 2. **imap-mcp ↔ client/model:** every tool call is checked against the account's permission tiers and policy *inside the server*. Client approvals are an extra layer, not the only one.
 3. **Email content ↔ model:** content is returned as data with injection-scan metadata; the server never executes instructions found in mail.
 
@@ -49,7 +49,7 @@
 | T4 | Privilege escalation between tiers | Using `flag_email \Deleted` to delete without the delete tier | `\Deleted` reserved for `delete_email`; all tools pass one choke point that checks tier and policy per account | — |
 | T5 | Access to sensitive folders | Model reads "HR" or "Geschäftsführung" | Folder allow/deny patterns enforced on the resolved server path (alias/case/delimiter-proof); hidden folders are not listed or suggested; while any folder is hidden, aggregate folders (Gmail's All Mail, Starred, Important) are hidden too | Content already copied into visible folders, including a Gmail message that also carries a visible label |
 | T6 | Credential theft | Password in a config file or a debug log | Passwords/tokens in the OS keychain or in Claude Desktop's encrypted extension settings; config file mode 0600; logs redact secrets and never contain message content; IMAP protocol logging off by default and redacted when on | Malware running as the same OS user can read the keychain |
-| T7 | Network attacker | STARTTLS stripping, rogue certificate | Mandatory STARTTLS; TLS ≥ 1.2; system CA validation; SHA-256 pinning for self-signed servers; never `rejectUnauthorized: false` | Compromised public CA |
+| T7 | Network attacker | STARTTLS stripping, rogue certificate | Mandatory STARTTLS; TLS ≥ 1.2; system CA validation; SHA-256 pinning for self-signed servers and private-CA certificates; never `rejectUnauthorized: false` | Compromised public CA |
 | T8 | Sender spoofing | Draft with a forged From sent via `send_draft` | From must be a configured identity of the account | Mail server allowing arbitrary From |
 | T9 | Repudiation / no evidence | "The AI deleted it, not me" | Hash-chained audit log (who, which account, which tool, which folder/UIDs/recipients/Message-ID, outcome, confirmation method); `audit verify`; minimal level for privacy | A local administrator deleting the whole log (detectable only with an external copy of the head hash) |
 | T10 | Supply chain | Malicious dependency update | Minimal dependencies, lockfile + `npm ci`, signed releases, provenance, SBOM, Dependabot with cooldown (Plan 6) | Zero-day in a dependency |

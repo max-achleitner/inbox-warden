@@ -6,9 +6,7 @@
 import { normalizeToASCII, hasNonAscii } from "./unicode-normalizer.js";
 import {
   ALL_PATTERNS,
-  INVISIBLE_CHARS,
   INVISIBLE_CHARS_GLOBAL,
-  BIDI_OVERRIDES,
   BIDI_OVERRIDES_GLOBAL,
   INVISIBLE_CLUSTER_MIN,
   INVISIBLE_RATIO_THRESHOLD,
@@ -18,7 +16,6 @@ import {
   HEX_SEQUENCE,
   computeRiskLevel,
 } from "./patterns.js";
-import type { PatternDef } from "./patterns.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

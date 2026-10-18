@@ -250,7 +250,6 @@ export const ALL_PATTERNS: PatternDef[] = [
 // ─── Invisible character detection thresholds ────────────────────────────────
 
 /** Zero-width and invisible Unicode characters */
-export const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/;
 export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 
 /**
@@ -260,7 +259,6 @@ export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 export const PREHEADER_PADDING_GLOBAL = /(?:[͏­​‌‍⁠﻿᠎]+\s+){2,}/g;
 
 /** Bidirectional text override characters */
-export const BIDI_OVERRIDES = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 export const BIDI_OVERRIDES_GLOBAL = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** Minimum cluster of invisible chars to flag (scattered single chars are common) */
