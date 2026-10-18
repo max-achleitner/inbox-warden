@@ -84,6 +84,7 @@ describe("PolicyEngine", () => {
   it.each([
     "setup.exe", "Rechnung.pdf.exe", "makro.XLSM", "script.ps1", "disk.iso", "invoice.exe.", "invoice.exe ", "invoice.exe. .",
     "vorlage.dotm", "link.url", "app.apk", "hook.dll", "notiz.one",
+    "folien.ppsm", "daten.xlsb", "handbuch.chm", "addin.xll", "konsole.msc", "app.appxbundle", "app.msixbundle", "update.appinstaller",
   ])("treats %s as executable (one list for every check)", (name) => {
     expect(isExecutableFilename(name)).toBe(true);
   });

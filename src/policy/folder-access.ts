@@ -8,8 +8,8 @@ export interface PolicyHolder {
 }
 
 /** Folders the account's policy lets the AI see. */
-export function visibleFolders<T extends { path: string; delimiter?: string }>(account: PolicyHolder, folders: T[]): T[] {
-  return folders.filter((f) => account.policy.folderAllowed(f.path, f.delimiter));
+export function visibleFolders<T extends { path: string; delimiter?: string; aggregate?: true }>(account: PolicyHolder, folders: T[]): T[] {
+  return folders.filter((f) => account.policy.folderAllowed(f.path, f.delimiter, f.aggregate));
 }
 
 /**
@@ -34,7 +34,7 @@ export async function resolvePolicyFolder(
     if (!(err instanceof FolderNotFoundError)) throw err;
   }
   if (resolved) {
-    if (!account.policy.folderAllowed(resolved.path, resolved.delimiter)) {
+    if (!account.policy.folderAllowed(resolved.path, resolved.delimiter, resolved.aggregate)) {
       throw new PolicyDeniedError(`Access to the folder "${requested}" is blocked by your administrator's policy.`, "folders");
     }
     return resolved.path;

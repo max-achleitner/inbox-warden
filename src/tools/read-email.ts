@@ -7,6 +7,7 @@ import { scanForInjection } from "../security/injection-detector.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage } from "../imap/strict.js";
 import { boundedText } from "../mail/text.js";
+import { flattenAddresses } from "../mail/reply.js";
 import { recordScan } from "./health-check.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
@@ -54,6 +55,7 @@ export function register(server: McpServer, app: AppContext) {
         body: parsed.text || undefined,
         html: parsed.html || undefined,
         attachmentNames: parsed.attachments.map((a) => a.filename).filter((n): n is string => Boolean(n)),
+        addressNames: [parsed.from, parsed.replyTo, parsed.to, parsed.cc].flatMap((field) => flattenAddresses(field)).map((a) => a.name),
       });
       recordScan(_injectionScan.hasInjection);
       if (_injectionScan.hasInjection) {

@@ -64,6 +64,13 @@ describe("save_attachment", () => {
     await h.close();
   });
 
+  it.skipIf(process.platform !== "win32")("marks a saved file as downloaded from the internet (Mark of the Web)", async () => {
+    const { h } = await setup();
+    const res = await h.call("save_attachment", { uid: 1, attachmentIndex: 0 });
+    expect(await readFile(`${res.json.path}:Zone.Identifier`, "utf8")).toMatch(/\[ZoneTransfer\]\r?\nZoneId=3/);
+    await h.close();
+  });
+
   it("never saves executables, even with a disguised path-like name", async () => {
     const { h } = await setup();
     const res = await h.call("save_attachment", { uid: 1, attachmentIndex: 1 });

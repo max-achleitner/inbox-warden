@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
+- A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
+- Folder rules now also hide Gmail's All Mail, Starred and Important (any folder the server lists as `\All`, `\Flagged` or `\Important`) as soon as they hide any folder. Before, `search_emails` and `read_email` could read the mail of a denied label through All Mail.
+- `search_emails`, `read_email` and `get_thread` scan the display names of From, Reply-To, To and Cc for prompt injection (`location: "address_name"`). A manipulative sender name passed unscanned and never raised the send confirmation.
+- Attachment paths are checked against `files.attachmentDirs` by their text before the file system is touched. On Windows, resolving a UNC path such as `\\host\share\x.pdf` alone sent the user's NTLM credentials to that host, even though the attachment was refused afterwards.
+- `save_attachment` also refuses `.ppsm`, `.xlsb`, `.chm`, `.xll`, `.msc`, `.appxbundle`, `.msixbundle` and `.appinstaller`, and on Windows marks every saved file as downloaded from the internet (`Zone.Identifier`, Mark of the Web), so Office blocks macros in older formats such as `.doc` and SmartScreen applies.
+- `audit verify` no longer accepts recent records removed from the start of the log behind a forged retention record. Each new record hashes the time of its predecessor (`prevTs`), and the oldest remaining record must prove that the removed ones were older than `audit.retentionDays`; the command prints the period it applied.
+- Browser sign-in on Windows starts `rundll32.exe` by its full System32 path; a bare name is looked up in the working directory first.
+- `send_draft` refuses a draft with more than one sender (two `From` headers, or several addresses in one). The check read the last `From`, while many mail programs show the first.
+- Previews of `organize_by_filter` and `delete_email` scan the sample subjects for prompt injection (`_injectionScan`), and a finding there or in a sender name raises the one-hour send confirmation like any other read.
+
+### Added
+- Filter `{"all": true}` selects every email in a folder; it cannot be combined with other filters.
+
+### Changed
+- `organize_by_filter` and `delete_email` refuse a filter without any criterion (`{}`, or an empty `header`) instead of previewing the whole folder; the whole folder takes `{"all": true}`.
+- Upgrading a 0.1/0.2 configuration (`credentials.json`) switches sending and deleting off for the migrated mailbox; reading and organising stay as they were. Turn them on again with `inbox-warden accounts edit main --allow send` or `--allow delete`.
+- `inbox-warden setup` lists every mailbox with what Claude may do there and marks the default mailbox, and asks whether a newly added mailbox becomes the default.
+- An empty `policy.folders.allow` list stops the server with an error instead of allowing every folder; leave the key out to allow every folder.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added

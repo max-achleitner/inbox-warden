@@ -70,6 +70,25 @@ describe("inbox-warden audit verify", () => {
     expect(lines.join("\n")).toMatch(/Checked 1 records/);
   });
 
+  it("judges records removed by retention against the configured retention period", async () => {
+    fs.writeFileSync(
+      path.join(home, "config.json"),
+      JSON.stringify({
+        version: 2,
+        accounts: [{ id: "main", email: "max@firma.example", imap: { host: "mail.firma.example", port: 993 } }],
+        audit: { retentionDays: 30 },
+      }),
+    );
+    let now = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);
+    const audit = new AuditLog({ dir: path.join(home, "audit"), level: "standard", retentionDays: 30, includeReads: false, now: () => now });
+    await record(audit);
+    now = new Date();
+    await record(audit);
+    expect(audit.cleanup()).toHaveLength(1);
+    expect(await runCli(["audit", "verify"], deps)).toBe(0);
+    expect(lines.join("\n")).toMatch(/retention policy \(30 days\)/);
+  });
+
   it("returns 1 and lists the problem for a tampered log, in German when asked", async () => {
     const dir = path.join(home, "audit");
     await record(new AuditLog({ dir, level: "standard", retentionDays: 365, includeReads: false }));

@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
+import { isAggregateFolder } from "../imap/folders.js";
 import { visibleFolders } from "../policy/folder-access.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
@@ -27,6 +28,7 @@ export function register(server: McpServer, app: AppContext) {
         delimiter: string;
         flags: string[];
         specialUse?: string;
+        aggregate?: true;
       }> = [];
 
       flattenTree(tree, folders);
@@ -44,6 +46,7 @@ function flattenTree(node: any, result: any[]) {
       delimiter: node.delimiter,
       flags: Array.from(node.flags || []),
       specialUse: node.specialUse,
+      ...(isAggregateFolder(node.flags || []) ? { aggregate: true } : {}),
     });
   }
 

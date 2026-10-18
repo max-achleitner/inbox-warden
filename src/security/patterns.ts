@@ -10,7 +10,7 @@ export interface PatternDef {
   pattern: RegExp;
   description: string;
   confidence: number;
-  locations: Array<"subject" | "body" | "html" | "headers" | "attachment_name">;
+  locations: Array<"subject" | "body" | "html" | "headers" | "attachment_name" | "address_name">;
 }
 
 // ─── A. Direct Instruction Injection ─────────────────────────────────────────
@@ -22,7 +22,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\[\s*(SYSTEM|ADMIN|OVERRIDE|INSTRUCTION|ANWEISUNG)\s*\]/i,
     description: "System/admin tag in brackets",
     confidence: 0.7,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "system_prompt_override",
@@ -43,7 +43,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\b(?:ignore (?:all )?previous|ignoriere (?:alle )?vorherigen?)\s+(?:instructions?|prompts?|anweisungen?|context)\b/i,
     description: "Ignore previous instructions",
     confidence: 0.9,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "instruction_injection",
@@ -71,7 +71,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     pattern: /\b(?:disregard|discard|forget|override)\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|context|rules?|guidelines?)\b/i,
     description: "Disregard/override instructions",
     confidence: 0.9,
-    locations: ["subject", "body", "html"],
+    locations: ["subject", "address_name", "body", "html"],
   },
   {
     type: "instruction_injection",
@@ -250,7 +250,6 @@ export const ALL_PATTERNS: PatternDef[] = [
 // ─── Invisible character detection thresholds ────────────────────────────────
 
 /** Zero-width and invisible Unicode characters */
-export const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/;
 export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 
 /**
@@ -260,7 +259,6 @@ export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 export const PREHEADER_PADDING_GLOBAL = /(?:[͏­​‌‍⁠﻿᠎]+\s+){2,}/g;
 
 /** Bidirectional text override characters */
-export const BIDI_OVERRIDES = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 export const BIDI_OVERRIDES_GLOBAL = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** Minimum cluster of invisible chars to flag (scattered single chars are common) */

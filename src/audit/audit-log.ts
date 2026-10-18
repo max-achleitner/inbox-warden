@@ -8,6 +8,7 @@ import * as log from "../logging/logger.js";
 import { redactString } from "../logging/redact.js";
 import { canonicalJson } from "./canonical.js";
 import { sanitizeDetails, type AuditLevel } from "./redact.js";
+import { DEFAULT_RETENTION_DAYS } from "./schema.js";
 
 export const GENESIS_HASH = "0".repeat(64);
 const FILE_PATTERN = /^audit-(\d{4})-(\d{2})\.jsonl$/;
@@ -17,6 +18,11 @@ export interface AuditRecord {
   ts: string;
   seq: number;
   prevHash: string;
+  /**
+   * Time of the previous record. Hashed with this one, so after retention the oldest remaining
+   * record proves how old the removed ones were. Missing in records written before 0.6.1.
+   */
+  prevTs?: string;
   hash: string;
   account: string;
   tool: string;
@@ -164,6 +170,7 @@ export class AuditLog implements ToolObserver {
       ts: now.toISOString(),
       seq: (prev?.seq ?? 0) + 1,
       prevHash: prev?.hash ?? GENESIS_HASH,
+      ...(prev ? { prevTs: prev.ts } : {}),
       account: entry.account,
       tool: entry.tool,
       tier: entry.tier,
@@ -251,15 +258,33 @@ export interface AuditVerification {
   problems: AuditProblem[];
 }
 
-/** Does a retention record in the chain account for everything before `first`? */
-function retentionExplains(first: AuditRecord, retentions: AuditRecord[]): boolean {
-  return retentions.some(
-    (r) => r.details.removedLastSeq === first.seq - 1 && r.details.removedLastHash === first.prevHash,
+export interface VerifyOptions {
+  /** audit.retentionDays of the configuration that wrote the log. */
+  retentionDays?: number;
+  now?: () => Date;
+}
+
+/**
+ * Why the records before `first` cannot have been removed by retention, if they cannot. A
+ * retention record must name the removed predecessor; since anyone who can write the folder can
+ * chain such a record, the predecessor's time hashed into `first` must also lie beyond the
+ * retention period.
+ */
+function missingStartProblem(first: AuditRecord, retentions: AuditRecord[], options: VerifyOptions): string | undefined {
+  const named = retentions.some((r) => r.details.removedLastSeq === first.seq - 1 && r.details.removedLastHash === first.prevHash);
+  if (!named) return `the log starts at record ${first.seq}, but no retention record explains the missing older records (deleted by hand?)`;
+  if (first.prevTs === undefined) return undefined; // written before 0.6.1, which did not record it
+  const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
+  const cutoff = (options.now ?? (() => new Date()))().getTime() - retentionDays * DAY_MS;
+  if (Date.parse(first.prevTs) <= cutoff) return undefined;
+  return (
+    `the records before record ${first.seq} are missing, but the newest of them (${first.prevTs}) is newer than ` +
+    `the retention period of ${retentionDays} days, so retention did not remove them (deleted by hand?)`
   );
 }
 
 /** Verify a single audit file or a whole audit folder. */
-export function verifyAuditLog(target: string): AuditVerification {
+export function verifyAuditLog(target: string, options: VerifyOptions = {}): AuditVerification {
   const isDir = fs.statSync(target).isDirectory();
   const dir = isDir ? target : path.dirname(target);
   const files = isDir ? listAuditFiles(target) : [path.basename(target)];
@@ -302,13 +327,10 @@ export function verifyAuditLog(target: string): AuditVerification {
   }
   // A single month file legitimately continues an older one; a whole folder must start at genesis
   // or at a predecessor that retention removed and recorded.
-  if (isDir && first && anchored && !retentionExplains(first.record, retentions)) {
+  const startProblem = isDir && first && anchored ? missingStartProblem(first.record, retentions, options) : undefined;
+  if (first && startProblem) {
     anchored = false;
-    problems.push({
-      file: first.file,
-      line: first.line,
-      problem: `the log starts at record ${first.record.seq}, but no retention record explains the missing older records (deleted by hand?)`,
-    });
+    problems.push({ file: first.file, line: first.line, problem: startProblem });
   }
   return {
     ok: problems.length === 0,

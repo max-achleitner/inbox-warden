@@ -30,10 +30,20 @@ describe("delete_email with filter", () => {
   it("permanently removes previewed messages when the folder is Trash", async () => {
     const { imap, h } = await setup();
     imap.addMessage("Trash", raw("spam@junk.example", "old"));
-    const preview = await h.call("delete_email", { folder: "Trash", filter: {} });
+    const preview = await h.call("delete_email", { folder: "Trash", filter: { all: true } });
     const res = await h.call("delete_email", { folder: "Trash", confirmToken: preview.json.confirmToken });
     expect(res.json).toMatchObject({ action: "expunged", count: 1 });
     expect(imap.uidsIn("Trash")).toEqual([]);
+    await h.close();
+  });
+
+  it("refuses an empty filter instead of previewing the whole folder", async () => {
+    const { imap, h } = await setup();
+    const res = await h.call("delete_email", { filter: {} });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/\{"all": true\}/);
+    expect(res.text).toMatch(/Nothing was deleted/);
+    expect(imap.uidsIn("INBOX")).toEqual([1, 2, 3]);
     await h.close();
   });
 

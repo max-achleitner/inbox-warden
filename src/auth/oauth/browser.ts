@@ -1,11 +1,16 @@
 import { spawn } from "node:child_process";
+import * as path from "node:path";
 
 /**
  * Command that opens a URL in the default browser without going through a shell, so characters
  * such as "&" in the query string are never interpreted ("cmd /c start" would split at "&").
+ * On Windows the full path, because a bare name is looked up in the working directory first.
  */
 export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): { command: string; args: string[] } {
-  if (platform === "win32") return { command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url] };
+  if (platform === "win32") {
+    const rundll32 = path.win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "rundll32.exe");
+    return { command: rundll32, args: ["url.dll,FileProtocolHandler", url] };
+  }
   if (platform === "darwin") return { command: "open", args: [url] };
   return { command: "xdg-open", args: [url] };
 }

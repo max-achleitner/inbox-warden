@@ -11,6 +11,7 @@ const isoDate = z
 
 /** Filter fields shared by every tool that selects messages by criteria. */
 export const searchFilterShape = {
+  all: z.literal(true).optional().describe("Every email in the folder; cannot be combined with other filters"),
   query: z.string().min(1).optional().describe("Text that must appear in the subject or body"),
   subject: z.string().min(1).optional().describe("Text that must appear in the subject line"),
   from: z.string().min(1).optional().describe("Sender address or name (substring match)"),
@@ -48,7 +49,7 @@ export class UnsupportedFilterError extends Error {
 }
 
 export interface CompiledSearch {
-  /** Query for client.search(); `{ all: true }` only when no filter was given. */
+  /** Query for client.search(); `{ all: true }` only for the `all` filter or when no filter was given. */
   query: SearchObject;
   /** Filters that were actually applied — echoed back so the AI can verify its selection. */
   applied: Record<string, unknown>;
@@ -67,9 +68,21 @@ function canUseKeyword(mailbox: MailboxObject | false, keyword: string): boolean
  * because a dropped criterion widens the match — up to the whole folder.
  */
 export function compileSearch(filters: SearchFilters, mailbox: MailboxObject | false, server: { gmail?: boolean } = {}): CompiledSearch {
+  if (filters.all) {
+    const others = Object.keys(filters).filter((key) => key !== "all");
+    if (others.length > 0) {
+      throw new UnsupportedFilterError(
+        `"all" selects every email in the folder and cannot be combined with ${others.map((key) => `"${key}"`).join(", ")}. Not searching.`,
+      );
+    }
+    return { query: { all: true }, applied: { all: true } };
+  }
   const query: SearchObject = {};
   const applied: Record<string, unknown> = {};
 
+  // Gmail evaluates X-GM-RAW inside the selected mailbox and ANDs it with the other criteria:
+  // "in:anywhere", "in:spam" or "label:X" never reach past the folder (checked on Gmail, 2026-10-18).
+  // The folder policy holds either way, since the UIDs that come back belong to the selected mailbox.
   if (filters.gmailQuery) {
     if (!server.gmail) {
       throw new UnsupportedFilterError("gmailQuery only works with Gmail and Google Workspace accounts. Not searching.");

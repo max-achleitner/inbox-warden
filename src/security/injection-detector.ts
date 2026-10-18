@@ -6,9 +6,7 @@
 import { normalizeToASCII, hasNonAscii } from "./unicode-normalizer.js";
 import {
   ALL_PATTERNS,
-  INVISIBLE_CHARS,
   INVISIBLE_CHARS_GLOBAL,
-  BIDI_OVERRIDES,
   BIDI_OVERRIDES_GLOBAL,
   INVISIBLE_CLUSTER_MIN,
   INVISIBLE_RATIO_THRESHOLD,
@@ -18,7 +16,6 @@ import {
   HEX_SEQUENCE,
   computeRiskLevel,
 } from "./patterns.js";
-import type { PatternDef } from "./patterns.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -38,7 +35,7 @@ export type InjectionType =
 export interface InjectionFinding {
   type: InjectionType;
   description: string;
-  location: "subject" | "body" | "html" | "headers" | "attachment_name";
+  location: "subject" | "body" | "html" | "headers" | "attachment_name" | "address_name";
   snippet: string;
   confidence: number;
 }
@@ -287,6 +284,8 @@ export interface ScanInput {
   html?: string;
   headers?: string;
   attachmentNames?: string[];
+  /** Display names of From, Reply-To, To and Cc, which the tools show next to the addresses. */
+  addressNames?: string[];
 }
 
 /**
@@ -306,6 +305,9 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
     for (const name of input.attachmentNames) {
       fields.push({ text: name, location: "attachment_name" });
     }
+  }
+  for (const name of input.addressNames ?? []) {
+    if (name) fields.push({ text: name, location: "address_name" });
   }
 
   for (const { text, location } of fields) {

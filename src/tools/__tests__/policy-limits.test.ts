@@ -72,7 +72,7 @@ describe("policy limits in tools", () => {
     it("organize_by_filter refuses a Trash move without the delete permission", async () => {
       const t = trashApp({ delete: false });
       const h = await t.connect(organizeByFilter.register);
-      const res = await h.call("organize_by_filter", { filter: {}, action: { type: "move", destination: "Trash" } });
+      const res = await h.call("organize_by_filter", { filter: { all: true }, action: { type: "move", destination: "Trash" } });
       expect(res.isError).toBe(true);
       expect(res.text).toMatch(/Trash folder deletes them/);
       await h.close();
@@ -81,7 +81,7 @@ describe("policy limits in tools", () => {
     it("organize_by_filter applies bulk.maxDelete to Trash moves", async () => {
       const t = trashApp({ delete: true }, { maxMessages: 500, maxDelete: 2 });
       const h = await t.connect(organizeByFilter.register);
-      const res = await h.call("organize_by_filter", { filter: {}, action: { type: "move", destination: "Trash" } });
+      const res = await h.call("organize_by_filter", { filter: { all: true }, action: { type: "move", destination: "Trash" } });
       expect(res.isError).toBe(true);
       expect(res.text).toMatch(/3 messages match, more than the limit of 2 per operation for deleting/);
       await h.close();
@@ -195,7 +195,7 @@ describe("policy limits in tools", () => {
     t.imap().addFolder("Archive");
     t.imap().addMessage("INBOX", "From: spam@example.com\r\nSubject: Gewinn\r\nDate: garbage\r\n\r\nx");
     const h = await t.connect(organizeByFilter.register);
-    const res = await h.call("organize_by_filter", { filter: {}, action: { type: "move", destination: "Archive" } });
+    const res = await h.call("organize_by_filter", { filter: { all: true }, action: { type: "move", destination: "Archive" } });
     expect(res.isError).toBe(false);
     expect(res.json.sample[0]).toMatchObject({ subject: "Gewinn" });
     expect(res.json.sample[0].date).toBeUndefined();

@@ -14,3 +14,4 @@ description: Tidy up the mailbox in bulk — archive old mail, file newsletters,
 Rules:
 - Prefer moving to an archive folder over deleting. Delete only when the user explicitly asks to delete and the delete permission is enabled.
 - If the server refuses a filter (for example custom keywords on Microsoft 365), explain it and suggest a folder instead; never retry with a broader filter.
+- Use the filter `{"all": true}` only when the user wants every email of the folder handled (for example "archive everything left in the inbox").

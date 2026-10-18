@@ -45,7 +45,6 @@ describe("loadConfig", () => {
         smtpPort: 587,
         user: "max@firma.example",
         password: "hunter2",
-        permissions: { send: true },
       }),
     );
     const secrets = new MemorySecrets();
@@ -57,7 +56,7 @@ describe("loadConfig", () => {
       email: "max@firma.example",
       imap: { host: "mail.firma.example", port: 143 },
       smtp: { host: "mail.firma.example", port: 587 },
-      permissions: { read: true, write: true, send: true, delete: false },
+      permissions: { read: true, write: true, send: false, delete: false },
     });
     expect(await secrets.get("main", "password")).toBe("hunter2");
     expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
@@ -65,6 +64,21 @@ describe("loadConfig", () => {
     expect(saved.version).toBe(2);
     const backup = fs.readFileSync(path.join(dir, "config.v1.backup.json"), "utf8");
     expect(backup).not.toContain("hunter2");
+  });
+
+  it("switches send and delete off for a migrated mailbox, keeps reading and organising as they were", async () => {
+    fs.writeFileSync(
+      path.join(dir, "credentials.json"),
+      JSON.stringify({
+        imapHost: "mail.firma.example",
+        imapPort: 993,
+        user: "max@firma.example",
+        password: "hunter2",
+        permissions: { read: true, write: false, send: true, delete: true },
+      }),
+    );
+    const config = await loadConfig(env, { secrets: new MemorySecrets() });
+    expect(config.accounts[0].permissions).toEqual({ read: true, write: false, send: false, delete: false });
   });
 
   describe("never loses the v1 password", () => {

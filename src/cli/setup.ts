@@ -245,12 +245,34 @@ async function addAccount(deps: SetupDeps, existing: AppConfig | undefined): Pro
     delete: await p.confirm(t(locale, "permDelete"), false),
   };
   account = AccountSchema.parse({ ...account, permissions });
+  const makeDefault =
+    existing !== undefined && (await p.confirm(t(locale, "askDefault", { id: account.id, current: defaultAccountId(existing) }), false));
 
-  const config = ConfigSchema.parse(existing ? { ...existing, accounts: [...existing.accounts, account] } : { version: 2, accounts: [account] });
+  const config = ConfigSchema.parse(
+    existing
+      ? { ...existing, accounts: [...existing.accounts, account], ...(makeDefault ? { defaultAccount: account.id } : {}) }
+      : { version: 2, accounts: [account] },
+  );
   await deps.save(config, staged.entries(), []);
   p.print(t(locale, "saved"));
   p.print(t(locale, "nextSteps"));
   return config;
+}
+
+function defaultAccountId(config: AppConfig): string {
+  return config.defaultAccount ?? config.accounts[0].id;
+}
+
+/** Each mailbox with what Claude may do there, so a forgotten or migrated one stands out. */
+function printAccounts(deps: SetupDeps, config: AppConfig): void {
+  const { prompter: p, locale } = deps;
+  const tierKeys = { read: "tierRead", write: "tierWrite", send: "tierSend", delete: "tierDelete" } as const;
+  p.print(t(locale, "accountsIntro"));
+  for (const account of config.accounts) {
+    const tiers = (Object.keys(tierKeys) as Array<keyof typeof tierKeys>).filter((tier) => account.permissions[tier]).map((tier) => t(locale, tierKeys[tier]));
+    const line = t(locale, "accountLine", { id: account.id, email: account.email, tiers: tiers.length > 0 ? tiers.join(", ") : t(locale, "tierNone") });
+    p.print(account.id === defaultAccountId(config) ? line + t(locale, "defaultMarker") : line);
+  }
 }
 
 async function removeAccount(deps: SetupDeps, config: AppConfig): Promise<AppConfig> {
@@ -293,6 +315,7 @@ export async function runSetup(deps: SetupDeps): Promise<number> {
     let config = await deps.loadExisting();
     if (!config) return (await addAccount(deps, undefined)) ? 0 : 1;
     for (;;) {
+      printAccounts(deps, config);
       const hasOAuth = config.accounts.some((a) => a.auth.type === "oauth2");
       const action = await p.select(
         t(locale, "menu"),

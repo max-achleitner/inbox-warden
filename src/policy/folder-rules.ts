@@ -56,7 +56,17 @@ export function folderPatternToRegExp(pattern: string): RegExp {
   return re;
 }
 
-export function folderAllowed(path: string, delimiter: string | undefined, rules: FolderRules): boolean {
+/** Whether the rules hide any folder at all. */
+export function foldersRestricted(rules: FolderRules): boolean {
+  return rules.deny.length > 0 || (rules.allow?.length ?? 0) > 0;
+}
+
+/**
+ * An aggregate folder (Gmail's All Mail, Starred, Important) shows the mail of hidden folders
+ * too, so it is hidden as soon as the rules hide anything — whatever its own name matches.
+ */
+export function folderAllowed(path: string, delimiter: string | undefined, rules: FolderRules, aggregate = false): boolean {
+  if (aggregate && foldersRestricted(rules)) return false;
   const canonical = canonicalFolderPath(path, delimiter);
   const matches = (patterns: string[]) => patterns.some((p) => folderPatternToRegExp(p).test(canonical));
   if (matches(rules.deny)) return false;

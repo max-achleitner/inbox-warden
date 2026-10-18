@@ -21,10 +21,11 @@ export const INJECTION_WINDOW_MS = 60 * 60 * 1000;
  * disk images and Office documents with macros. The one list for every attachment safety check.
  */
 const EXECUTABLE_EXTENSIONS = new Set([
-  "exe", "com", "scr", "pif", "cpl", "dll", "msi", "msp", "msix", "appx", "application", "app", "command", "dmg", "pkg", "apk", "jar",
+  "exe", "com", "scr", "pif", "cpl", "dll", "msi", "msp", "msix", "msixbundle", "appx", "appxbundle", "appinstaller", "application",
+  "app", "command", "dmg", "pkg", "apk", "jar", "msc", "chm", "xll",
   "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "sh", "reg", "lnk", "url",
   "iso", "img", "vhd", "vhdx",
-  "docm", "dotm", "xlsm", "xltm", "xlam", "pptm", "potm", "ppam", "sldm", "one",
+  "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "one",
 ]);
 
 /** A request the administrator's policy does not allow. Reported to the AI as outcome "denied". */
@@ -151,8 +152,8 @@ export class PolicyEngine {
     };
   }
 
-  folderAllowed(folderPath: string, delimiter?: string): boolean {
-    return folderAllowed(folderPath, delimiter, this.policy.folders);
+  folderAllowed(folderPath: string, delimiter?: string, aggregate?: boolean): boolean {
+    return folderAllowed(folderPath, delimiter, this.policy.folders, aggregate);
   }
 
   checkFolder(folderPath: string, delimiter?: string): void {

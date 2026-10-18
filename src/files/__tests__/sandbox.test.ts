@@ -1,8 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SandboxError, resolveDownloadTarget, resolveInside, sanitizeFilename } from "../sandbox.js";
+
+// Records every path handed to realpath(); a network path fails at once instead of reaching the network
+const resolved = vi.hoisted(() => [] as string[]);
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    realpath: async (p: Parameters<typeof actual.realpath>[0]) => {
+      const text = String(p);
+      resolved.push(text);
+      if (/^[\\/]{2}/.test(text)) throw Object.assign(new Error("network path in a test"), { code: "ENOENT" });
+      return actual.realpath(p);
+    },
+  };
+});
 
 describe("sandbox", () => {
   let base: string;
@@ -40,6 +55,15 @@ describe("sandbox", () => {
   it("rejects an absolute path elsewhere", async () => {
     await expect(resolveInside([allowed], path.join(outside, "secret.txt"))).rejects.toThrow(/outside the folders allowed/);
   });
+
+  it.skipIf(process.platform !== "win32").each(["\\\\files.attacker.example\\c\\Q3.pdf", "//files.attacker.example/c/Q3.pdf", "\\\\?\\UNC\\files.attacker.example\\c\\Q3.pdf"])(
+    "refuses the network path %s without opening it, so Windows sends no login to that host",
+    async (requested) => {
+      resolved.length = 0;
+      await expect(resolveInside([allowed], requested)).rejects.toThrow(/outside the folders allowed/);
+      expect(resolved.filter((p) => /attacker/.test(p))).toEqual([]);
+    },
+  );
 
   it("rejects a symlink/junction that points outside", async () => {
     await symlink(outside, path.join(allowed, "link"), process.platform === "win32" ? "junction" : "dir");

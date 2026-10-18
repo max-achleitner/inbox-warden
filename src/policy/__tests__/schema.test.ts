@@ -33,6 +33,10 @@ describe("PolicySchema", () => {
     expect(() => PolicySchema.parse({ protectedFolder: false })).toThrow();
   });
 
+  it("rejects an empty folder allow list instead of reading it as no restriction", () => {
+    expect(() => PolicySchema.parse({ folders: { allow: [] } })).toThrow(/folders\.allow/);
+  });
+
   it("parses an empty policy through prefault on the account schema", () => {
     expect(PolicySchema.prefault({}).parse(undefined).send.mode).toBe("confirm");
   });

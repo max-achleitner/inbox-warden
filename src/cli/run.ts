@@ -131,14 +131,15 @@ export async function accountsLoginCommand(cmd: AccountsLoginCommand, deps: CliD
 
 /** `audit verify [<folder|file>]`: 0 intact (or no records yet), 1 tampered or incomplete, 2 unreadable path. */
 export async function auditVerifyCommand(deps: CliDeps, target?: string): Promise<number> {
-  if (target) return runAuditVerify(path.resolve(target), deps.locale, deps.print);
   const config = await loadConfig(deps.env).catch(() => undefined);
+  const retentionDays = config?.audit.retentionDays;
+  if (target) return runAuditVerify(path.resolve(target), deps.locale, deps.print, retentionDays);
   const dir = config ? auditDir(config, deps.env) : path.join(configDir(deps.env), "audit");
   if (!fs.existsSync(dir)) {
     deps.print(t(deps.locale, "auditEmpty", { path: dir }));
     return 0;
   }
-  return runAuditVerify(dir, deps.locale, deps.print);
+  return runAuditVerify(dir, deps.locale, deps.print, retentionDays);
 }
 
 /**

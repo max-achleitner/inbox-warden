@@ -10,6 +10,16 @@ describe("compileSearch", () => {
     expect(compileSearch({}, mailbox(["\\*"])).query).toEqual({ all: true });
   });
 
+  it("selects the whole folder on an explicit all: true and echoes it", () => {
+    const compiled = compileSearch({ all: true }, mailbox(["\\*"]));
+    expect(compiled.query).toEqual({ all: true });
+    expect(compiled.applied).toEqual({ all: true });
+  });
+
+  it.each([{ from: "anna@example.com" }, { hasAttachment: true }])("refuses all: true combined with %o", (other) => {
+    expect(() => compileSearch({ all: true, ...other }, mailbox(["\\*"]))).toThrow(UnsupportedFilterError);
+  });
+
   it("echoes every applied filter", () => {
     const compiled = compileSearch({ from: "anna@example.com", since: "2026-01-01", unread: true }, mailbox(["\\*"]));
     expect(compiled.query).toEqual({ from: "anna@example.com", since: "2026-01-01", seen: false });

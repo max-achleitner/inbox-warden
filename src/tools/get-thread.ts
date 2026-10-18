@@ -6,6 +6,7 @@ import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
 import { listFolderInfo, pickSpecialFolder, type FolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
+import { foldersRestricted } from "../policy/folder-rules.js";
 import type { RiskLevel } from "../policy/engine.js";
 import { highestRisk } from "../policy/observer.js";
 import { downloadMessage, strictSearch } from "../imap/strict.js";
@@ -94,9 +95,7 @@ export function register(server: McpServer, app: AppContext) {
       // 2. Where the conversation lives
       const located: Located[] = [];
       // Gmail's All Mail holds every label, including folders the policy hides: use it only without folder rules
-      const folderRules = inv.account.policy.policy.folders;
-      const folderScoped = folderRules.deny.length > 0 || folderRules.allow !== undefined;
-      const allMail = gmailThreadId && !folderScoped ? allMailFolder(folders) : null;
+      const allMail = gmailThreadId && !foldersRestricted(inv.account.policy.policy.folders) ? allMailFolder(folders) : null;
       if (gmailThreadId && allMail) {
         located.push(...(await locate(client, allMail, { threadId: gmailThreadId })));
       } else {
@@ -105,7 +104,10 @@ export function register(server: McpServer, app: AppContext) {
         for (const f of extraFolders) extra.push(await resolvePolicyFolder(inv.account, client, f, folders));
         const searchFolders = [source, pickSpecialFolder(folders, "\\Sent"), ...extra]
           .filter((f, i, all): f is string => Boolean(f) && all.indexOf(f) === i)
-          .filter((f) => inv.account.policy.folderAllowed(f, folders.find((info) => info.path === f)?.delimiter));
+          .filter((f) => {
+            const info = folders.find((i) => i.path === f);
+            return inv.account.policy.folderAllowed(f, info?.delimiter, info?.aggregate);
+          });
         if (query) for (const f of searchFolders) located.push(...(await locate(client, f, query)));
       }
       if (!located.some((l) => l.folder === source && l.uid === uid)) {
@@ -141,7 +143,11 @@ export function register(server: McpServer, app: AppContext) {
         }
         const own = stripQuotedHistory(fullText(parsed).text);
         const body = truncate(own.text, maxCharsPerMessage);
-        const scan = scanForInjection({ subject: parsed.subject, body: own.text });
+        const scan = scanForInjection({
+          subject: parsed.subject,
+          body: own.text,
+          addressNames: [...flattenAddresses(parsed.from), ...flattenAddresses(parsed.to)].map((a) => a.name),
+        });
         risks.push(scan.riskLevel);
         messages.push({
           folder: entry.folder,

@@ -79,7 +79,8 @@ export function register(server: McpServer, app: AppContext) {
         )) {
           const subject = msg.envelope?.subject;
           const preview = previews.get(msg.uid);
-          const _injectionScan = subject || preview ? scanForInjection({ subject, body: preview }) : undefined;
+          const addressNames = [...(msg.envelope?.from ?? []), ...(msg.envelope?.to ?? [])].map((a) => a.name ?? "");
+          const _injectionScan = scanForInjection({ subject, body: preview, addressNames });
           messages.push({
             uid: msg.uid,
             ...(compact ? {} : { messageId: msg.envelope?.messageId }),

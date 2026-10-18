@@ -64,6 +64,13 @@ export function register(server: McpServer, app: AppContext) {
       }
 
       const parsed = await simpleParser(draftRaw);
+      // mailparser keeps the last of two From headers while many mail programs show the first
+      if (parsed.headerLines.filter((h) => h.key === "from").length > 1 || flattenAddresses(parsed.from).length > 1) {
+        return errorResult(
+          "Error sending draft",
+          "The draft names more than one sender (From), but it may have only one sender: recipients could see a different one than the one checked here. Refusing to send.",
+        );
+      }
       const sender = flattenAddresses(parsed.from)[0]?.address ?? "";
       if (!inv.account.ownAddresses.includes(sender.toLowerCase())) {
         return errorResult(

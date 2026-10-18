@@ -66,6 +66,17 @@ describe("send_email and send_draft", () => {
     expect(capture.sent).toHaveLength(0);
   });
 
+  it.each([
+    ["two From headers (mail clients show the first)", `From: CEO <ceo@bank.example>\r\nFrom: ${ME}\r\n`],
+    ["two addresses in one From", `From: ceo@bank.example, ${ME}\r\n`],
+  ])("send_draft refuses a draft with %s", async (_name, from) => {
+    imap.addMessage("Drafts", `${from}To: x@example.com\r\nSubject: s\r\nMessage-ID: <d1@firma.example>\r\n\r\nt`);
+    const res = await h.call("send_draft", { uid: 1 });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/one sender.*Refusing to send/);
+    expect(capture.sent).toHaveLength(0);
+  });
+
   it("send_draft keeps the draft when the server lacks UIDPLUS and other drafts are marked deleted", async () => {
     imap.capabilities.delete("UIDPLUS");
     imap.addMessage("Drafts", "Subject: old\r\n\r\n", { flags: ["\\Deleted"] });

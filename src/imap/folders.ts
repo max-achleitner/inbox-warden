@@ -8,6 +8,18 @@ export interface FolderInfo {
   delimiter: string;
   specialUse?: string;
   selectable: boolean;
+  /** Shows mail filed in other folders (listed as \All, \Flagged or \Important): Gmail's All Mail, Starred, Important. */
+  aggregate?: true;
+}
+
+const AGGREGATE_FLAGS = ["\\all", "\\flagged", "\\important"];
+
+/**
+ * Whether the server lists the folder as one that shows mail filed elsewhere. Only the listed
+ * flags count: a folder merely named "All Mail" holds its own mail.
+ */
+export function isAggregateFolder(flags: Iterable<string>): boolean {
+  return [...flags].some((flag) => AGGREGATE_FLAGS.includes(flag.toLowerCase()));
 }
 
 /** Well-known names (lowercase, full path) used when the server does not advertise SPECIAL-USE. */
@@ -46,6 +58,7 @@ export async function listFolderInfo(client: ImapFlow): Promise<FolderInfo[]> {
     delimiter: f.delimiter,
     specialUse: f.specialUse,
     selectable: !f.flags.has("\\Noselect") && !f.flags.has("\\NonExistent"),
+    ...(isAggregateFolder(f.flags) ? { aggregate: true as const } : {}),
   }));
 }
 

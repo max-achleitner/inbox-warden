@@ -33,7 +33,11 @@ export const BulkPolicySchema = z.strictObject({
 });
 
 export const FolderPolicySchema = z.strictObject({
-  allow: z.array(z.string().min(1)).optional(),
+  // An empty list would read as "nothing allowed" to one admin and "no restriction" to another
+  allow: z
+    .array(z.string().min(1))
+    .min(1, "folders.allow needs at least one folder pattern; leave it out to allow every folder")
+    .optional(),
   deny: z.array(z.string().min(1)).default([]),
 });
 

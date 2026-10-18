@@ -136,7 +136,8 @@ export function migrateV1(v1: V1Config): AppConfig {
           email: v1.user,
           imap: { host: v1.imapHost, port: v1.imapPort },
           ...(v1.smtpHost ? { smtp: { host: v1.smtpHost, port: v1.smtpPort ?? 465 } } : {}),
-          permissions: v1.permissions ?? {},
+          // Sending and deleting were set in a version without policy rules or confirmations: turn them on again on purpose
+          permissions: { ...v1.permissions, send: false, delete: false },
           ...(v1.sentCopy ? { sentCopy: v1.sentCopy } : {}),
         },
       ],

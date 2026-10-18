@@ -36,6 +36,12 @@ Recommended settings for companies. Start with the baseline, then pick a profile
 
 Every policy setting is checked strictly: a misspelt key stops the server with an error instead of being ignored.
 
+Folder patterns use `/` as the separator whatever the server uses: write `INBOX/HR`, not `INBOX.HR`.
+
+`allowedRecipientDomains` always lets the mailbox's own domains through. For a mailbox at a public provider (gmail.com, gmx.de, outlook.com) that means every address at that provider, so use it with company domains.
+
+As soon as `policy.folders` hides any folder, folders that show the mail of all other folders are hidden too, whatever their name: Gmail's All Mail, Starred and Important (listed by the server as `\All`, `\Flagged`, `\Important`). On Gmail a message can carry several labels; one that also sits in a visible label stays visible there.
+
 ## 2. Profiles
 
 | Profile | Use for | Settings |
