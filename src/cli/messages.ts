@@ -92,6 +92,18 @@ const MESSAGES = {
     de: `Nächster Schritt: Claude Desktop neu starten. Prüfen jederzeit mit: ${SERVER_NAME} doctor`,
     en: `Next step: restart Claude Desktop. Check any time with: ${SERVER_NAME} doctor`,
   },
+  askDefault: {
+    de: "Soll „{id}“ das Standardpostfach werden? Claude nutzt es, wenn kein Postfach genannt wird. (Bisher: {current})",
+    en: 'Make "{id}" the default mailbox? Claude uses it when no mailbox is named. (Currently: {current})',
+  },
+  accountsIntro: { de: "Eingerichtete Postfächer:", en: "Configured mailboxes:" },
+  accountLine: { de: "  {id} <{email}>: {tiers}", en: "  {id} <{email}>: {tiers}" },
+  defaultMarker: { de: " (Standard)", en: " (default)" },
+  tierRead: { de: "lesen", en: "read" },
+  tierWrite: { de: "ordnen", en: "organise" },
+  tierSend: { de: "senden", en: "send" },
+  tierDelete: { de: "löschen", en: "delete" },
+  tierNone: { de: "nichts erlaubt", en: "nothing allowed" },
   removed: { de: "Postfach „{id}“ entfernt.", en: 'Mailbox "{id}" removed.' },
   cannotRemoveLast: {
     de: "Das letzte Postfach kann nicht entfernt werden. Zum Zurücksetzen den Ordner ~/.imap-mcp löschen.",

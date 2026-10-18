@@ -167,6 +167,32 @@ describe("runSetup — existing configuration", () => {
     ],
   });
 
+  it("shows each mailbox with its permissions and marks the default before the menu", async () => {
+    const withSend = ConfigSchema.parse({
+      ...existing,
+      accounts: [{ ...existing.accounts[0], permissions: { send: true, delete: true } }, existing.accounts[1]],
+    });
+    const { deps, prompter } = harness({ existing: withSend, answers: ["done"] });
+    expect(await runSetup(deps)).toBe(0);
+    expect(prompter.output).toContain("  main <max@firma.example>: lesen, ordnen, senden, löschen (Standard)");
+    expect(prompter.output).toContain("  work <max@firma.at>: lesen, ordnen");
+  });
+
+  it.each([
+    [true, "web-de"],
+    [false, undefined],
+  ])("asks whether an added mailbox becomes the default (answer %s)", async (answer, expected) => {
+    const { deps, saved, prompter } = harness({
+      existing,
+      // menu, email, use detected, id, display name, password, read, write, send, delete, default?, menu
+      answers: ["add", "max@web.de", "", "", "", "geheim", "", "", "", "", answer, "done"],
+    });
+    expect(await runSetup(deps)).toBe(0);
+    expect(saved[0].config.accounts.map((a) => a.id)).toEqual(["main", "work", "web-de"]);
+    expect(saved[0].config.defaultAccount).toBe(expected);
+    expect(prompter.asked.some((q) => q.includes("Standardpostfach") && q.includes("main"))).toBe(true);
+  });
+
   it("removes an account and its secrets", async () => {
     const { deps, saved } = harness({ existing, answers: ["remove", "work", true, "done"] });
     expect(await runSetup(deps)).toBe(0);
