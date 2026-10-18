@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
 - Folder rules now also hide Gmail's All Mail, Starred and Important (any folder the server lists as `\All`, `\Flagged` or `\Important`) as soon as they hide any folder. Before, `search_emails` and `read_email` could read the mail of a denied label through All Mail.
 - Previews of `organize_by_filter` and `delete_email` scan the sample subjects for prompt injection (`_injectionScan`), and a finding there or in a sender name raises the one-hour send confirmation like any other read.
 
+### Changed
+- Upgrading a 0.1/0.2 configuration (`credentials.json`) switches sending and deleting off for the migrated mailbox; reading and organising stay as they were. Turn them on again with `inbox-warden accounts edit main --allow send` or `--allow delete`.
+- `inbox-warden setup` lists every mailbox with what Claude may do there and marks the default mailbox, and asks whether a newly added mailbox becomes the default.
+- An empty `policy.folders.allow` list stops the server with an error instead of allowing every folder; leave the key out to allow every folder.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added
