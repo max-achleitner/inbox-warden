@@ -14,6 +14,14 @@ export interface FolderInfo {
 
 const AGGREGATE_FLAGS = ["\\all", "\\flagged", "\\important"];
 
+/**
+ * Whether the server lists the folder as one that shows mail filed elsewhere. Only the listed
+ * flags count: a folder merely named "All Mail" holds its own mail.
+ */
+export function isAggregateFolder(flags: Iterable<string>): boolean {
+  return [...flags].some((flag) => AGGREGATE_FLAGS.includes(flag.toLowerCase()));
+}
+
 /** Well-known names (lowercase, full path) used when the server does not advertise SPECIAL-USE. */
 const FALLBACK_PATHS: Record<SpecialUse, string[]> = {
   "\\Drafts": [
@@ -50,8 +58,7 @@ export async function listFolderInfo(client: ImapFlow): Promise<FolderInfo[]> {
     delimiter: f.delimiter,
     specialUse: f.specialUse,
     selectable: !f.flags.has("\\Noselect") && !f.flags.has("\\NonExistent"),
-    // Only what the server lists counts: a folder merely named "All Mail" holds its own mail
-    ...([...f.flags].some((flag) => AGGREGATE_FLAGS.includes(flag.toLowerCase())) ? { aggregate: true as const } : {}),
+    ...(isAggregateFolder(f.flags) ? { aggregate: true as const } : {}),
   }));
 }
 

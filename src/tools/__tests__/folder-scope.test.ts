@@ -42,6 +42,16 @@ describe("folder scope in tools", () => {
     expect(counts.text).not.toContain("INBOX/HR");
   });
 
+  it("leaves Gmail's All Mail, Starred and Important out of list_folders while a folder is denied", async () => {
+    const imap = t.imap();
+    imap.addFolder("[Gmail]/All Mail", { specialUse: "\\All", flags: ["\\HasNoChildren", "\\All"] });
+    imap.addFolder("[Gmail]/Important", { flags: ["\\HasNoChildren", "\\Important"] });
+    imap.addFolder("[Gmail]/Starred", { specialUse: "\\Flagged", flags: ["\\HasNoChildren", "\\Flagged"] });
+    const paths: string[] = (await h.call("list_folders")).json.map((f: { path: string }) => f.path);
+    expect(paths).toContain("INBOX");
+    expect(paths.filter((p) => p.startsWith("[Gmail]"))).toEqual([]);
+  });
+
   it.each(["INBOX/HR", "inbox/hr", "INBOX.HR", "HR"])("refuses search_emails in %s", async (folder) => {
     const res = await h.call("search_emails", { folder });
     expect(res.isError).toBe(true);
