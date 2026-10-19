@@ -97,4 +97,33 @@ describe("policy coverage of tool sources", () => {
   it("every tool that scans for injection records the risk for the policy", () => {
     expect(offenders(/\bscanForInjection\(|\bscanSubjectOnly\(/, /injectionRisk/)).toEqual([]);
   });
+
+  describe("Gmail label lock: a message with a hidden label is not reachable on any path", () => {
+    const source = (file: string) => fs.readFileSync(path.join(TOOLS_DIR, "..", file), "utf8");
+
+    it("every tool that reads or changes messages by UID or filter passes the account's message scope", () => {
+      // downloadMessage, existingUids and selectByFilter take the scope as a required parameter
+      expect(offenders(/\bdownloadMessage\(|\bexistingUids\(|\bselectByFilter\(/, /\.messageScope\(/)).toEqual([]);
+      expect(offenders(/\bpreviewBulk\(|\bcommitBulk\(/, /\bfolders\b/)).toEqual([]);
+    });
+
+    it("no tool reads message data around the scoped helpers", () => {
+      const users = (uses: RegExp) => toolSources().filter(({ source }) => uses.test(source)).map(({ file }) => file);
+      expect(users(/\.download\(|\.downloadMany\(|\.fetchAll\(/)).toEqual([]);
+      // search_emails fetches only the UIDs selectByFilter returned; get_thread only those visibleUids returned
+      expect(offenders(/\.fetch\(|\.fetchOne\(/, /\bselectByFilter\(|\bvisibleUids\(/)).toEqual([]);
+      expect(offenders(/\bstrictSearch\(/, /\bvisibleUids\(/)).toEqual([]);
+    });
+
+    it("the bulk runner, the new-recipient check and the answered marker use the scope", () => {
+      expect(source("bulk/run.ts").match(/\.messageScope\(/g)).toHaveLength(2);
+      expect(source("policy/outbound.ts")).toMatch(/visibleUids\(client, hits/);
+      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(await inv\.account\.getClient\(\), recipients, policy\.messageScope\(\)\)/);
+      expect(source("mail/answered.ts")).toMatch(/visibleUids\(client, await strictSearch/);
+    });
+
+    it("counts do not come from STATUS alone where labels hide messages", () => {
+      expect(offenders(/\bstrictStatus\(/, /\blabelLockApplies\(/)).toEqual([]);
+    });
+  });
 });

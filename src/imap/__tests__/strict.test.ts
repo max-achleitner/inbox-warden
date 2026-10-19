@@ -12,7 +12,89 @@ import {
   strictStatus,
   strictStoreFlags,
   unsupportedFlags,
+  LabelCheckError,
+  UNSCOPED,
+  visibleUids,
+  withoutHiddenLabels,
+  type MessageScope,
 } from "../strict.js";
+
+/** Hides every message carrying the label "geheim". */
+const SECRET_LABEL: MessageScope = { labelCheck: async () => (labels) => labels.has("geheim") };
+
+describe("message scope (Gmail labels)", () => {
+  let imap: FakeImap;
+
+  beforeEach(async () => {
+    imap = new FakeImap();
+    imap.capabilities.set("X-GM-EXT-1", true);
+    imap.addMessage("INBOX", "Subject: offen\r\n\r\nbody", { labels: new Set(["Kunden"]) });
+    imap.addMessage("INBOX", "Subject: zu\r\n\r\nbody", { labels: new Set(["Kunden", "geheim"]) });
+    imap.addMessage("INBOX", "Subject: ohne\r\n\r\nbody", { labels: new Set() });
+    await imap.getMailboxLock("INBOX");
+  });
+
+  it("visibleUids leaves out hidden messages and keeps the order", async () => {
+    expect(await visibleUids(imap.asClient(), [3, 2, 1], SECRET_LABEL)).toEqual([3, 1]);
+  });
+
+  it("visibleUids sends no command when the scope cannot hide anything", async () => {
+    expect(await visibleUids(imap.asClient(), [1, 2, 3], UNSCOPED)).toEqual([1, 2, 3]);
+    expect(imap.callsTo("fetch")).toEqual([]);
+  });
+
+  it("existingUids reports a hidden message as missing", async () => {
+    expect(await existingUids(imap.asClient(), [1, 2, 99], SECRET_LABEL)).toEqual([1]);
+  });
+
+  it("downloadMessage does not find a hidden message, like a UID that does not exist", async () => {
+    const hidden = await downloadMessage(imap.asClient(), 2, "INBOX", SECRET_LABEL).catch((e: Error) => e);
+    const missing = await downloadMessage(imap.asClient(), 99, "INBOX", SECRET_LABEL).catch((e: Error) => e);
+    expect(hidden).toBeInstanceOf(MessageNotFoundError);
+    expect((hidden as Error).message).toBe((missing as Error).message.replace("99", "2"));
+    expect((await downloadMessage(imap.asClient(), 1, "INBOX", SECRET_LABEL)).toString()).toContain("Subject: offen");
+    expect(imap.callsTo("download")).toEqual([]);
+  });
+
+  it("fails closed when the server answers without labels or the FETCH fails", async () => {
+    for (const mode of ["false", "throw"] as const) {
+      imap.failOn("labels", mode);
+      await expect(visibleUids(imap.asClient(), [1, 3], SECRET_LABEL)).rejects.toBeInstanceOf(LabelCheckError);
+      imap.failOn("labels", mode);
+      await expect(downloadMessage(imap.asClient(), 1, "INBOX", SECRET_LABEL)).rejects.toBeInstanceOf(LabelCheckError);
+    }
+    expect(new LabelCheckError().message).toMatch(/Nothing was changed/);
+  });
+
+  it("skips unsolicited FETCH rows, but needs a row with labels for every UID", async () => {
+    const rows = (list: Array<Record<string, unknown>>) =>
+      ({ async *fetch() { for (const row of list) yield row; } }) as unknown as ImapFlow;
+    const check = (labels: ReadonlySet<string>) => labels.has("geheim");
+    // a flag update for another message and one without labels for a requested UID, then the real rows
+    const client = rows([
+      { uid: 7, flags: new Set(["\\Seen"]) },
+      { uid: 1, flags: new Set(["\\Seen"]) },
+      { uid: 1, labels: new Set(["Kunden"]) },
+      { uid: 2, labels: new Set(["geheim"]) },
+      { uid: 9, labels: new Set(["geheim"]) },
+    ]);
+    expect(await withoutHiddenLabels(client, [1, 2], check)).toEqual([1]);
+    await expect(withoutHiddenLabels(rows([{ uid: 1, labels: new Set() }, { uid: 2, flags: new Set() }]), [1, 2], check)).rejects.toBeInstanceOf(LabelCheckError);
+  });
+
+  it("fetches labels in chunks of at most 1000 UIDs", async () => {
+    const ranges: number[] = [];
+    const client = {
+      async *fetch(range: number[]) {
+        ranges.push(range.length);
+        for (const uid of range) yield { uid, labels: new Set<string>() };
+      },
+    } as unknown as ImapFlow;
+    const uids = Array.from({ length: 2500 }, (_, i) => i + 1);
+    expect(await withoutHiddenLabels(client, uids, () => false)).toHaveLength(2500);
+    expect(ranges).toEqual([1000, 1000, 500]);
+  });
+});
 
 describe("strict IMAP operations", () => {
   let imap: FakeImap;
@@ -40,7 +122,7 @@ describe("strict IMAP operations", () => {
   });
 
   it("existingUids reports only UIDs present in the folder", async () => {
-    expect(await existingUids(imap.asClient(), [1, 2, 99])).toEqual([1, 2]);
+    expect(await existingUids(imap.asClient(), [1, 2, 99], UNSCOPED)).toEqual([1, 2]);
   });
 
   it("strictMove throws when the server refuses (imapflow returns false)", async () => {
@@ -113,6 +195,6 @@ describe("strict IMAP operations", () => {
   });
 
   it("downloadMessage throws MessageNotFoundError for an unknown UID", async () => {
-    await expect(downloadMessage(imap.asClient(), 42, "INBOX")).rejects.toBeInstanceOf(MessageNotFoundError);
+    await expect(downloadMessage(imap.asClient(), 42, "INBOX", UNSCOPED)).rejects.toBeInstanceOf(MessageNotFoundError);
   });
 });

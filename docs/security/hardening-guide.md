@@ -46,7 +46,9 @@ Every policy setting is checked strictly: a misspelt key stops the server with a
 
 `allowedRecipientDomains` always lets the mailbox's own domains through. For a mailbox at a public provider (gmail.com, gmx.de, outlook.com) that means every address at that provider, so use it with company domains.
 
-As soon as `policy.folders` hides any folder, folders that show the mail of all other folders are hidden too, whatever their name: Gmail's All Mail, Starred and Important (listed by the server as `\All`, `\Flagged`, `\Important`). On Gmail a message can carry several labels; one that also sits in a visible label stays visible there.
+As soon as `policy.folders` hides any folder, folders that show the mail of all other folders are hidden too, whatever their name: Gmail's All Mail, Starred and Important (listed by the server as `\All`, `\Flagged`, `\Important`).
+
+**Gmail labels.** On Gmail every folder is a label, and one message can carry several: an NDA mail labelled `_NDA_Inbox` can also sit in INBOX, carry `Kunden` or be your reply in Sent. A message with a label that a `deny` pattern hides is hidden in every folder, as if it did not exist: no tool lists, counts, reads, changes, replies to or forwards it, and a UID pointing at it is answered like a missing one. Labels follow the deny rules above; `\Inbox`, `\Sent`, `\Draft`, `\Trash` and `\Spam` count as INBOX and the matching special folder, `\Important` and `\Starred` never hide a message, and a label merely missing from `allow` hides nothing. If Gmail does not report a message's labels, the tool refuses and changes nothing. On such an account `get_email_count` reads the labels of every message instead of the folder status (up to 20,000 per call; a bigger folder is reported as unavailable), searches check the newest 20,000 matches, `delete_folder` does not say how many messages a non-empty folder holds, and `rename_folder` refuses a folder that holds hidden messages, since renaming a label renames it on them too. Other servers and Gmail accounts without `deny` patterns are not affected.
 
 ## 2. Profiles
 

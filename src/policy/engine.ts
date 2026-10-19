@@ -4,7 +4,10 @@ import { errorMessage } from "../errors.js";
 import { sanitizeFilename } from "../files/sandbox.js";
 import * as log from "../logging/logger.js";
 import type { Policy } from "./schema.js";
+import type { FolderInfo } from "../imap/folders.js";
+import type { MessageScope } from "../imap/strict.js";
 import { folderAllowed } from "./folder-rules.js";
+import { LabelLock } from "./label-lock.js";
 import { domainOf, evaluateRecipients } from "./recipients.js";
 import { SendCounter } from "./rate-limit.js";
 import { SERVER_NAME } from "../version.js";
@@ -154,6 +157,14 @@ export class PolicyEngine {
 
   folderAllowed(folderPath: string, delimiter?: string, aggregate?: boolean): boolean {
     return folderAllowed(folderPath, delimiter, this.policy.folders, aggregate);
+  }
+
+  /**
+   * Which messages of a selected folder the AI may see: on Gmail, none that carries a label the
+   * deny patterns hide (src/policy/label-lock.ts). Pass `folders` when the caller already listed them.
+   */
+  messageScope(folders?: FolderInfo[]): MessageScope {
+    return new LabelLock(this.policy.folders, folders);
   }
 
   checkFolder(folderPath: string, delimiter?: string): void {

@@ -1,16 +1,23 @@
 import type { ImapFlow, MailboxObject } from "imapflow";
-import { ImapOperationError, strictSearch } from "./strict.js";
+import { ImapOperationError, strictSearch, withoutHiddenLabels, type MessageScope } from "./strict.js";
 import { compileSearch, hasNonAsciiText, type SearchFilters } from "./search-query.js";
 
 /** Cap for the client-side attachment check (IMAP has no attachment search criterion). */
 export const ATTACHMENT_SCAN_LIMIT = 5000;
+/** Cap for the Gmail label check of a selection, and for counting a folder without hidden messages. */
+export const LABEL_SCAN_LIMIT = 20_000;
+/** For results whose selection was cut to the newest LABEL_SCAN_LIMIT matches (labelScanLimited). */
+export const LABEL_SCAN_NOTE =
+  `Only the newest ${LABEL_SCAN_LIMIT} matching emails were considered; older ones are left out. Narrow the filter (for example with since/before) to reach them.`;
 
 export interface FilterSelection {
-  /** Matching UIDs in the selected mailbox, ascending. */
+  /** Matching UIDs in the selected mailbox, ascending; never one the message scope hides. */
   uids: number[];
   applied: Record<string, unknown>;
   /** True when hasAttachment was only checked on the newest ATTACHMENT_SCAN_LIMIT matches. */
   attachmentScanLimited: boolean;
+  /** True when only the newest LABEL_SCAN_LIMIT matches were checked against the label lock (the rest is left out). */
+  labelScanLimited: boolean;
 }
 
 /** Whether the selected mailbox can store custom keywords such as $Done (PERMANENTFLAGS contains \*). */
@@ -34,10 +41,12 @@ export function hasAttachmentPart(structure: any): boolean {
 }
 
 /**
- * Messages in the currently selected mailbox that match `filters`. Never widens the selection:
- * a criterion the server cannot apply raises an error instead of being dropped.
+ * Messages in the currently selected mailbox that match `filters`, without the ones `scope`
+ * hides. Never widens the selection: a criterion the server cannot apply raises an error instead
+ * of being dropped, and hidden messages are filtered out by their fetched labels, exactly, never
+ * by a server-side label search.
  */
-export async function selectByFilter(client: ImapFlow, filters: SearchFilters): Promise<FilterSelection> {
+export async function selectByFilter(client: ImapFlow, filters: SearchFilters, scope: MessageScope): Promise<FilterSelection> {
   const compiled = compileSearch(filters, client.mailbox, { gmail: client.capabilities.has("X-GM-EXT-1") });
   let uids: number[];
   try {
@@ -52,6 +61,15 @@ export async function selectByFilter(client: ImapFlow, filters: SearchFilters): 
     throw err;
   }
 
+  // Before the attachment check: it reads body structures, which hidden messages never show
+  let labelScanLimited = false;
+  const check = uids.length > 0 ? await scope.labelCheck(client) : null;
+  if (check) {
+    const candidates = uids.slice(-LABEL_SCAN_LIMIT);
+    labelScanLimited = candidates.length < uids.length;
+    uids = await withoutHiddenLabels(client, candidates, check);
+  }
+
   let attachmentScanLimited = false;
   if (compiled.hasAttachment !== undefined && uids.length > 0) {
     const candidates = uids.slice(-ATTACHMENT_SCAN_LIMIT);
@@ -62,5 +80,5 @@ export async function selectByFilter(client: ImapFlow, filters: SearchFilters): 
     }
     uids = keep.sort((a, b) => a - b);
   }
-  return { uids, applied: compiled.applied, attachmentScanLimited };
+  return { uids, applied: compiled.applied, attachmentScanLimited, labelScanLimited };
 }

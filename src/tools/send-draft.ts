@@ -5,7 +5,7 @@ import { simpleParser } from "mailparser";
 import type { AppContext } from "../context.js";
 import { errorMessage } from "../errors.js";
 import * as log from "../logging/logger.js";
-import { findSpecialFolder, requireSpecialFolder } from "../imap/folders.js";
+import { findSpecialFolder, listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { markOriginalAnswered } from "../mail/answered.js";
 import { downloadMessage, safeExpunge, strictMove } from "../imap/strict.js";
@@ -56,12 +56,15 @@ export function register(server: McpServer, app: AppContext) {
     async ({ uid, deleteAfterSend, originalFolder }, inv) => {
       const deps = inv.account.getSendDeps();
       const client = await inv.account.getClient();
-      const draftsFolder = await requireSpecialFolder(client, "\\Drafts");
+      const folders = await listFolderInfo(client);
+      const draftsFolder = await requireSpecialFolder(client, "\\Drafts", folders);
+      // A draft carrying a hidden Gmail label is not found: it is neither read, sent nor moved
+      const scope = inv.account.policy.messageScope(folders);
 
       const lock = await client.getMailboxLock(draftsFolder);
       let draftRaw: Buffer;
       try {
-        draftRaw = await downloadMessage(client, uid, draftsFolder);
+        draftRaw = await downloadMessage(client, uid, draftsFolder, scope);
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
@@ -126,7 +129,7 @@ export function register(server: McpServer, app: AppContext) {
           // unknown or hidden folder: skip it — the email is already sent
         }
       }
-      const originalMarkedAnswered = await markOriginalAnswered(client, parsed.inReplyTo, answeredFolders);
+      const originalMarkedAnswered = await markOriginalAnswered(client, parsed.inReplyTo, answeredFolders, scope);
       const to = formatAddressList(flattenAddresses(parsed.to));
       inv.record({ folder: draftsFolder, uids: [uid], messageId, recipients });
       log.info("email.sent_draft", { account: inv.account.id, recipients: recipients.length, messageId });

@@ -4,6 +4,7 @@ import type { AppContext } from "../context.js";
 import type { BulkAction as PolicyBulkAction } from "../policy/engine.js";
 import type { AppConfig } from "../config/schema.js";
 import type { ToolInvocation } from "../tools/shared/define-tool.js";
+import type { FolderInfo } from "../imap/folders.js";
 import { existingUids } from "../imap/strict.js";
 import { selectByFilter } from "../imap/select.js";
 import { envelopeDate } from "../imap/envelope.js";
@@ -43,6 +44,8 @@ export function selectionStore(app: AppContext): SelectionStore {
 export interface PreviewRequest {
   /** Resolved folder path. */
   folder: string;
+  /** The account's folders as already listed (for the message scope). */
+  folders?: FolderInfo[];
   filters: SearchFilters;
   action: BulkAction;
   /** Extra checks with the folder selected, before a token is issued (e.g. keyword support). */
@@ -52,18 +55,24 @@ export interface PreviewRequest {
 export interface CommitRequest {
   token: string;
   folder: string;
+  /** The account's folders as already listed (for the message scope). */
+  folders?: FolderInfo[];
   action: BulkAction;
   /** Performs the change on exactly the previewed UIDs; returns fields for the response. */
   apply: (client: ImapFlow, uids: number[]) => Promise<Record<string, unknown>>;
 }
 
-/** Step 1: select, check limits, issue a token. Changes nothing on the server. */
+/**
+ * Step 1: select, check limits, issue a token. Changes nothing on the server. The selection is
+ * already without the messages the account's message scope hides, so the token binds only
+ * messages the AI may see.
+ */
 export async function previewBulk(app: AppContext, inv: ToolInvocation, req: PreviewRequest): Promise<CallToolResult> {
   const client = await inv.account.getClient();
   const lock = await client.getMailboxLock(req.folder);
   try {
     await req.validate?.(client);
-    const selection = await selectByFilter(client, req.filters);
+    const selection = await selectByFilter(client, req.filters, inv.account.policy.messageScope(req.folders));
     // A forgotten or dropped criterion must not turn into "the whole folder": that takes {"all": true}
     if (Object.keys(selection.applied).length === 0) {
       throw new Error(
@@ -71,8 +80,9 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
           `Nothing was ${req.action.type === "delete" ? "deleted" : "changed"}.`,
       );
     }
-    if (selection.attachmentScanLimited) {
-      throw new Error("Too many messages match to check their attachments reliably. Nothing was changed. Narrow the filter (for example with since/before) and preview again.");
+    if (selection.attachmentScanLimited || selection.labelScanLimited) {
+      const what = selection.attachmentScanLimited ? "check their attachments" : "check them against your administrator's folder policy";
+      throw new Error(`Too many messages match to ${what} reliably. Nothing was changed. Narrow the filter (for example with since/before) and preview again.`);
     }
     const count = selection.uids.length;
     inv.record({ folder: req.folder, action: req.action.type, count, preview: true });
@@ -134,7 +144,10 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
   }
 }
 
-/** Step 2: apply to exactly the previewed messages, or refuse if anything changed. */
+/**
+ * Step 2: apply to exactly the previewed messages, or refuse if anything changed — including a
+ * previewed message that has since got a label the policy hides: it counts as gone.
+ */
 export async function commitBulk(app: AppContext, inv: ToolInvocation, req: CommitRequest): Promise<CallToolResult> {
   const selection = selectionStore(app).consume(req.token, {
     accountId: inv.account.id,
@@ -149,7 +162,7 @@ export async function commitBulk(app: AppContext, inv: ToolInvocation, req: Comm
     if (uidValidity !== selection.uidValidity) {
       throw new SelectionError(`The folder "${req.folder}" was reset on the server since the preview. Nothing was changed. Run the preview again.`);
     }
-    const present = await existingUids(client, selection.uids);
+    const present = await existingUids(client, selection.uids, inv.account.policy.messageScope(req.folders));
     if (present.length !== selection.uids.length) {
       throw new SelectionError(
         `${selection.uids.length - present.length} of the ${selection.uids.length} previewed messages are no longer in "${req.folder}" (moved or deleted elsewhere). Nothing was changed. Run the preview again.`,

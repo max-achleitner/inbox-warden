@@ -19,7 +19,9 @@ export type FakeMethod =
   | "messageDelete"
   | "append"
   | "status"
-  | "getMailboxLock";
+  | "getMailboxLock"
+  /** The next FETCH that asks for Gmail labels: "false" answers without X-GM-LABELS, "throw" fails. */
+  | "labels";
 
 export type FailureMode = "false" | "throw";
 
@@ -30,7 +32,21 @@ export interface FakeMessage {
   internalDate: Date;
   /** Gmail X-GM-THRID equivalent for thread tests */
   threadId?: string;
+  /**
+   * Gmail labels (X-GM-LABELS): "\\Inbox", "\\Sent", user labels as folder paths. One Gmail
+   * message shows up in several folders; their copies share this set (see addGmailMessage).
+   */
+  labels?: Set<string>;
 }
+
+/** Gmail's system label for a special-use folder (the folder's own label, which X-GM-LABELS leaves out). */
+const GMAIL_SYSTEM_LABELS: Record<string, string> = {
+  "\\Sent": "\\Sent",
+  "\\Drafts": "\\Draft",
+  "\\Trash": "\\Trash",
+  "\\Junk": "\\Spam",
+  "\\Flagged": "\\Starred",
+};
 
 export interface FakeFolder {
   path: string;
@@ -107,7 +123,7 @@ export class FakeImap {
   addMessage(
     path: string,
     raw: string | Buffer,
-    opts: { flags?: string[]; internalDate?: Date; uid?: number; threadId?: string } = {},
+    opts: { flags?: string[]; internalDate?: Date; uid?: number; threadId?: string; labels?: Set<string> } = {},
   ): number {
     const folder = this.requireFolder(path);
     const uid = opts.uid ?? folder.uidNext;
@@ -118,8 +134,25 @@ export class FakeImap {
       flags: new Set(opts.flags ?? []),
       internalDate: opts.internalDate ?? new Date("2026-01-15T10:00:00Z"),
       threadId: opts.threadId,
+      labels: opts.labels,
     });
     return uid;
+  }
+
+  /**
+   * One Gmail message with `labels`, shown like Gmail does in every folder a label stands for
+   * ("\\Inbox" → INBOX, "\\Sent" → the \Sent folder, "Kunden" → "Kunden") and in All Mail, if
+   * listed. Mail in Trash or Spam shows up only there. Returns the UID per folder path.
+   */
+  addGmailMessage(raw: string | Buffer, labels: string[], opts: { flags?: string[]; internalDate?: Date; threadId?: string } = {}): Map<string, number> {
+    const shared = new Set(labels);
+    const isTrashOrSpam = labels.some((l) => l === "\\Trash" || l === "\\Spam");
+    const folders = isTrashOrSpam
+      ? [...this.folders.values()].filter((f) => labels.includes(this.ownLabel(f)))
+      : [...this.folders.values()].filter((f) => f.specialUse === "\\All" || labels.includes(this.ownLabel(f)));
+    const uids = new Map<string, number>();
+    for (const folder of folders) uids.set(folder.path, this.addMessage(folder.path, raw, { ...opts, labels: shared }));
+    return uids;
   }
 
   uidsIn(path: string): number[] {
@@ -170,8 +203,19 @@ export class FakeImap {
   async *fetch(range: string | number[], query: Record<string, unknown>, _opts?: { uid?: boolean }) {
     this.record("fetch", [range, query]);
     const r = toRange(range);
-    for (const m of this.selected().messages.filter((x) => inRange(x.uid, r))) {
-      yield toFetchMessage(m, query);
+    const folder = this.selected();
+    // Like Gmail: X-GM-LABELS only with X-GM-EXT-1, and without the selected folder's own label
+    let labels: ((m: FakeMessage) => Set<string>) | undefined;
+    if (query.labels && this.capabilities.has("X-GM-EXT-1")) {
+      const failure = this.takeFailure("labels");
+      if (failure === "throw") throw new Error("FETCH X-GM-LABELS failed");
+      const own = this.ownLabel(folder);
+      if (failure !== "false") labels = (m) => new Set([...(m.labels ?? [])].filter((l) => l !== own));
+    }
+    for (const m of folder.messages.filter((x) => inRange(x.uid, r))) {
+      const out = toFetchMessage(m, query);
+      if (labels) out.labels = labels(m);
+      yield out;
     }
   }
 
@@ -359,6 +403,15 @@ export class FakeImap {
     this.mailbox = false;
   }
 
+  /** The Gmail label a folder stands for: "\\Inbox", a system label, or the folder's path. */
+  private ownLabel(folder: FakeFolder): string {
+    if (folder.path.toUpperCase() === "INBOX") return "\\Inbox";
+    if (folder.specialUse && GMAIL_SYSTEM_LABELS[folder.specialUse]) return GMAIL_SYSTEM_LABELS[folder.specialUse];
+    if (folder.specialUse === "\\All") return "";
+    if (folder.flags.has("\\Important")) return "\\Important";
+    return folder.path;
+  }
+
   private takeFailure(method: FakeMethod): FailureMode | undefined {
     const mode = this.failures.get(method);
     this.failures.delete(method);
@@ -390,6 +443,11 @@ export class FakeImap {
       const newUid = dst.uidNext++;
       dst.messages.push({ ...m, uid: newUid, flags: new Set(m.flags) });
       uidMap.set(m.uid, newUid);
+      // Gmail: COPY adds the destination's label, MOVE also takes the source's label off
+      if (m.labels) {
+        if (remove) m.labels.delete(this.ownLabel(src));
+        m.labels.add(this.ownLabel(dst));
+      }
     }
     if (remove) src.messages = src.messages.filter((x) => !uidMap.has(x.uid));
     return { path: src.path, destination: dst.path, uidValidity: dst.uidValidity, uidMap };
