@@ -95,7 +95,7 @@ operating system's keychain. Then add this in Claude Desktop under Settings → 
 | `read` | search, read, view attachments | on |
 | `write` | mark read, flag, move, create drafts, manage folders | on |
 | `send` | send email and drafts | off |
-| `delete` | move to Trash, empty Trash | off |
+| `delete` | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program | off |
 
 In the form, enter the permissions separated by commas, e.g. `read,write` (recommended) or `read,write,send`.
 

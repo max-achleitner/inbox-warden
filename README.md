@@ -92,7 +92,7 @@ You decide per mailbox which of four permission levels are active:
 | **read** | on | search with filters and previews, read messages and whole conversations, attachments |
 | **write** | on | mark read, flag, move, sort many messages at once (with preview and confirmation), create reply and forward drafts, manage folders |
 | **send** | off | send email or drafts — each send confirmed by you unless you choose otherwise |
-| **delete** | off | move to Trash, empty Trash |
+| **delete** | off | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program |
 
 ## Security at a glance
 

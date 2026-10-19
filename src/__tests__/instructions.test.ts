@@ -21,6 +21,7 @@ describe("instructions and descriptions", () => {
     expect(instructions).toContain("_injectionScan");
     expect(instructions).toContain("never work around it");
     expect(instructions).toContain("declines, nothing was sent");
+    expect(instructions).toContain("Nothing is ever deleted permanently");
     await client.close();
   });
 
