@@ -176,6 +176,19 @@ describe("runSetup — existing configuration", () => {
     expect(await runSetup(deps)).toBe(0);
     expect(prompter.output).toContain("  main <max@firma.example>: lesen, ordnen, senden, löschen (Standard)");
     expect(prompter.output).toContain("  work <max@firma.at>: lesen, ordnen");
+    expect(prompter.output.join("\n")).not.toContain("gesperrte Ordner");
+  });
+
+  it("lists the locked folders below a mailbox that has any", async () => {
+    const locked = ConfigSchema.parse({
+      ...existing,
+      accounts: [existing.accounts[0], { ...existing.accounts[1], policy: { folders: { deny: ["_NDA_Inbox", "_NDA_*"] } } }],
+    });
+    const { deps, prompter } = harness({ existing: locked, answers: ["done"] });
+    expect(await runSetup(deps)).toBe(0);
+    const work = prompter.output.indexOf("  work <max@firma.at>: lesen, ordnen");
+    expect(prompter.output[work + 1]).toBe("    gesperrte Ordner: _NDA_Inbox, _NDA_*");
+    expect(prompter.output.filter((line) => line.includes("gesperrte Ordner"))).toHaveLength(1);
   });
 
   it.each([

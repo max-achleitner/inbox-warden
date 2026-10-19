@@ -143,7 +143,9 @@ const MESSAGES = {
       "                                             Microsoft-/Google-Anmeldung (erneut) durchführen\n" +
       `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
       "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
-      "                                             Berechtigungen, Standard-Postfach, Massenlimits oder Passwort ändern\n" +
+      "                                [--lock-folder <ordner>] [--unlock-folder <ordner>]\n" +
+      "                                             Berechtigungen, Standard-Postfach, Massenlimits, gesperrte Ordner\n" +
+      "                                             oder Passwort ändern\n" +
       `  ${SERVER_NAME} audit verify [<ordner|datei>]\n` +
       "                                             Prüfprotokoll auf Manipulation prüfen (Exit-Code 1 bei Problemen)",
     en:
@@ -155,7 +157,9 @@ const MESSAGES = {
       "                                             Sign in (again) to Microsoft/Google\n" +
       `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
       "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
-      "                                             Change permissions, default mailbox, bulk limits or password\n" +
+      "                                [--lock-folder <folder>] [--unlock-folder <folder>]\n" +
+      "                                             Change permissions, default mailbox, bulk limits, locked folders\n" +
+      "                                             or password\n" +
       `  ${SERVER_NAME} audit verify [<folder|file>]\n` +
       "                                             Check the audit log for tampering (exit code 1 on problems)",
   },
@@ -209,6 +213,13 @@ const MESSAGES = {
   stateOn: { de: "an", en: "on" },
   stateOff: { de: "aus", en: "off" },
   editDefaultName: { de: "Standard-Postfach", en: "default account" },
+  editNotLocked: {
+    de: "„{folder}“ ist im Postfach „{id}“ nicht gesperrt. Gesperrte Ordner: {list}. Bitte genau so schreiben wie dort. Nichts wurde geändert.",
+    en: '"{folder}" is not a locked folder of the mailbox "{id}". Locked folders: {list}. Write it exactly as listed there. Nothing was changed.',
+  },
+  lockedFoldersName: { de: "gesperrte Ordner", en: "locked folders" },
+  lockedFolders: { de: "gesperrte Ordner: {list}", en: "locked folders: {list}" },
+  foldersNone: { de: "keine", en: "none" },
   loginNoDeviceCode: {
     de: "{provider} bietet keine Anmeldung mit Code. Verwenden Sie --no-browser und öffnen Sie den angezeigten Link.",
     en: "{provider} offers no sign-in with a code. Use --no-browser and open the link that is shown.",

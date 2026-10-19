@@ -24,6 +24,10 @@ export interface AccountsEditCommand {
   maxMessages?: number;
   /** policy.bulk.maxDelete */
   maxDelete?: number;
+  /** Folder patterns to add to policy.folders.deny (--lock-folder, repeatable). */
+  lockFolders: string[];
+  /** Exact policy.folders.deny entries to remove (--unlock-folder, repeatable). */
+  unlockFolders: string[];
   /** Ask for a new password (hidden) and store it in the secret store. */
   password: boolean;
 }
@@ -99,13 +103,29 @@ function parseEdit(args: string[]): CliCommand {
       '"accounts edit" needs the mailbox id, e.g.: accounts edit main --allow send',
     );
   }
-  const cmd: AccountsEditCommand = { command: "accounts-edit", accountId, allow: [], deny: [], makeDefault: false, password: false };
+  const cmd: AccountsEditCommand = {
+    command: "accounts-edit",
+    accountId,
+    allow: [],
+    deny: [],
+    makeDefault: false,
+    lockFolders: [],
+    unlockFolders: [],
+    password: false,
+  };
   for (let i = 0; i < flags.length; i++) {
     const flag = flags[i];
     if (flag === "--default") {
       cmd.makeDefault = true;
     } else if (flag === "--password") {
       cmd.password = true;
+    } else if (flag === "--lock-folder" || flag === "--unlock-folder") {
+      const value = flags[++i]?.trim();
+      if (!value || value.startsWith("--")) {
+        return invalid(`${flag} braucht einen Ordnernamen, z. B. ${flag} _NDA_Inbox`, `${flag} needs a folder name, e.g. ${flag} _NDA_Inbox`);
+      }
+      const list = flag === "--lock-folder" ? cmd.lockFolders : cmd.unlockFolders;
+      if (!list.includes(value)) list.push(value);
     } else if (flag === "--allow" || flag === "--deny" || flag === "--max-messages" || flag === "--max-delete") {
       const value = flags[++i];
       if (value === undefined || value.startsWith("--")) return invalid(`${flag} braucht einen Wert.`, `${flag} needs a value.`);
@@ -128,11 +148,19 @@ function parseEdit(args: string[]): CliCommand {
   }
   const both = cmd.allow.find((tier) => cmd.deny.includes(tier));
   if (both) return invalid(`„${both}“ ist zugleich erlaubt und verboten.`, `"${both}" is both allowed and denied.`);
-  const changes = cmd.allow.length + cmd.deny.length + (cmd.makeDefault ? 1 : 0) + (cmd.password ? 1 : 0);
+  const lockedAndUnlocked = cmd.lockFolders.find((folder) => cmd.unlockFolders.includes(folder));
+  if (lockedAndUnlocked) {
+    return invalid(
+      `„${lockedAndUnlocked}“ soll zugleich gesperrt und freigegeben werden.`,
+      `"${lockedAndUnlocked}" is both locked and unlocked.`,
+    );
+  }
+  const changes =
+    cmd.allow.length + cmd.deny.length + cmd.lockFolders.length + cmd.unlockFolders.length + (cmd.makeDefault ? 1 : 0) + (cmd.password ? 1 : 0);
   if (changes === 0 && cmd.maxMessages === undefined && cmd.maxDelete === undefined) {
     return invalid(
-      "„accounts edit“ braucht mindestens eine Option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --password",
-      '"accounts edit" needs at least one option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --password',
+      "„accounts edit“ braucht mindestens eine Option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --lock-folder/--unlock-folder <ordner>, --password",
+      '"accounts edit" needs at least one option: --allow/--deny <read|write|send|delete>, --default, --max-messages <n>, --max-delete <n>, --lock-folder/--unlock-folder <folder>, --password',
     );
   }
   return cmd;

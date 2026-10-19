@@ -93,6 +93,8 @@ export function formatAccountList(locale: Locale, config: AppConfig | undefined)
     const auth = a.auth.type === "oauth2" ? `oauth2:${a.auth.provider}` : "password";
     const tiers = (["read", "write", "send", "delete"] as const).filter((tier) => a.permissions[tier]).join("+");
     const marker = config.defaultAccount === a.id ? "*" : " ";
-    return `${marker} ${a.id.padEnd(16)} ${a.email.padEnd(32)} ${a.imap.host.padEnd(28)} ${auth.padEnd(16)} ${tiers}`;
+    const row = `${marker} ${a.id.padEnd(16)} ${a.email.padEnd(32)} ${a.imap.host.padEnd(28)} ${auth.padEnd(16)} ${tiers}`;
+    const locked = a.policy.folders.deny;
+    return locked.length > 0 ? `${row}  ${t(locale, "lockedFolders", { list: locked.join(", ") })}` : row;
   });
 }

@@ -77,6 +77,16 @@ describe("describeTls / formatAccountList", () => {
   });
 
   it("lists accounts with auth type and tiers", () => {
-    expect(formatAccountList("en", config)[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write\+send/);
+    expect(formatAccountList("en", config)[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write\+send$/);
+  });
+
+  it("shows locked folders only when there are any", () => {
+    const locked = ConfigSchema.parse({
+      ...config,
+      accounts: [{ ...config.accounts[0], policy: { folders: { deny: ["_NDA_Inbox", "_NDA_*"] } } }],
+    });
+    expect(formatAccountList("en", locked)[0]).toMatch(/read\+write\+send {2}locked folders: _NDA_Inbox, _NDA_\*$/);
+    expect(formatAccountList("de", locked)[0]).toMatch(/gesperrte Ordner: _NDA_Inbox, _NDA_\*$/);
+    expect(formatAccountList("en", config)[0]).not.toContain("locked");
   });
 });
