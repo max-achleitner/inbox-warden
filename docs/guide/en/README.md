@@ -133,14 +133,19 @@ that you lock a folder: Claude does not see it or its subfolders, and every atte
 
      `main` is the mailbox's id; `inbox-warden accounts list` shows every id and the folders already locked.
      For several folders, repeat `--lock-folder`. `--unlock-folder _NDA_Inbox` removes a lock again.
+     `inbox-warden doctor` warns when a lock matches no folder — usually a typo, and the folder you meant would
+     stay visible.
 3. Restart — the lock applies only after that: quit Claude Desktop completely and open it again; in Claude Code
    `/mcp` → select the server → **Reconnect**.
 4. Check in a new chat: *"Which folders can you see?"* — the locked folder must not be listed.
 
-**How to write the folders:** in the field, separate several folders with commas, without quotation marks:
-`_NDA_Inbox, _NDA_Project_North`. Subfolders are always locked too. `_NDA_*` locks every folder whose name starts
-with `_NDA_`, including ones you create later; on the command line, put such names in quotation marks:
-`--lock-folder "_NDA_*"`. For a folder inside another folder, write the path with `/`, e.g. `Projects/_NDA_Inbox`.
+**How to write the folders:** the name alone is enough, wherever the folder is: `_NDA_Inbox` also locks
+`Projects/_NDA_Inbox`. A path with `/` locks only that exact place. Subfolders are always locked too. `_NDA_*`
+locks every folder whose name starts with `_NDA_`, including ones you create later; on the command line, put such
+names in quotation marks: `--lock-folder "_NDA_*"`. In the field, separate several folders with commas, without
+quotation marks: `_NDA_Inbox, _NDA_Project_North`. If a folder name itself contains a comma, write `?` in its
+place in the field (`?` stands for any one character), or lock the folder with `--lock-folder` or in the
+configuration file.
 
 **By hand in the configuration file** (command-line version and remote mode; the extension does not read this
 file): open `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.json`) in a text editor, find
@@ -154,7 +159,8 @@ file): open `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.
 ```
 
 If the entry has no `"policy"` yet, add `"policy": { "folders": { "deny": ["_NDA_Inbox"] } }` to it. Then run
-`inbox-warden doctor`: it shows any typo in the file, and with a broken file the server does not start. In
+`inbox-warden doctor`: it shows mistakes in the file (with a broken file the server does not start) and locks
+that match no folder. In
 remote mode the file is `config/config.json`; restart with `docker compose restart mcp`.
 
 ### What the lock does

@@ -191,7 +191,7 @@
     "locked_folders": {
       "type": "string",
       "title": "Folders Claude must not see / Ordner, die Claude nicht sehen darf",
-      "description": "Optional, e.g. for mail under an NDA. Folder names separated by commas, e.g. _NDA_Inbox, _NDA_Project. Subfolders are locked too. Wildcards work: _NDA_* locks every folder whose name starts with _NDA_. For a folder inside another one, write the path with /, e.g. Projects/_NDA_Inbox. Leave empty to lock nothing.",
+      "description": "Optional, e.g. for mail under an NDA. Folder names separated by commas, e.g. _NDA_Inbox, _NDA_Project. The name alone is enough, wherever the folder is; subfolders are locked too. Wildcards work: _NDA_* locks every folder whose name starts with _NDA_. A name that contains a comma: write ? in place of the comma. Leave empty to lock nothing.",
       "required": false
     },
     "language": {

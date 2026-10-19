@@ -80,8 +80,8 @@ export function filesFromEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
 /**
  * IMAP_MCP_DENY_FOLDERS (the extension's "Folders Claude must not see"): comma-separated folder
  * patterns that become policy.folders.deny. Checked against the policy schema here, so a mistake
- * names the variable instead of a config path. Quotation marks would be taken literally and the
- * lock would silently match nothing, so they are refused.
+ * names the variable instead of a config path. A folder name with a comma cannot be written here
+ * ("?" in its place works, or --lock-folder / config.json).
  */
 export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
   const deny = (env.IMAP_MCP_DENY_FOLDERS ?? "")
@@ -92,6 +92,11 @@ export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
     new ConfigError(
       `Locked folders (IMAP_MCP_DENY_FOLDERS): ${detail} Write the folder names separated by commas, without quotation marks, e.g. _NDA_Inbox, _NDA_*`,
     );
+  // Quotation marks are refused on purpose: the guide shows the config.json form
+  // ["_NDA_Inbox", "_NDA_Projekt"], and pasted into the form field its quotes (and brackets) would
+  // be matched literally, so the lock would silently cover no folder. The extension has no doctor
+  // run to catch that, so failing at start-up is the only signal. A folder whose name really
+  // contains a quotation mark (very rare) can still be locked with "?" in its place.
   const quoted = deny.find((pattern) => pattern.includes('"'));
   if (quoted !== undefined) throw problem(`${quoted} contains quotation marks.`);
   const checked = FolderPolicySchema.safeParse({ deny });

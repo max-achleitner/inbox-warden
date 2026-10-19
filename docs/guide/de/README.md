@@ -139,16 +139,19 @@ nicht, und jeder Zugriff darauf wird abgelehnt.
 
      `main` ist die Kennung des Postfachs; `inbox-warden accounts list` zeigt alle Kennungen und die schon
      gesperrten Ordner. Für mehrere Ordner wiederholen Sie `--lock-folder`. `--unlock-folder _NDA_Inbox` hebt
-     eine Sperre wieder auf.
+     eine Sperre wieder auf. `inbox-warden doctor` warnt, wenn eine Sperre auf keinen Ordner passt — meist ein
+     Tippfehler, und der gemeinte Ordner bliebe sichtbar.
 3. Neu starten — erst danach gilt die Sperre: Claude Desktop ganz beenden und neu öffnen; in Claude Code
    `/mcp` → Server auswählen → **Reconnect**.
 4. In einem neuen Chat prüfen: *„Welche Ordner siehst du?“* — der gesperrte Ordner darf nicht vorkommen.
 
-**So schreiben Sie die Ordner:** Mehrere Ordner trennen Sie im Feld mit Kommas, ohne Anführungszeichen:
-`_NDA_Inbox, _NDA_Projekt_Nord`. Unterordner sind immer mitgesperrt. `_NDA_*` sperrt alle Ordner, deren Name mit
-`_NDA_` beginnt, auch später angelegte; in der Kommandozeile setzen Sie solche Namen in Anführungszeichen:
-`--lock-folder "_NDA_*"`. Liegt ein Ordner in einem anderen, schreiben Sie den Pfad mit `/`, z. B.
-`Projekte/_NDA_Inbox`.
+**So schreiben Sie die Ordner:** Der Name genügt, wo auch immer der Ordner liegt: `_NDA_Inbox` sperrt auch
+`Projekte/_NDA_Inbox`. Ein Pfad mit `/` sperrt nur genau diese Stelle. Unterordner sind immer mitgesperrt.
+`_NDA_*` sperrt alle Ordner, deren Name mit `_NDA_` beginnt, auch später angelegte; in der Kommandozeile setzen
+Sie solche Namen in Anführungszeichen: `--lock-folder "_NDA_*"`. Im Feld trennen Sie mehrere Ordner mit Kommas,
+ohne Anführungszeichen: `_NDA_Inbox, _NDA_Projekt_Nord`. Enthält ein Ordnername selbst ein Komma, schreiben Sie im
+Feld `?` an dessen Stelle (`?` steht für ein beliebiges Zeichen) oder sperren den Ordner mit `--lock-folder` bzw.
+in der Konfigurationsdatei.
 
 **Von Hand in der Konfigurationsdatei** (Kommandozeilen-Version und Remote-Modus; die Erweiterung liest diese
 Datei nicht): Öffnen Sie `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.json`) in einem
@@ -162,8 +165,8 @@ Texteditor, suchen Sie beim Postfach (`"id": "main"` oder Ihre Kennung) im Absch
 ```
 
 Fehlt der Abschnitt, ergänzen Sie beim Postfach `"policy": { "folders": { "deny": ["_NDA_Inbox"] } }`. Danach
-`inbox-warden doctor` ausführen: Ein Tippfehler in der Datei wird dort angezeigt, und mit einer fehlerhaften Datei
-startet der Server nicht. Im Remote-Modus steht die Datei unter `config/config.json`; neu starten mit
+`inbox-warden doctor` ausführen: Er zeigt Fehler in der Datei (mit einer fehlerhaften Datei startet der Server
+nicht) und Sperren, die auf keinen Ordner passen. Im Remote-Modus steht die Datei unter `config/config.json`; neu starten mit
 `docker compose restart mcp`.
 
 ### Was die Sperre bewirkt
