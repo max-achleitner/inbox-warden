@@ -109,7 +109,8 @@ describe.skipIf(!HOST)("GreenMail: a locked folder and everything below it", () 
   let nda: string;
   let sub: string;
   let empty: string;
-  let archive: string;
+  // not "Archiv": without SPECIAL-USE the server would treat it as the Archive system folder, which rename_folder protects
+  let kunden: string;
   let ndaUid: number;
   let subUid: number;
   let replyUid: number;
@@ -118,7 +119,7 @@ describe.skipIf(!HOST)("GreenMail: a locked folder and everything below it", () 
     client = await connectGreenMail(user);
     delimiter =
       client.namespace?.delimiter ?? (await client.list()).find((f) => f.path.toUpperCase() === "INBOX")?.delimiter ?? ".";
-    for (const name of ["Archiv", "Drafts", "Sent", "Trash", "_NDA_Inbox", `_NDA_Inbox${delimiter}Projekt`, `_NDA_Inbox${delimiter}Leer`]) {
+    for (const name of ["Kunden", "Drafts", "Sent", "Trash", "_NDA_Inbox", `_NDA_Inbox${delimiter}Projekt`, `_NDA_Inbox${delimiter}Leer`]) {
       await client.mailboxCreate(name);
     }
     const listed = await client.list();
@@ -130,7 +131,7 @@ describe.skipIf(!HOST)("GreenMail: a locked folder and everything below it", () 
     nda = pathOf("_NDA_Inbox");
     sub = pathOf("Projekt");
     empty = pathOf("Leer");
-    archive = pathOf("Archiv");
+    kunden = pathOf("Kunden");
     expect(sub).toBe(`${nda}${delimiter}Projekt`);
 
     const attachments = [{ filename: "vertrag.txt", content: "Vertragsentwurf", contentType: "text/plain" }];
@@ -182,12 +183,12 @@ describe.skipIf(!HOST)("GreenMail: a locked folder and everything below it", () 
   it("keeps the folder and its subfolders out of list_folders and get_email_count", async () => {
     const list = await h.call("list_folders");
     expect(list.isError).toBe(false);
-    expect(list.json.map((f: { path: string }) => f.path)).toEqual(expect.arrayContaining(["INBOX", archive]));
+    expect(list.json.map((f: { path: string }) => f.path)).toEqual(expect.arrayContaining(["INBOX", kunden]));
     expect(list.text).not.toContain("_NDA_Inbox");
 
     const counts = await h.call("get_email_count");
     expect(counts.isError).toBe(false);
-    expect(counts.json.map((f: { path: string }) => f.path)).toEqual(expect.arrayContaining(["INBOX", archive]));
+    expect(counts.json.map((f: { path: string }) => f.path)).toEqual(expect.arrayContaining(["INBOX", kunden]));
     expect(counts.text).not.toContain("_NDA_Inbox");
   });
 
@@ -242,8 +243,8 @@ describe.skipIf(!HOST)("GreenMail: a locked folder and everything below it", () 
     ["create_folder", "below it", () => ({ path: `_NDA_Inbox${delimiter}Neu` })],
     ["create_folder", "below it, written with /", () => ({ path: "_NDA_Inbox/Neu" })],
     ["create_folder", "with its name", () => ({ path: "_NDA_Inbox" })],
-    ["rename_folder", "into it", () => ({ path: archive, newPath: `_NDA_Inbox${delimiter}Archiv` })],
-    ["rename_folder", "onto its name", () => ({ path: archive, newPath: "_NDA_Inbox" })],
+    ["rename_folder", "into it", () => ({ path: kunden, newPath: `_NDA_Inbox${delimiter}Kunden` })],
+    ["rename_folder", "onto its name", () => ({ path: kunden, newPath: "_NDA_Inbox" })],
     ["rename_folder", "out of it", () => ({ path: sub, newPath: "Projekt" })],
     ["delete_folder", "for its empty subfolder", () => ({ path: empty })],
   ] as const)("refuses %s %s and changes nothing", async (tool, _role, args) => {
