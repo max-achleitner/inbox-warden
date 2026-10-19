@@ -98,7 +98,7 @@ Compose tools accept `from` (must be one of the account's identities) and `signa
 **Key patterns:**
 - Product name and version come from `src/version.ts` (`SERVER_NAME`, `VERSION`, read from package.json); never hard-code them.
 - Register tools only with `defineTool`; get IMAP clients and SMTP deps from `inv.account`.
-- Never call imapflow's `search`, `status`, `messageMove`, `messageCopy`, `messageFlagsAdd/Remove`, `messageDelete`, `append` or `download` directly from a tool — use `src/imap/strict.ts`. Wrap `mailboxRename`/`mailboxDelete` in `withoutImplicitExpunge` (imapflow deselects with CLOSE, an implicit expunge, on servers without UNSELECT).
+- Never call imapflow's `search`, `status`, `messageMove`, `messageCopy`, `messageFlagsAdd/Remove`, `messageDelete`, `append` or `download` directly from a tool — use `src/imap/strict.ts`. Every path that lists, reads or changes messages passes a `MessageScope` (`inv.account.policy.messageScope(folders)`) to `existingUids`, `selectByFilter`, `downloadMessage` or `visibleUids`: on Gmail it hides messages carrying a locked label as if they did not exist (`src/policy/label-lock.ts`); `UNSCOPED` only outside an account policy. Wrap `mailboxRename`/`mailboxDelete` in `withoutImplicitExpunge` (imapflow deselects with CLOSE, an implicit expunge, on servers without UNSELECT).
 - Never pass a folder name from tool input straight to imapflow — use `resolveFolder` / `requireSpecialFolder`.
 - A tool must never select more messages than requested; responses echo what was applied.
 - Build messages only with `composeMessage`, sender via `fromHeader(identity)`; send only with `deliver()`.
