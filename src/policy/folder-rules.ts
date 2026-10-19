@@ -1,7 +1,7 @@
 export interface FolderRules {
   /** When set, only folders matching one of these patterns are visible (each by itself: subfolders need "X/**"). */
   allow?: string[];
-  /** Folders matching any of these patterns, and every folder below them, are never visible (deny wins over allow). */
+  /** Folders matching any of these patterns, and every folder below them, are never visible (deny wins over allow; a bare name matches at any depth). */
   deny: string[];
 }
 
@@ -82,13 +82,18 @@ function anyMatch(forms: string[], patterns: string[]): boolean {
 }
 
 /**
- * A deny pattern written with the prefix ("INBOX/_NDA_Inbox") also hides the folder on a server
- * without it: when in doubt, hide. Not for allow, where it would widen access, and not before a
- * wildcard ("INBOX/*" would become "*", every top-level folder).
+ * Deny patterns hide rather too much than too little. A bare name ("_NDA_Inbox", "_NDA_*") is a
+ * folder name, hidden at any depth, the way people think of their folders; a leading "/" anchors
+ * it at the top level (as in .gitignore). A pattern written with the prefix ("INBOX/_NDA_Inbox")
+ * also hides the folder on a server without it, except before a wildcard ("INBOX/*" would become
+ * "*", every top-level folder). Allow keeps both literal, as either widening would widen access.
  */
 function denyForms(pattern: string): string[] {
-  const below = /^\/*inbox\/+([^*?/].*)$/i.exec(pattern.trim().replace(/\\/g, "/"));
-  return below ? [pattern, below[1]] : [pattern];
+  const raw = pattern.trim().replace(/\\/g, "/");
+  const p = raw.replace(/^\/+|\/+$/g, "");
+  if (!raw.startsWith("/") && !p.includes("/")) return [`**/${p}`];
+  const below = /^inbox\/+([^*?/].*)$/i.exec(p);
+  return below ? [p, below[1]] : [p];
 }
 
 /**

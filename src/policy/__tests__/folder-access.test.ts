@@ -46,7 +46,8 @@ describe("folder access", () => {
     fake.addFolder("Archive");
     fake.addFolder("Projects");
     fake.addFolder("Projects/Archive");
-    const denyArchive = account({ deny: ["Archive"] });
+    // "/" anchors the name at the top level; a bare "Archive" would hide Projects/Archive too
+    const denyArchive = account({ deny: ["/Archive"] });
     await expect(resolvePolicyFolder(denyArchive, fake.asClient(), "Archive")).rejects.toBeInstanceOf(PolicyDeniedError);
     expect(await resolvePolicyFolder(denyArchive, fake.asClient(), "Projects/Archive")).toBe("Projects/Archive");
   });

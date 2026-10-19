@@ -59,10 +59,26 @@ describe("folder rules", () => {
       expect(folderAllowed(path, delimiter, nda)).toBe(false);
     });
 
-    it("leaves folders alone that only share the beginning of the name, or hold it deeper down", () => {
+    it("leaves folders alone that only share the beginning of the name", () => {
       expect(folderAllowed("_NDA_Inbox2", "/", nda)).toBe(true);
       expect(folderAllowed("_NDA_Inbox_alt/Projekt", "/", nda)).toBe(true);
-      expect(folderAllowed("Projekte/_NDA_Inbox", "/", nda)).toBe(true);
+    });
+
+    it("hides a bare name at any depth, wildcards included", () => {
+      expect(folderAllowed("Projekte/_NDA_Inbox", "/", nda)).toBe(false);
+      expect(folderAllowed("Projekte/_NDA_Inbox/2026", "/", nda)).toBe(false);
+      const any = { deny: ["_NDA_*"] };
+      expect(folderAllowed("Kunden/Nord/_NDA_Vertrag", "/", any)).toBe(false);
+      expect(folderAllowed("Kunden/Nord", "/", any)).toBe(true);
+    });
+
+    it("matches a path, or a name with a leading /, from the top level only", () => {
+      const nested = { deny: ["Projekte/_NDA_Inbox"] };
+      expect(folderAllowed("Projekte/_NDA_Inbox", "/", nested)).toBe(false);
+      expect(folderAllowed("Archiv/Projekte/_NDA_Inbox", "/", nested)).toBe(true);
+      const anchored = { deny: ["/_NDA_Inbox"] };
+      expect(folderAllowed("_NDA_Inbox/Projekt", "/", anchored)).toBe(false);
+      expect(folderAllowed("Projekte/_NDA_Inbox", "/", anchored)).toBe(true);
     });
 
     it("applies to the folders a glob matches as well", () => {
@@ -94,7 +110,8 @@ describe("folder rules", () => {
     it("keeps INBOX itself and its other subfolders visible", () => {
       expect(folderAllowed("INBOX", ".", nda)).toBe(true);
       expect(folderAllowed("INBOX.Kunden", ".", nda)).toBe(true);
-      expect(folderAllowed("INBOX.Kunden._NDA_Inbox", ".", nda)).toBe(true);
+      expect(folderAllowed("INBOX.Kunden._NDA_Inbox", ".", nda)).toBe(false);
+      expect(folderAllowed("INBOX.Kunden._NDA_Inbox", ".", { deny: ["/_NDA_Inbox"] })).toBe(true);
     });
 
     it("still matches a pattern written with the prefix", () => {
