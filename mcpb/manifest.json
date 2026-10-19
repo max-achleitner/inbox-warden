@@ -4,7 +4,7 @@
   "display_name": "Inbox Warden",
   "version": "0.0.0",
   "description": "Let Claude search, read, sort and draft your email: Gmail, Microsoft 365, GMX, Web.de, IONOS, iCloud or your own mail server.",
-  "long_description": "Connects Claude to one mailbox over IMAP and SMTP.\n\n**What Claude can do** depends on the permissions you grant: *read* (search, read, attachments), *write* (sort into folders, flag, create reply drafts), *send* (send email, each send confirmed by you unless you choose otherwise) and *delete* (move to Trash).\n\n**Sign-in:** password or app password, or Microsoft 365 / Google Workspace sign-in in your browser — choose the sign-in method, then ask Claude \"please sign me in\".\n\n**Files:** Claude reads attachments to send only from folders you choose, and saves attachments only into the folder you choose.\n\n**Safe by default:** Claude can read and prepare drafts; you send them from your mail program. Nothing is ever selected by guesswork: if a search or folder cannot be matched exactly, the action fails instead of touching more mail. Email content is screened for prompt-injection attempts. Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain.\n\nSeveral mailboxes or a server with a self-signed certificate: install the command-line version instead (see Documentation).",
+  "long_description": "Connects Claude to one mailbox over IMAP and SMTP.\n\n**What Claude can do** depends on the permissions you grant: *read* (search, read, attachments), *write* (sort into folders, flag, create reply drafts), *send* (send email, each send confirmed by you unless you choose otherwise) and *delete* (move to Trash).\n\n**Sign-in:** password or app password, or Microsoft 365 / Google Workspace sign-in in your browser — choose the sign-in method, then ask Claude \"please sign me in\".\n\n**Files:** Claude reads attachments to send only from folders you choose, and saves attachments only into the folder you choose.\n\n**Locked folders:** folders you name (e.g. for mail under an NDA) are invisible to Claude, including their subfolders.\n\n**Safe by default:** Claude can read and prepare drafts; you send them from your mail program. Nothing is ever selected by guesswork: if a search or folder cannot be matched exactly, the action fails instead of touching more mail. Email content is screened for prompt-injection attempts. Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain.\n\nSeveral mailboxes or a server with a self-signed certificate: install the command-line version instead (see Documentation).",
   "author": {
     "name": "Max Achleitner",
     "url": "https://github.com/max-achleitner"
@@ -44,6 +44,7 @@
         "IMAP_MCP_DOWNLOAD_DIR": "${user_config.download_dir}",
         "IMAP_MCP_PERMISSIONS": "${user_config.permissions}",
         "IMAP_MCP_SEND_MODE": "${user_config.send_mode}",
+        "IMAP_MCP_DENY_FOLDERS": "${user_config.locked_folders}",
         "IMAP_MCP_LOCALE": "${user_config.language}",
         "IMAP_MCP_LANG": "${user_config.language}"
       }
@@ -185,6 +186,12 @@
       "title": "Sending / Versand",
       "description": "Only used when 'send' is allowed above. confirm = Claude asks you before every email (recommended); direct = no extra question; drafts-only = never send.",
       "default": "confirm",
+      "required": false
+    },
+    "locked_folders": {
+      "type": "string",
+      "title": "Folders Claude must not see / Ordner, die Claude nicht sehen darf",
+      "description": "Optional, e.g. for mail under an NDA. Folder names separated by commas, e.g. _NDA_Inbox, _NDA_Project. Subfolders are locked too. Wildcards work: _NDA_* locks every folder whose name starts with _NDA_. For a folder inside another one, write the path with /, e.g. Projects/_NDA_Inbox. Leave empty to lock nothing.",
       "required": false
     },
     "language": {

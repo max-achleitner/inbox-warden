@@ -10,6 +10,7 @@ describe("mcpb/manifest.json", () => {
   it("passes configuration only through the agreed env-only variables", () => {
     expect(Object.keys(template.server.mcp_config.env).sort()).toEqual([
       "IMAP_MCP_AUTH",
+      "IMAP_MCP_DENY_FOLDERS",
       "IMAP_MCP_DISPLAY_NAME",
       "IMAP_MCP_DOWNLOAD_DIR",
       "IMAP_MCP_EMAIL",
@@ -46,6 +47,15 @@ describe("mcpb/manifest.json", () => {
       expect(template.user_config[key]).toMatchObject({ sensitive: true, required: false });
       expect(template.user_config[key].default).toBeUndefined();
     }
+  });
+
+  it("lets the user lock folders away from Claude; empty locks nothing", () => {
+    expect(template.user_config.locked_folders).toMatchObject({ type: "string", required: false });
+    expect(template.user_config.locked_folders.sensitive).toBeUndefined();
+    // Like the other optional fields: no default, so an empty field arrives as the placeholder that applyBundleEnv drops
+    expect(template.user_config.locked_folders.default).toBeUndefined();
+    expect(template.user_config.locked_folders.description).toMatch(/commas.*[Ss]ubfolders.*_NDA_\*/s);
+    expect(template.server.mcp_config.env.IMAP_MCP_DENY_FOLDERS).toBe("${user_config.locked_folders}");
   });
 
   it("passes several attachment folders as arguments (mcpb expands lists only there)", () => {

@@ -15,6 +15,7 @@ describe("applyBundleEnv", () => {
       IMAP_MCP_DISPLAY_NAME: "",
       IMAP_MCP_OAUTH_TENANT: "${user_config.oauth_tenant}",
       IMAP_MCP_PASSWORD: "${user_config.password}",
+      IMAP_MCP_DENY_FOLDERS: "${user_config.locked_folders}",
       IMAP_PASSWORD: "",
     };
     applyBundleEnv(env);
@@ -162,6 +163,7 @@ describe("Claude Desktop form → env-only config (contract with Plans 2 and 4)"
       IMAP_MCP_SMTP_PORT: "${user_config.smtp_port}",
       IMAP_MCP_PERMISSIONS: "read,write",
       IMAP_MCP_SEND_MODE: "confirm",
+      IMAP_MCP_DENY_FOLDERS: " _NDA_Inbox, _NDA_* ",
       IMAP_MCP_LOCALE: "de",
     };
     applyBundleEnv(env);
@@ -179,6 +181,8 @@ describe("Claude Desktop form → env-only config (contract with Plans 2 and 4)"
       permissions: { read: true, write: true, send: false, delete: false },
       locale: "de",
     });
+    expect(account.policy.send.mode).toBe("confirm");
+    expect(account.policy.folders.deny).toEqual(["_NDA_Inbox", "_NDA_*"]);
     expect(account.auth).toEqual({ type: "password" });
     expect(account.identities[0]).toMatchObject({ email: "max@firma.example", name: "Maximilian Achleitner" });
     expect(await createSecretStore(env, { keychain: false }).get("main", "password")).toBe("app-password");
@@ -198,9 +202,11 @@ describe("Claude Desktop form → env-only config (contract with Plans 2 and 4)"
       IMAP_MCP_SMTP_HOST: "${user_config.smtp_host}",
       IMAP_MCP_SMTP_PORT: "${user_config.smtp_port}",
       IMAP_MCP_NO_AUTOCONFIG: "false",
+      IMAP_MCP_DENY_FOLDERS: "${user_config.locked_folders}",
       IMAP_MCP_PERMISSIONS: "read,write",
     };
     applyBundleEnv(env);
+    expect(env.IMAP_MCP_DENY_FOLDERS).toBeUndefined();
 
     // What serve() does next (Plan 4): fill the servers from the domain's MX record — injected here
     // instead of a real DNS lookup.
@@ -220,5 +226,6 @@ describe("Claude Desktop form → env-only config (contract with Plans 2 and 4)"
       imap: { host: "outlook.office365.com", port: 993 },
       smtp: { host: "smtp.office365.com", port: 587 },
     });
+    expect(account.policy.folders.deny).toEqual([]);
   });
 });

@@ -172,6 +172,40 @@ describe("loadConfig", () => {
     });
   });
 
+  describe("locked folders in environment mode (IMAP_MCP_DENY_FOLDERS)", () => {
+    const base = { IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" };
+
+    it("turns the comma-separated list into policy.folders.deny, trimmed and without empty entries", () => {
+      const config = configFromEnv({ ...base, IMAP_MCP_DENY_FOLDERS: " _NDA_Inbox ,, Projekte/_NDA_* ," });
+      expect(config.accounts[0].policy.folders).toEqual({ deny: ["_NDA_Inbox", "Projekte/_NDA_*"] });
+    });
+
+    it("locks nothing when the variable is unset, empty or only commas", () => {
+      for (const value of [undefined, "", " , ,"]) {
+        expect(configFromEnv({ ...base, IMAP_MCP_DENY_FOLDERS: value }).accounts[0].policy.folders).toEqual({ deny: [] });
+      }
+    });
+
+    it("keeps the send mode next to the folder lock", () => {
+      const config = configFromEnv({ ...base, IMAP_MCP_SEND_MODE: "drafts-only", IMAP_MCP_DENY_FOLDERS: "_NDA_Inbox" });
+      expect(config.accounts[0].policy.send.mode).toBe("drafts-only");
+      expect(config.accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox"]);
+      expect(configFromEnv({ ...base, IMAP_MCP_SEND_MODE: "direct" }).accounts[0].policy.send.mode).toBe("direct");
+    });
+
+    it("refuses quoted names, which would lock nothing, and names the variable", () => {
+      for (const value of ['"_NDA_Inbox"', '["_NDA_Inbox", "_NDA_Projekt"]']) {
+        expect(() => configFromEnv({ ...base, IMAP_MCP_DENY_FOLDERS: value })).toThrow(ConfigError);
+        expect(() => configFromEnv({ ...base, IMAP_MCP_DENY_FOLDERS: value })).toThrow(/IMAP_MCP_DENY_FOLDERS.*quotation marks/);
+      }
+    });
+
+    it("is applied by loadConfig in environment-only mode", async () => {
+      const config = await loadConfig({ ...env, ...base, IMAP_MCP_DENY_FOLDERS: "_NDA_Inbox" });
+      expect(config.accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox"]);
+    });
+  });
+
   it("rejects unknown permission names in environment mode", () => {
     expect(() => configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "h", IMAP_MCP_PERMISSIONS: "read,admin" })).toThrow(/admin/);
   });

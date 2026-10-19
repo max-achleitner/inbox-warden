@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
 import { ConfigSchema, type AppConfig, type PermissionTier } from "./schema.js";
+import { FolderPolicySchema } from "../policy/schema.js";
 import type { SecretStore } from "../secrets/store.js";
 import {
   deleteLegacyKeytarPassword,
@@ -76,6 +77,28 @@ export function filesFromEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
   };
 }
 
+/**
+ * IMAP_MCP_DENY_FOLDERS (the extension's "Folders Claude must not see"): comma-separated folder
+ * patterns that become policy.folders.deny. Checked against the policy schema here, so a mistake
+ * names the variable instead of a config path. Quotation marks would be taken literally and the
+ * lock would silently match nothing, so they are refused.
+ */
+export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
+  const deny = (env.IMAP_MCP_DENY_FOLDERS ?? "")
+    .split(",")
+    .map((pattern) => pattern.trim())
+    .filter(Boolean);
+  const problem = (detail: string) =>
+    new ConfigError(
+      `Locked folders (IMAP_MCP_DENY_FOLDERS): ${detail} Write the folder names separated by commas, without quotation marks, e.g. _NDA_Inbox, _NDA_*`,
+    );
+  const quoted = deny.find((pattern) => pattern.includes('"'));
+  if (quoted !== undefined) throw problem(`${quoted} contains quotation marks.`);
+  const checked = FolderPolicySchema.safeParse({ deny });
+  if (!checked.success) throw problem(`${checked.error.issues.map((issue) => issue.message).join("; ")}.`);
+  return checked.data.deny;
+}
+
 /** Single-account configuration from IMAP_MCP_* variables (Claude Desktop bundles, containers). */
 export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
   const email = nonEmpty(env.IMAP_MCP_EMAIL)!;
@@ -84,6 +107,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
   const smtpHost = nonEmpty(env.IMAP_MCP_SMTP_HOST);
   const username = nonEmpty(env.IMAP_MCP_USERNAME);
   const name = nonEmpty(env.IMAP_MCP_DISPLAY_NAME);
+  const sendMode = nonEmpty(env.IMAP_MCP_SEND_MODE);
+  const deny = denyFoldersFromEnv(env);
+  const policy = {
+    ...(sendMode ? { send: { mode: sendMode } } : {}),
+    ...(deny.length > 0 ? { folders: { deny } } : {}),
+  };
   return parseConfig(
     {
       version: 2,
@@ -99,7 +128,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
           permissions: parsePermissions(nonEmpty(env.IMAP_MCP_PERMISSIONS)),
           ...(nonEmpty(env.IMAP_MCP_SENT_COPY) ? { sentCopy: nonEmpty(env.IMAP_MCP_SENT_COPY) } : {}),
           ...(nonEmpty(env.IMAP_MCP_LOCALE) ? { locale: nonEmpty(env.IMAP_MCP_LOCALE) } : {}),
-          ...(nonEmpty(env.IMAP_MCP_SEND_MODE) ? { policy: { send: { mode: nonEmpty(env.IMAP_MCP_SEND_MODE) } } } : {}),
+          ...(Object.keys(policy).length > 0 ? { policy } : {}),
         },
       ],
     },
