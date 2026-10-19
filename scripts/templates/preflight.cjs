@@ -2,12 +2,16 @@
 // an old runtime gets a clear message instead of a SyntaxError from the real server code.
 "use strict";
 
+// Keep in step with engines.node in package.json
 var REQUIRED_MAJOR = 20;
-var major = parseInt(process.versions.node.split(".")[0], 10);
+var REQUIRED_MINOR = 19;
+var parts = process.versions.node.split(".");
+var major = parseInt(parts[0], 10);
+var minor = parseInt(parts[1], 10);
 
-if (!(major >= REQUIRED_MAJOR)) {
+if (!(major > REQUIRED_MAJOR || (major === REQUIRED_MAJOR && minor >= REQUIRED_MINOR))) {
   process.stderr.write(
-    "inbox-warden needs Node.js " + REQUIRED_MAJOR + " or newer, but this host runs Node.js " +
+    "inbox-warden needs Node.js " + REQUIRED_MAJOR + "." + REQUIRED_MINOR + " or newer, but this host runs Node.js " +
       process.versions.node + ". Update Claude Desktop, or install inbox-warden with npm (see the user guide).\n"
   );
   process.exit(1);

@@ -25,13 +25,24 @@ describe("preflight.cjs", () => {
     expect(result.stdout).toBe("started serve");
   });
 
-  it("rejects an old Node.js with a clear message", () => {
-    const preflight = fakeBundle("old-node");
-    const script = `Object.defineProperty(process.versions, "node", { value: "18.20.4" }); require(${JSON.stringify(preflight)});`;
-    const result = spawnSync(process.execPath, ["-e", script], { encoding: "utf8" });
+  /** Run the preflight as if the host's Node.js had `version`. */
+  function runAs(version, dirName) {
+    const preflight = fakeBundle(dirName);
+    const script = `Object.defineProperty(process.versions, "node", { value: ${JSON.stringify(version)} }); require(${JSON.stringify(preflight)});`;
+    return spawnSync(process.execPath, ["-e", script], { encoding: "utf8" });
+  }
+
+  it.each(["18.20.4", "20.18.1"])("rejects Node.js %s with a clear message", (version) => {
+    const result = runAs(version, "old-node");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("needs Node.js 20 or newer, but this host runs Node.js 18.20.4");
+    expect(result.stderr).toContain(`needs Node.js 20.19 or newer, but this host runs Node.js ${version}`);
     expect(result.stdout).toBe("");
+  });
+
+  it.each(["20.19.0", "24.21.0"])("starts on Node.js %s", (version) => {
+    const result = runAs(version, "new-node");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("started");
   });
 
   it("reports a server that fails to load in one line", () => {

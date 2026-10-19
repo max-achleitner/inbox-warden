@@ -25,7 +25,7 @@ with a clear message, and the `server.starting` log line records `node`, `platfo
 
 | | Windows | macOS |
 |---|---|---|
-| Claude Desktop version | | |
+| Claude Desktop version | 2.42304 (Microsoft Store package); its `app\version` says Electron 44.7.2 and its own `main.log` reports `nodeVersion: '24.21.0'` (2026-10-18, before the bundle was installed) | |
 | `server.nodeVersion` / `server.platform` from health_check | | |
 | `node` / `platform` / `arch` from server.starting log | | |
 | Search in a real mailbox works with empty optional fields | | |
@@ -34,8 +34,8 @@ with a clear message, and the `server.starting` log line records `node`, `platfo
 
 To be recorded after the spike — copy exactly one branch:
 
-- **A — Node ≥ 20.18 on both platforms:** keep `engines.node` `>=20.18.0`, manifest `compatibility.runtimes.node` `>=20.18.0` and `REQUIRED_MAJOR = 20`. Re-check this ADR when Claude Desktop changes major version.
-- **B — Node 20.x below 20.18 on at least one platform:** set `engines.node` and `compatibility.runtimes.node` to `>=<lowest observed version>`, run `npx -y node@<lowest observed version> node_modules/vitest/vitest.mjs run` and keep the change only if the suite passes; otherwise treat as C.
+- **A — Node ≥ 20.19 on both platforms:** keep `engines.node` `>=20.19.0`, manifest `compatibility.runtimes.node` `>=20.19.0` and `REQUIRED_MAJOR = 20` / `REQUIRED_MINOR = 19` in `preflight.cjs`. Re-check this ADR when Claude Desktop changes major version.
+- **B — Node 20.x below 20.19 on at least one platform:** set `engines.node` and `compatibility.runtimes.node` to `>=<lowest observed version>`, run `npx -y node@<lowest observed version> node_modules/vitest/vitest.mjs run` and keep the change only if the suite passes; otherwise treat as C.
 - **C — Node < 20 on at least one platform:** do not publish the `.mcpb` for that platform. Ship a Node single-executable (`server.type: "binary"`) built per platform with `node --experimental-sea-config sea-config.json` and `npx postject`, written as a separate plan before 1.0.0. npm and plugin channels are unaffected.
 
 ## Consequences

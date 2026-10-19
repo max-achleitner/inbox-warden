@@ -75,7 +75,7 @@ Entwürfe versenden kann. Die genauen Schritte stehen in den [Anbieterhinweisen]
 ## Mehrere Postfächer, eigener Mailserver
 
 Für mehrere Postfächer in einer Installation oder einen Server mit selbstsigniertem Zertifikat installieren Sie
-die Kommandozeilen-Version (benötigt Node.js 20.18 oder neuer):
+die Kommandozeilen-Version (benötigt Node.js 20.19 oder neuer):
 
 ```bash
 npm install -g inbox-warden
