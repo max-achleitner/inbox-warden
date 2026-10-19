@@ -11,9 +11,10 @@ darf, und standardmäßig versenden Sie Entwürfe selbst.
 3. [Microsoft 365 und Google Workspace](#microsoft-365-und-google-workspace)
 4. [Mehrere Postfächer, eigener Mailserver](#mehrere-postfächer-eigener-mailserver)
 5. [Was darf Claude? Die vier Rechte](#was-darf-claude-die-vier-rechte)
-6. [Beispiele für den Arbeitsalltag](#beispiele-für-den-arbeitsalltag)
-7. [Sicherheit — worauf Sie achten sollten](#sicherheit)
-8. [Probleme lösen](#probleme-lösen)
+6. [Ordner für Claude sperren](#ordner-für-claude-sperren)
+7. [Beispiele für den Arbeitsalltag](#beispiele-für-den-arbeitsalltag)
+8. [Sicherheit — worauf Sie achten sollten](#sicherheit)
+9. [Probleme lösen](#probleme-lösen)
 
 ## Installation in Claude Desktop
 
@@ -111,6 +112,105 @@ Ein laufender Server übernimmt die Änderung nach einem Neustart.
 `confirm` — Claude fragt vor jeder E-Mail nach (empfohlen); `direct` — ohne zusätzliche Rückfrage;
 `drafts-only` — nie senden. Zusätzlich fragt Claude Desktop vor jedem Versand nach, sofern Sie das nicht mit
 „Immer erlauben“ abgeschaltet haben. Wir empfehlen, „Immer erlauben“ für Versand und Löschen **nicht** zu verwenden.
+
+## Ordner für Claude sperren
+
+Manche Mails darf Claude nie zu sehen bekommen, zum Beispiel Korrespondenz unter einer
+Verschwiegenheitsvereinbarung (NDA). Dafür sperren Sie einen Ordner: Claude sieht ihn und seine Unterordner
+nicht, und jeder Zugriff darauf wird abgelehnt.
+
+**Nur in der Kommandozeilen-Version** (und im Remote-Modus). Die Claude-Desktop-Erweiterung und das
+Claude-Code-Plugin übernehmen ihre Einstellungen aus dem Installationsformular, und dort gibt es diese
+Einstellung nicht. Installieren Sie dafür die [Kommandozeilen-Version](#mehrere-postfächer-eigener-mailserver)
+und deaktivieren Sie die Erweiterung.
+
+### Ordner sperren
+
+1. Legen Sie im Mailprogramm einen Ordner an, z. B. `_NDA_Inbox` — am einfachsten auf oberster Ebene, neben
+   dem Posteingang.
+2. Öffnen Sie `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.json`) in einem Texteditor.
+   `inbox-warden setup` und `accounts edit` können Ordner nicht sperren; Sie tragen die Sperre hier von Hand
+   ein. Spätere Änderungen mit diesen Befehlen lassen sie stehen.
+3. Suchen Sie beim Postfach (`"id": "main"` oder Ihre Kennung) im Abschnitt `"policy"` den Eintrag `"folders"`
+   und tragen Sie den Ordner unter `"deny"` ein:
+
+   ```json
+   "folders": {
+     "deny": ["_NDA_Inbox"]
+   },
+   ```
+
+   Fehlt der Abschnitt, ergänzen Sie beim Postfach `"policy": { "folders": { "deny": ["_NDA_Inbox"] } }`.
+   Mehrere Ordner trennen Sie mit Kommas: `["_NDA_Inbox", "_NDA_Projekt_Nord"]`. `"_NDA_*"` sperrt alle Ordner,
+   deren Name mit `_NDA_` beginnt, auch später angelegte. Liegt ein Ordner in einem anderen, schreiben Sie den
+   Pfad mit `/`, z. B. `"Projekte/_NDA_Inbox"`.
+4. `inbox-warden doctor` ausführen: Ein Tippfehler in der Datei wird dort angezeigt. Mit einer fehlerhaften
+   Datei startet der Server nicht.
+5. Server neu starten — erst danach gilt die Sperre: Claude Desktop ganz beenden und neu öffnen; in Claude Code
+   `/mcp` → Server auswählen → **Reconnect**. Remote-Modus: dieselbe Einstellung in `config/config.json`, dann
+   `docker compose restart mcp`.
+6. In einem neuen Chat prüfen: *„Welche Ordner siehst du?“* — der gesperrte Ordner darf nicht vorkommen.
+
+### Was die Sperre bewirkt
+
+- Ein gesperrter Ordner und alle seine Unterordner sind für jedes Werkzeug unsichtbar und unerreichbar.
+- Ob Ihr Server Ordner intern unter `INBOX.` führt (`INBOX._NDA_Inbox`), spielt keine Rolle.
+- **Gmail:** Solange ein Ordner gesperrt ist, sind „Alle Nachrichten“, „Markiert“ und „Wichtig“ ausgeblendet,
+  weil dort auch die gesperrten Mails liegen. Eine Mail mit einem gesperrten Label ist überall unsichtbar, auch
+  unter anderen Labels und im Posteingang.
+- Abgelehnte Zugriffe werden im Protokoll vermerkt (`~/.imap-mcp/audit/`, Ergebnis `denied`).
+- **Die Sperre hängt am Namen.** Benennen Sie den Ordner im Mailprogramm um, ist er nicht mehr gesperrt:
+  neuen Namen eintragen und neu starten. Claude selbst kann einen gesperrten Ordner nicht umbenennen.
+- Ihre eigenen Antworten und Weiterleitungen liegen in „Gesendet“, Entwürfe in „Entwürfe“, und zitieren oft die
+  NDA-Mail. Für sie gilt die Sperre nur, wenn sie ebenfalls im gesperrten Ordner liegen (Gmail: das gesperrte
+  Label tragen).
+
+### NDA-Mails gar nicht erst in den Posteingang lassen
+
+Die Sperre schützt nur den Ordner. Liegt eine NDA-Mail auch nur kurz im Posteingang, kann Claude sie dort
+lesen. Lassen Sie solche Mails deshalb schon beim Eingang einsortieren, mit einer Regel, die **auf dem Server**
+läuft. Beispiele für Mails von `kunde-x.example`:
+
+- **Microsoft 365, Exchange, Outlook.com:** in Outlook im Web (outlook.office.com bzw. outlook.live.com)
+  Einstellungen → E-Mail → Regeln → **Neue Regel hinzufügen**: Bedingung **Absenderadresse enthält**
+  `kunde-x.example`, Aktion **Verschieben in** `_NDA_Inbox`, **Weitere Regeln nicht anwenden** ankreuzen,
+  speichern. Diese Regeln laufen auf dem Server. Eine Regel aus Outlook für den Desktop, die in der Regelliste
+  mit „(nur Client)“ markiert ist, läuft dagegen nur, solange Outlook auf diesem Computer geöffnet ist — bis
+  dahin liegt die Mail im Posteingang.
+- **Gmail, Google Workspace:** in Gmail im Browser im Suchfeld auf **Suchoptionen anzeigen** klicken, bei
+  **Von** `@kunde-x.example` eintragen → **Filter erstellen** → **Posteingang überspringen (Archivieren)** und
+  **Label anwenden:** `_NDA_Inbox` (bei Bedarf **Neues Label**) ankreuzen → **Filter erstellen**. Mit **Filter
+  auch auf übereinstimmende Konversationen anwenden** werden vorhandene Mails gleich mit einsortiert.
+- **Eigener Server:** eine Sieve-Regel, in Roundcube oder SOGo unter **Filter** oder als Skript:
+
+  ```sieve
+  require ["fileinto"];
+  if address :domain :is "from" "kunde-x.example" {
+    fileinto "_NDA_Inbox";
+    stop;
+  }
+  ```
+
+  Führt Ihr Server alle Ordner unter `INBOX.`, lautet das Ziel `INBOX._NDA_Inbox`.
+- **GMX, WEB.DE, IONOS, mailbox.org:** die Filterregeln im Webmail; auch sie laufen auf dem Server.
+
+Mails, die schon vor der Regel im Posteingang lagen, verschieben Sie einmal von Hand.
+
+### Strenger: nur freigegebene Ordner
+
+Statt einzelne Ordner zu sperren, können Sie festlegen, welche Ordner Claude überhaupt sehen darf:
+
+```json
+"folders": {
+  "allow": ["INBOX", "Kunden/**"],
+  "deny": []
+},
+```
+
+Claude sieht dann nur den Posteingang und `Kunden` mit allen Unterordnern (`/**`). Alle anderen Ordner bleiben
+verborgen, auch neu angelegte — und auch „Gesendet“ und „Entwürfe“, wenn Sie sie nicht aufführen. Was unter
+`deny` steht, bleibt gesperrt, auch wenn es unter `allow` fällt. Solange der Posteingang freigegeben ist,
+brauchen Sie die Serverregel für NDA-Mails trotzdem.
 
 ## Beispiele für den Arbeitsalltag
 

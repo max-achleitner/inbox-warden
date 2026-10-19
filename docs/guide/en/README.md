@@ -10,9 +10,10 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
 3. [Microsoft 365 and Google Workspace](#microsoft-365-and-google-workspace)
 4. [Several mailboxes, your own mail server](#several-mailboxes-your-own-mail-server)
 5. [What may Claude do? The four permissions](#what-may-claude-do-the-four-permissions)
-6. [Everyday examples](#everyday-examples)
-7. [Security — what to keep in mind](#security)
-8. [Troubleshooting](#troubleshooting)
+6. [Lock folders away from Claude](#lock-folders-away-from-claude)
+7. [Everyday examples](#everyday-examples)
+8. [Security — what to keep in mind](#security)
+9. [Troubleshooting](#troubleshooting)
 
 ## Install in Claude Desktop
 
@@ -107,6 +108,97 @@ A running server picks up the change after a restart.
 **Sending:** when `send` is allowed, "Sending" decides how: `confirm` — Claude asks before every email
 (recommended); `direct` — no extra question; `drafts-only` — never send. Claude Desktop also asks before every
 send unless you switched that off with "Always allow". We recommend **not** using "Always allow" for sending and deleting.
+
+## Lock folders away from Claude
+
+Some mail must never reach Claude — for example correspondence under a non-disclosure agreement (NDA). For
+that you lock a folder: Claude does not see it or its subfolders, and every attempt to reach them is refused.
+
+**Command-line version only** (and remote mode). The Claude Desktop extension and the Claude Code plugin take
+their settings from the install form, which has no such setting. Install the
+[command-line version](#several-mailboxes-your-own-mail-server) for this and disable the extension.
+
+### Lock a folder
+
+1. Create a folder in your mail program, e.g. `_NDA_Inbox` — simplest at the top level, next to the Inbox.
+2. Open `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.json`) in a text editor.
+   `inbox-warden setup` and `accounts edit` cannot lock folders; you add the lock here by hand. Later changes
+   with these commands keep it.
+3. In the mailbox's entry (`"id": "main"` or your id), find `"folders"` inside `"policy"` and add the folder
+   under `"deny"`:
+
+   ```json
+   "folders": {
+     "deny": ["_NDA_Inbox"]
+   },
+   ```
+
+   If the entry has no `"policy"` yet, add `"policy": { "folders": { "deny": ["_NDA_Inbox"] } }` to it.
+   Separate several folders with commas: `["_NDA_Inbox", "_NDA_Project_North"]`. `"_NDA_*"` locks every folder
+   whose name starts with `_NDA_`, including ones you create later. For a folder inside another folder, write
+   the path with `/`, e.g. `"Projects/_NDA_Inbox"`.
+4. Run `inbox-warden doctor`: it shows any typo in the file. With a broken file the server does not start.
+5. Restart the server — the lock applies only after that: quit Claude Desktop completely and open it again; in
+   Claude Code `/mcp` → select the server → **Reconnect**. Remote mode: the same setting in
+   `config/config.json`, then `docker compose restart mcp`.
+6. Check in a new chat: *"Which folders can you see?"* — the locked folder must not be listed.
+
+### What the lock does
+
+- A locked folder and all its subfolders are invisible and unreachable for every tool.
+- It does not matter whether your server keeps folders below `INBOX.` (`INBOX._NDA_Inbox`).
+- **Gmail:** while any folder is locked, All Mail, Starred and Important are hidden, because they show the locked
+  mail too. A message carrying a locked label is hidden everywhere, also in other labels and the Inbox.
+- Refused attempts are recorded in the audit log (`~/.imap-mcp/audit/`, outcome `denied`).
+- **The lock is tied to the name.** If you rename the folder in your mail program, it is no longer locked: enter the
+  new name and restart. Claude itself cannot rename a locked folder.
+- Your own replies and forwards sit in Sent, drafts in Drafts, and often quote the NDA mail. The lock covers them
+  only if they are in the locked folder too (Gmail: carry the locked label).
+
+### Keep NDA mail out of the Inbox
+
+The lock protects the folder only. If an NDA message sits in the Inbox even briefly, Claude can read it there.
+So have such mail sorted on arrival, by a rule that runs **on the server**. Examples for mail from
+`client-x.example`:
+
+- **Microsoft 365, Exchange, Outlook.com:** in Outlook on the web (outlook.office.com or outlook.live.com),
+  Settings → Mail → Rules → **Add new rule**: condition **Sender address includes** `client-x.example`, action
+  **Move to** `_NDA_Inbox`, tick **Stop processing more rules**, save. These rules run on the server. A rule from
+  desktop Outlook that the rules list marks "(client only)" runs only while Outlook is open on that computer —
+  until then the mail sits in the Inbox.
+- **Gmail, Google Workspace:** in Gmail in the browser, click **Show search options** in the search box, enter
+  `@client-x.example` under **From** → **Create filter** → tick **Skip the Inbox (Archive it)** and **Apply the
+  label:** `_NDA_Inbox` (**New label…** if needed) → **Create filter**. **Also apply filter to matching
+  conversations** sorts existing mail as well.
+- **Your own server:** a Sieve rule, in Roundcube or SOGo under **Filters** or as a script:
+
+  ```sieve
+  require ["fileinto"];
+  if address :domain :is "from" "client-x.example" {
+    fileinto "_NDA_Inbox";
+    stop;
+  }
+  ```
+
+  If your server keeps all folders below `INBOX.`, the target is `INBOX._NDA_Inbox`.
+- **GMX, WEB.DE, IONOS, mailbox.org:** the filter rules in the webmail; they run on the server too.
+
+Move mail that reached the Inbox before the rule existed by hand, once.
+
+### Stricter: only the folders you allow
+
+Instead of locking single folders, you can list the only folders Claude may see:
+
+```json
+"folders": {
+  "allow": ["INBOX", "Clients/**"],
+  "deny": []
+},
+```
+
+Claude then sees only the Inbox and `Clients` with all its subfolders (`/**`). Every other folder stays hidden,
+including new ones — and Sent and Drafts too, unless you list them. Whatever is under `deny` stays locked even
+if `allow` covers it. As long as the Inbox is allowed, you still need the server rule for NDA mail.
 
 ## Everyday examples
 
