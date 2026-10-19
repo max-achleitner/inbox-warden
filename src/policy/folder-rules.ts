@@ -1,7 +1,7 @@
 export interface FolderRules {
-  /** When set, only folders matching one of these patterns are visible. */
+  /** When set, only folders matching one of these patterns are visible (each by itself: subfolders need "X/**"). */
   allow?: string[];
-  /** Folders matching any of these patterns are never visible (deny wins over allow). */
+  /** Folders matching any of these patterns, and every folder below them, are never visible (deny wins over allow). */
   deny: string[];
 }
 
@@ -62,14 +62,39 @@ export function foldersRestricted(rules: FolderRules): boolean {
 }
 
 /**
+ * The spellings a canonical path is matched in: as it is and, below INBOX, without the leading
+ * "INBOX/" — the personal namespace prefix of Dovecot, Courier and Cyrus ("INBOX.Kunden"), so a
+ * rule written as "Kunden" works on every server. INBOX itself stays "INBOX".
+ */
+function matchForms(canonical: string): string[] {
+  const below = /^inbox\/(.+)$/i.exec(canonical);
+  return below ? [canonical, below[1]] : [canonical];
+}
+
+/** The path and every folder above it: "A/B/C" → "A/B/C", "A/B", "A". */
+function selfAndAncestors(canonical: string): string[] {
+  const levels = canonical.split("/");
+  return levels.map((_, i) => levels.slice(0, levels.length - i).join("/"));
+}
+
+function anyMatch(forms: string[], patterns: string[]): boolean {
+  return forms.some((form) => patterns.some((p) => folderPatternToRegExp(p).test(form)));
+}
+
+/**
+ * Whether the AI may see a folder.
+ *   deny   hides every folder a pattern matches and everything below it: the path and each of
+ *          its ancestors are checked, so deny "X" also hides "X/Y" (and deny wins over allow).
+ *   allow  (when set) shows only the folders a pattern matches itself; an allowed folder does
+ *          not unlock the folders below it — write "X/**" for that.
+ * Both match with and without a leading "INBOX/" (see matchForms).
  * An aggregate folder (Gmail's All Mail, Starred, Important) shows the mail of hidden folders
  * too, so it is hidden as soon as the rules hide anything — whatever its own name matches.
  */
 export function folderAllowed(path: string, delimiter: string | undefined, rules: FolderRules, aggregate = false): boolean {
   if (aggregate && foldersRestricted(rules)) return false;
   const canonical = canonicalFolderPath(path, delimiter);
-  const matches = (patterns: string[]) => patterns.some((p) => folderPatternToRegExp(p).test(canonical));
-  if (matches(rules.deny)) return false;
-  if (rules.allow && rules.allow.length > 0) return matches(rules.allow);
+  if (anyMatch(selfAndAncestors(canonical).flatMap(matchForms), rules.deny)) return false;
+  if (rules.allow && rules.allow.length > 0) return anyMatch(matchForms(canonical), rules.allow);
   return true;
 }

@@ -158,7 +158,10 @@ export class PolicyEngine {
 
   checkFolder(folderPath: string, delimiter?: string): void {
     if (!this.folderAllowed(folderPath, delimiter)) {
-      throw new PolicyDeniedError(`Access to the folder "${folderPath}" is blocked by your administrator's policy.`, "folders");
+      throw new PolicyDeniedError(
+        `Access to the folder "${folderPath}" is blocked by your administrator's policy. Nothing was changed.`,
+        "folders",
+      );
     }
   }
 
