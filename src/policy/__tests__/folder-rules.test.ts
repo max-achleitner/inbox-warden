@@ -103,6 +103,25 @@ describe("folder rules", () => {
       expect(folderAllowed("INBOX._NDA_Inbox.Projekt", ".", prefixed)).toBe(false);
     });
 
+    it("lets a deny pattern written with the prefix hide the folder on servers without it", () => {
+      const prefixed = { deny: ["INBOX/_NDA_Inbox"] };
+      expect(folderAllowed("_NDA_Inbox", "/", prefixed)).toBe(false);
+      expect(folderAllowed("_NDA_Inbox/Projekt", "/", prefixed)).toBe(false);
+      expect(folderAllowed("Kunden", "/", prefixed)).toBe(true);
+    });
+
+    it("keeps the prefix of a deny pattern that continues with a wildcard", () => {
+      const rules = { deny: ["INBOX/*"] };
+      expect(folderAllowed("INBOX/Unterordner", "/", rules)).toBe(false);
+      expect(folderAllowed("Sent", "/", rules)).toBe(true);
+    });
+
+    it("never drops the prefix of an allow pattern", () => {
+      const rules = { allow: ["INBOX/Kunden"], deny: [] };
+      expect(folderAllowed("INBOX/Kunden", "/", rules)).toBe(true);
+      expect(folderAllowed("Kunden", "/", rules)).toBe(false);
+    });
+
     it("also hides a real INBOX subfolder of the same name on servers without the prefix", () => {
       expect(folderAllowed("INBOX/HR", "/", { deny: ["HR"] })).toBe(false);
     });

@@ -82,19 +82,38 @@ function anyMatch(forms: string[], patterns: string[]): boolean {
 }
 
 /**
+ * A deny pattern written with the prefix ("INBOX/_NDA_Inbox") also hides the folder on a server
+ * without it: when in doubt, hide. Not for allow, where it would widen access, and not before a
+ * wildcard ("INBOX/*" would become "*", every top-level folder).
+ */
+function denyForms(pattern: string): string[] {
+  const below = /^\/*inbox\/+([^*?/].*)$/i.exec(pattern.trim().replace(/\\/g, "/"));
+  return below ? [pattern, below[1]] : [pattern];
+}
+
+/**
+ * Whether a deny pattern hides the folder or one above it, ignoring allow. Also used for Gmail
+ * labels, which hide a message wherever it shows up.
+ */
+export function folderDenied(path: string, delimiter: string | undefined, rules: FolderRules): boolean {
+  const canonical = canonicalFolderPath(path, delimiter);
+  return anyMatch(selfAndAncestors(canonical).flatMap(matchForms), rules.deny.flatMap(denyForms));
+}
+
+/**
  * Whether the AI may see a folder.
  *   deny   hides every folder a pattern matches and everything below it: the path and each of
  *          its ancestors are checked, so deny "X" also hides "X/Y" (and deny wins over allow).
  *   allow  (when set) shows only the folders a pattern matches itself; an allowed folder does
  *          not unlock the folders below it — write "X/**" for that.
- * Both match with and without a leading "INBOX/" (see matchForms).
+ * Both match with and without a leading "INBOX/" (see matchForms; deny patterns see denyForms).
  * An aggregate folder (Gmail's All Mail, Starred, Important) shows the mail of hidden folders
  * too, so it is hidden as soon as the rules hide anything — whatever its own name matches.
  */
 export function folderAllowed(path: string, delimiter: string | undefined, rules: FolderRules, aggregate = false): boolean {
   if (aggregate && foldersRestricted(rules)) return false;
+  if (folderDenied(path, delimiter, rules)) return false;
   const canonical = canonicalFolderPath(path, delimiter);
-  if (anyMatch(selfAndAncestors(canonical).flatMap(matchForms), rules.deny)) return false;
   if (rules.allow && rules.allow.length > 0) return anyMatch(matchForms(canonical), rules.allow);
   return true;
 }
