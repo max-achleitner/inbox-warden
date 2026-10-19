@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { FakeImap } from "../../__tests__/helpers/fake-imap.js";
 import { buildRaw } from "../../__tests__/helpers/messages.js";
 import { hasAttachmentPart, keywordsSupported, selectByFilter } from "../select.js";
+import { UNSCOPED } from "../strict.js";
 
 describe("hasAttachmentPart", () => {
   it("counts named parts whatever their disposition, but not images embedded by Content-ID", () => {
@@ -38,8 +39,8 @@ describe("selectByFilter", () => {
   });
 
   it("filters by attachment both ways", async () => {
-    expect((await selectByFilter(imap.asClient(), { hasAttachment: true })).uids).toEqual([2]);
-    expect((await selectByFilter(imap.asClient(), { hasAttachment: false })).uids).toEqual([1]);
+    expect((await selectByFilter(imap.asClient(), { hasAttachment: true }, UNSCOPED)).uids).toEqual([2]);
+    expect((await selectByFilter(imap.asClient(), { hasAttachment: false }, UNSCOPED)).uids).toEqual([1]);
   });
 
   it("treats an inline file (Apple Mail PDFs) as an attachment, so hasAttachment=false never selects it", async () => {
@@ -53,24 +54,24 @@ describe("selectByFilter", () => {
         attachments: [{ filename: "scan.pdf", content: Buffer.from("%PDF"), contentType: "application/pdf", contentDisposition: "inline" }],
       }),
     );
-    expect((await selectByFilter(imap.asClient(), { hasAttachment: false })).uids).toEqual([1]);
-    expect((await selectByFilter(imap.asClient(), { hasAttachment: true })).uids).toEqual([2, 3]);
+    expect((await selectByFilter(imap.asClient(), { hasAttachment: false }, UNSCOPED)).uids).toEqual([1]);
+    expect((await selectByFilter(imap.asClient(), { hasAttachment: true }, UNSCOPED)).uids).toEqual([2, 3]);
   });
 
   it("sends a Gmail query to servers that offer X-GM-EXT-1", async () => {
     imap.capabilities.set("X-GM-EXT-1", true);
-    await selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" });
+    await selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" }, UNSCOPED);
     expect(imap.callsTo("search").at(-1)).toEqual([{ gmraw: "category:promotions" }]);
   });
 
   it("refuses a Gmail query on other servers without searching", async () => {
-    await expect(selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" })).rejects.toThrow(/Gmail/);
+    await expect(selectByFilter(imap.asClient(), { gmailQuery: "category:promotions" }, UNSCOPED)).rejects.toThrow(/Gmail/);
     expect(imap.callsTo("search")).toEqual([]);
   });
 
   it("adds the non-ASCII hint when the server rejects the search", async () => {
     imap.failOn("search", "false");
-    await expect(selectByFilter(imap.asClient(), { subject: "Größe" })).rejects.toThrow(/non-ASCII/);
+    await expect(selectByFilter(imap.asClient(), { subject: "Größe" }, UNSCOPED)).rejects.toThrow(/non-ASCII/);
   });
 });
 

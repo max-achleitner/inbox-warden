@@ -4,6 +4,7 @@ import { simpleParser, type AddressObject } from "mailparser";
 import type { AppContext } from "../context.js";
 import * as log from "../logging/logger.js";
 import { scanForInjection } from "../security/injection-detector.js";
+import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage } from "../imap/strict.js";
 import { boundedText } from "../mail/text.js";
@@ -40,11 +41,12 @@ export function register(server: McpServer, app: AppContext) {
     },
     async ({ folder, uid, maxChars, offset, includeHtml }, inv) => {
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       let parsed;
       try {
-        parsed = await simpleParser(await downloadMessage(client, uid, path));
+        parsed = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }

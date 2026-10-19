@@ -1,13 +1,34 @@
 import { z } from "zod";
+import type { ImapFlow } from "imapflow";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
 import { listFolderInfo, serverFolderPath } from "../imap/folders.js";
 import { isSystemFolder, resolvePolicyFolder } from "../policy/folder-access.js";
 import { PolicyDeniedError } from "../policy/engine.js";
 import { checkTrashMove, movesIntoTrash } from "../policy/trash-move.js";
-import { strictStatus, withoutImplicitExpunge } from "../imap/strict.js";
+import { labelLockApplies } from "../policy/label-lock.js";
+import { LABEL_SCAN_LIMIT } from "../imap/select.js";
+import { strictSearch, strictStatus, visibleUids, withoutImplicitExpunge, type MessageScope } from "../imap/strict.js";
 import { defineTool } from "./shared/define-tool.js";
 import { errorResult, jsonResult } from "./shared/result.js";
+
+/**
+ * Whether `path` holds a message the scope hides. Fails closed: a folder too big to check within
+ * `budget` counts as holding one, and labels the server does not report raise LabelCheckError.
+ */
+async function holdsHiddenMessages(client: ImapFlow, path: string, scope: MessageScope, budget: { remaining: number }): Promise<boolean> {
+  const lock = await client.getMailboxLock(path, { readOnly: true });
+  try {
+    const exists = client.mailbox ? client.mailbox.exists : 0;
+    if (exists === 0) return false;
+    if (exists > budget.remaining) return true;
+    budget.remaining -= exists;
+    const all = await strictSearch(client, { all: true });
+    return (await visibleUids(client, all, scope)).length < all.length;
+  } finally {
+    try { lock.release(); } catch { /* connection may already be dead */ }
+  }
+}
 
 export function registerCreate(server: McpServer, app: AppContext) {
   defineTool(
@@ -63,7 +84,11 @@ export function registerDelete(server: McpServer, app: AppContext) {
         return errorResult("Error deleting folder", `The mail server did not report how many messages "${resolved}" contains. Nothing was deleted.`);
       }
       if (status.messages > 0) {
-        return errorResult("Error deleting folder", `Folder "${resolved}" contains ${status.messages} message(s). Move or delete them first. Nothing was deleted.`);
+        // STATUS also counts messages hidden by a Gmail label: their number is not told
+        const contents = labelLockApplies(client, inv.account.policy.policy.folders)
+          ? "is not empty. Move or delete its messages first"
+          : `contains ${status.messages} message(s). Move or delete them first`;
+        return errorResult("Error deleting folder", `Folder "${resolved}" ${contents}. Nothing was deleted.`);
       }
 
       const target = folders.find((f) => f.path === resolved)!;
@@ -104,11 +129,18 @@ export function registerRename(server: McpServer, app: AppContext) {
       inv.account.policy.checkFolder(target, delimiter);
       // RENAME moves every subfolder too: a hidden one would land where its deny rule no longer applies
       const descendants = delimiter ? folders.filter((f) => f.path.startsWith(resolved + delimiter)) : [];
-      if (descendants.some((f) => !inv.account.policy.folderAllowed(f.path, f.delimiter, f.aggregate))) {
-        throw new PolicyDeniedError(
-          `"${resolved}" cannot be renamed or moved because of your administrator's folder policy. Nothing was renamed.`,
-          "folders",
-        );
+      const refusal = new PolicyDeniedError(
+        `"${resolved}" cannot be renamed or moved because of your administrator's folder policy. Nothing was renamed.`,
+        "folders",
+      );
+      if (descendants.some((f) => !inv.account.policy.folderAllowed(f.path, f.delimiter, f.aggregate))) throw refusal;
+      // On Gmail a folder is a label: RENAME renames it on every message carrying it, hidden ones too
+      if (labelLockApplies(client, inv.account.policy.policy.folders)) {
+        const scope = inv.account.policy.messageScope(folders);
+        const budget = { remaining: LABEL_SCAN_LIMIT };
+        for (const f of [folders.find((x) => x.path === resolved)!, ...descendants].filter((x) => x.selectable)) {
+          if (await holdsHiddenMessages(client, f.path, scope, budget)) throw refusal;
+        }
       }
       // Moving a folder below Trash deletes all of its mail, subfolders included
       if (movesIntoTrash(folders, target)) {

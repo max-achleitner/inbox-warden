@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
+import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { searchFilterShape } from "../imap/search-query.js";
-import { selectByFilter } from "../imap/select.js";
+import { LABEL_SCAN_NOTE, selectByFilter } from "../imap/select.js";
 import { SENDER_SCAN_LIMIT, summarizeSenders } from "../imap/senders.js";
 import { highestRisk } from "../policy/observer.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -32,10 +33,11 @@ export function register(server: McpServer, app: AppContext) {
     },
     async ({ folder, groupBy, limit, ...filters }, inv) => {
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       try {
-        const selection = await selectByFilter(client, filters);
+        const selection = await selectByFilter(client, filters, inv.account.policy.messageScope(folders));
         const scannedUids = selection.uids.slice(-SENDER_SCAN_LIMIT);
         const summary = await summarizeSenders(client, scannedUids, { groupBy, limit });
         inv.record({
@@ -52,7 +54,9 @@ export function register(server: McpServer, app: AppContext) {
           scanned: scannedUids.length,
           ...(scannedUids.length < selection.uids.length
             ? { scanLimited: true, note: `Only the newest ${SENDER_SCAN_LIMIT} matching emails were counted. Narrow the filter to see the rest.` }
-            : {}),
+            : selection.labelScanLimited
+              ? { scanLimited: true, note: LABEL_SCAN_NOTE }
+              : {}),
           ...(selection.attachmentScanLimited ? { attachmentScanLimited: true } : {}),
           ...summary,
         });

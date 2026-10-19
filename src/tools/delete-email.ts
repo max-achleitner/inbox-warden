@@ -58,10 +58,10 @@ export function register(server: McpServer, app: AppContext) {
       };
 
       if (confirmToken) {
-        return commitBulk(app, inv, { token: confirmToken, folder: path, action: { type: "delete" }, apply: remove });
+        return commitBulk(app, inv, { token: confirmToken, folder: path, folders, action: { type: "delete" }, apply: remove });
       }
       if (filter) {
-        return previewBulk(app, inv, { folder: path, filters: filter, action: { type: "delete" } });
+        return previewBulk(app, inv, { folder: path, folders, filters: filter, action: { type: "delete" } });
       }
       if (!uids) {
         throw new Error("Pass uids, or a filter to preview a bulk delete. Nothing was deleted.");
@@ -70,7 +70,7 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(path);
       try {
         const requested = uniqueUids(uids);
-        const present = await existingUids(client, requested);
+        const present = await existingUids(client, requested, inv.account.policy.messageScope(folders));
         const missingUids = requested.filter((u) => !present.includes(u));
         if (present.length === 0) {
           throw new Error(`None of the UIDs exist in "${path}". Nothing was deleted.`);

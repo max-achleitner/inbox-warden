@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { simpleParser } from "mailparser";
 import type { AppContext } from "../context.js";
-import { requireSpecialFolder } from "../imap/folders.js";
+import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { composeMessage } from "../mail/compose.js";
@@ -44,11 +44,12 @@ export function register(server: McpServer, app: AppContext) {
       const identity = inv.account.identityFor(from);
       const quoteLanguage = language ?? inv.account.config.locale;
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       let original;
       try {
-        original = await simpleParser(await downloadMessage(client, uid, path));
+        original = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
@@ -67,7 +68,7 @@ export function register(server: McpServer, app: AppContext) {
       const text = quoteOriginal ? `${signed.text}\n\n${quotePlain(original, quoteLanguage)}` : signed.text;
       const htmlBody = signed.html && quoteOriginal ? `${signed.html}<br>${quoteHtml(original, quoteLanguage)}` : signed.html;
 
-      const draftsFolder = await requireSpecialFolder(client, "\\Drafts");
+      const draftsFolder = await requireSpecialFolder(client, "\\Drafts", folders);
       const message = await composeMessage({
         from: fromHeader(identity),
         to,

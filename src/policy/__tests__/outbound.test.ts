@@ -7,6 +7,9 @@ import { buildRaw } from "../../__tests__/helpers/messages.js";
 import { PolicyDeniedError, PolicyEngine } from "../engine.js";
 import { InjectionRiskObserver, highestRisk } from "../observer.js";
 import { findNewRecipients, guardOutbound } from "../outbound.js";
+import { UNSCOPED } from "../../imap/strict.js";
+import { gmailFakeImap } from "../../__tests__/helpers/test-app.js";
+import { LabelLock } from "../label-lock.js";
 import { PolicySchema } from "../schema.js";
 
 /** `capabilities` defaults to a connected client that declared no elicitation. */
@@ -68,13 +71,13 @@ describe("guardOutbound", () => {
   it("knows recipients from the Sent folder", async () => {
     const t = setup();
     t.imap.addMessage("Sent", await buildRaw({ from: "max@firma.example", to: "Kunde@Example.com", subject: "x", text: "y" }));
-    expect(await findNewRecipients(t.imap.asClient(), ["kunde@example.com", "neu@example.com"])).toEqual(["neu@example.com"]);
+    expect(await findNewRecipients(t.imap.asClient(), ["kunde@example.com", "neu@example.com"], UNSCOPED)).toEqual(["neu@example.com"]);
   });
 
   it("flags a lookalike that only appears inside a known address (IMAP search matches substrings)", async () => {
     const t = setup();
     t.imap.addMessage("Sent", await buildRaw({ from: "max@firma.example", to: "john@acme.com", subject: "x", text: "y" }));
-    expect(await findNewRecipients(t.imap.asClient(), ["john@acme.co", "ohn@acme.com", "john@acme.com"])).toEqual([
+    expect(await findNewRecipients(t.imap.asClient(), ["john@acme.co", "ohn@acme.com", "john@acme.com"], UNSCOPED)).toEqual([
       "john@acme.co",
       "ohn@acme.com",
     ]);
@@ -83,7 +86,16 @@ describe("guardOutbound", () => {
   it("knows recipients that were only in Bcc", async () => {
     const t = setup();
     t.imap.addMessage("Sent", await buildRaw({ from: "max@firma.example", to: "a@example.com", bcc: "geheim@example.com", subject: "x", text: "y" }));
-    expect(await findNewRecipients(t.imap.asClient(), ["geheim@example.com"])).toEqual([]);
+    expect(await findNewRecipients(t.imap.asClient(), ["geheim@example.com"], UNSCOPED)).toEqual([]);
+  });
+
+  it("does not count Sent mail that carries a hidden Gmail label: its recipients stay new", async () => {
+    const imap = gmailFakeImap(["_NDA_Inbox"]);
+    imap.addGmailMessage(await buildRaw({ from: "max@firma.example", to: "partner@partner.example", subject: "x", text: "y" }), ["\\Sent", "_NDA_Inbox"]);
+    imap.addGmailMessage(await buildRaw({ from: "max@firma.example", to: "kunde@example.com", subject: "x", text: "y" }), ["\\Sent"]);
+    const scope = new LabelLock({ deny: ["_NDA_Inbox"] });
+    expect(await findNewRecipients(imap.asClient(), ["partner@partner.example", "kunde@example.com"], scope)).toEqual(["partner@partner.example"]);
+    expect(await findNewRecipients(imap.asClient(), ["partner@partner.example"], UNSCOPED)).toEqual([]);
   });
 
   it("highestRisk picks the maximum", () => {
