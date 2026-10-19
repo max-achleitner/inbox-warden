@@ -90,8 +90,8 @@ describe("policy coverage of tool sources", () => {
   });
 
   it("every move checks whether it goes into Trash (that is a delete)", () => {
-    // delete-email.ts is the delete tier itself
-    expect(offenders(/\bstrictMove\(/, /\bmovesIntoTrash\(/, ["delete-email.ts"])).toEqual([]);
+    // delete-email.ts is the delete tier itself; send-draft.ts moves only the draft it has just sent
+    expect(offenders(/\bstrictMove\(/, /\bmovesIntoTrash\(/, ["delete-email.ts", "send-draft.ts"])).toEqual([]);
   });
 
   it("every tool that scans for injection records the risk for the policy", () => {

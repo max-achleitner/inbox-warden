@@ -38,6 +38,8 @@ export interface OutgoingMessage {
 
 export interface SentCopyResult {
   saved: boolean;
+  /** The provider or server stores sent mail in Sent itself, so a copy exists although we stored none. */
+  filedByServer?: true;
   folder?: string;
   uid?: number;
   reason: string;
@@ -88,7 +90,7 @@ async function storeSentCopy(deps: SendDeps, msg: OutgoingMessage): Promise<Sent
   }
   const client = await deps.getClient();
   if (deps.sentCopy === "auto" && providerFilesSentMail(client, deps.imapHost)) {
-    return { saved: false, reason: "The mail provider files sent mail into the Sent folder itself." };
+    return { saved: false, filedByServer: true, reason: "The mail provider files sent mail into the Sent folder itself." };
   }
   const folder = await findSpecialFolder(client, "\\Sent");
   if (!folder) return { saved: false, reason: "No Sent folder was found, so no copy was stored." };
@@ -100,7 +102,7 @@ async function storeSentCopy(deps: SendDeps, msg: OutgoingMessage): Promise<Sent
       deps.sentProbeCache.set(deps.imapHost, serverFiles);
     }
     if (serverFiles) {
-      return { saved: false, folder, reason: "The mail server files sent mail into the Sent folder itself." };
+      return { saved: false, filedByServer: true, folder, reason: "The mail server files sent mail into the Sent folder itself." };
     }
   }
 
