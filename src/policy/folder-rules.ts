@@ -1,7 +1,7 @@
 export interface FolderRules {
-  /** When set, only folders matching one of these patterns are visible. */
+  /** When set, only folders matching one of these patterns are visible (each by itself: subfolders need "X/**"). */
   allow?: string[];
-  /** Folders matching any of these patterns are never visible (deny wins over allow). */
+  /** Folders matching any of these patterns, and every folder below them, are never visible (deny wins over allow; a bare name matches at any depth). */
   deny: string[];
 }
 
@@ -62,14 +62,63 @@ export function foldersRestricted(rules: FolderRules): boolean {
 }
 
 /**
+ * The spellings a canonical path is matched in: as it is and, below INBOX, without the leading
+ * "INBOX/" — the personal namespace prefix of Dovecot, Courier and Cyrus ("INBOX.Kunden"), so a
+ * rule written as "Kunden" works on every server. INBOX itself stays "INBOX".
+ */
+function matchForms(canonical: string): string[] {
+  const below = /^inbox\/(.+)$/i.exec(canonical);
+  return below ? [canonical, below[1]] : [canonical];
+}
+
+/** The path and every folder above it: "A/B/C" → "A/B/C", "A/B", "A". */
+function selfAndAncestors(canonical: string): string[] {
+  const levels = canonical.split("/");
+  return levels.map((_, i) => levels.slice(0, levels.length - i).join("/"));
+}
+
+function anyMatch(forms: string[], patterns: string[]): boolean {
+  return forms.some((form) => patterns.some((p) => folderPatternToRegExp(p).test(form)));
+}
+
+/**
+ * Deny patterns hide rather too much than too little. A bare name ("_NDA_Inbox", "_NDA_*") is a
+ * folder name, hidden at any depth, the way people think of their folders; a leading "/" anchors
+ * it at the top level (as in .gitignore). A pattern written with the prefix ("INBOX/_NDA_Inbox")
+ * also hides the folder on a server without it, except before a wildcard ("INBOX/*" would become
+ * "*", every top-level folder). Allow keeps both literal, as either widening would widen access.
+ */
+function denyForms(pattern: string): string[] {
+  const raw = pattern.trim().replace(/\\/g, "/");
+  const p = raw.replace(/^\/+|\/+$/g, "");
+  if (!raw.startsWith("/") && !p.includes("/")) return [`**/${p}`];
+  const below = /^inbox\/+([^*?/].*)$/i.exec(p);
+  return below ? [p, below[1]] : [p];
+}
+
+/**
+ * Whether a deny pattern hides the folder or one above it, ignoring allow. Also used for Gmail
+ * labels, which hide a message wherever it shows up.
+ */
+export function folderDenied(path: string, delimiter: string | undefined, rules: FolderRules): boolean {
+  const canonical = canonicalFolderPath(path, delimiter);
+  return anyMatch(selfAndAncestors(canonical).flatMap(matchForms), rules.deny.flatMap(denyForms));
+}
+
+/**
+ * Whether the AI may see a folder.
+ *   deny   hides every folder a pattern matches and everything below it: the path and each of
+ *          its ancestors are checked, so deny "X" also hides "X/Y" (and deny wins over allow).
+ *   allow  (when set) shows only the folders a pattern matches itself; an allowed folder does
+ *          not unlock the folders below it — write "X/**" for that.
+ * Both match with and without a leading "INBOX/" (see matchForms; deny patterns see denyForms).
  * An aggregate folder (Gmail's All Mail, Starred, Important) shows the mail of hidden folders
  * too, so it is hidden as soon as the rules hide anything — whatever its own name matches.
  */
 export function folderAllowed(path: string, delimiter: string | undefined, rules: FolderRules, aggregate = false): boolean {
   if (aggregate && foldersRestricted(rules)) return false;
+  if (folderDenied(path, delimiter, rules)) return false;
   const canonical = canonicalFolderPath(path, delimiter);
-  const matches = (patterns: string[]) => patterns.some((p) => folderPatternToRegExp(p).test(canonical));
-  if (matches(rules.deny)) return false;
-  if (rules.allow && rules.allow.length > 0) return matches(rules.allow);
+  if (rules.allow && rules.allow.length > 0) return anyMatch(matchForms(canonical), rules.allow);
   return true;
 }

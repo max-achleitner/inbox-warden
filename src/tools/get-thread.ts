@@ -9,7 +9,7 @@ import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { foldersRestricted } from "../policy/folder-rules.js";
 import type { RiskLevel } from "../policy/engine.js";
 import { highestRisk } from "../policy/observer.js";
-import { downloadMessage, strictSearch } from "../imap/strict.js";
+import { downloadMessage, strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
 import { flattenAddresses } from "../mail/reply.js";
 import { fullText, stripQuotedHistory, truncate } from "../mail/text.js";
 import { threadIds, threadQuery } from "../mail/thread.js";
@@ -36,10 +36,11 @@ function allMailFolder(folders: FolderInfo[]): string | null {
   );
 }
 
-async function locate(client: ImapFlow, folder: string, query: SearchObject): Promise<Located[]> {
+async function locate(client: ImapFlow, folder: string, query: SearchObject, scope: MessageScope): Promise<Located[]> {
   const lock = await client.getMailboxLock(folder);
   try {
-    const uids = (await strictSearch(client, query)).slice(-MAX_CANDIDATES);
+    // Hidden messages are left out before their envelopes are read: they neither show nor count in threadSize
+    const uids = await visibleUids(client, (await strictSearch(client, query)).slice(-MAX_CANDIDATES), scope);
     const found: Located[] = [];
     if (uids.length === 0) return found;
     for await (const msg of client.fetch(uids, { uid: true, envelope: true, internalDate: true }, { uid: true })) {
@@ -77,13 +78,14 @@ export function register(server: McpServer, app: AppContext) {
       const client = await inv.account.getClient();
       const folders = await listFolderInfo(client);
       const source = await resolvePolicyFolder(inv.account, client, folder, folders);
+      const scope = inv.account.policy.messageScope(folders);
 
       // 1. The starting message (and its Gmail thread id, when available)
       let original: ParsedMail;
       let gmailThreadId: string | undefined;
       const lock = await client.getMailboxLock(source);
       try {
-        original = await simpleParser(await downloadMessage(client, uid, source));
+        original = await simpleParser(await downloadMessage(client, uid, source, scope));
         if (client.capabilities.has("X-GM-EXT-1")) {
           const msg = await client.fetchOne(String(uid), { uid: true, threadId: true }, { uid: true });
           gmailThreadId = msg ? msg.threadId : undefined;
@@ -97,7 +99,7 @@ export function register(server: McpServer, app: AppContext) {
       // Gmail's All Mail holds every label, including folders the policy hides: use it only without folder rules
       const allMail = gmailThreadId && !foldersRestricted(inv.account.policy.policy.folders) ? allMailFolder(folders) : null;
       if (gmailThreadId && allMail) {
-        located.push(...(await locate(client, allMail, { threadId: gmailThreadId })));
+        located.push(...(await locate(client, allMail, { threadId: gmailThreadId }, scope)));
       } else {
         const query = threadQuery(threadIds(original));
         const extra: string[] = [];
@@ -108,7 +110,7 @@ export function register(server: McpServer, app: AppContext) {
             const info = folders.find((i) => i.path === f);
             return inv.account.policy.folderAllowed(f, info?.delimiter, info?.aggregate);
           });
-        if (query) for (const f of searchFolders) located.push(...(await locate(client, f, query)));
+        if (query) for (const f of searchFolders) located.push(...(await locate(client, f, query, scope)));
       }
       if (!located.some((l) => l.folder === source && l.uid === uid)) {
         located.unshift({ folder: source, uid, messageId: original.messageId, date: original.date?.getTime() ?? 0 });
@@ -136,7 +138,7 @@ export function register(server: McpServer, app: AppContext) {
         } else {
           const l = await client.getMailboxLock(entry.folder);
           try {
-            parsed = await simpleParser(await downloadMessage(client, entry.uid, entry.folder));
+            parsed = await simpleParser(await downloadMessage(client, entry.uid, entry.folder, scope));
           } finally {
             try { l.release(); } catch { /* connection may already be dead */ }
           }

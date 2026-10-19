@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
+import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { existingUids, strictStoreFlags, unsupportedFlags } from "../imap/strict.js";
 import { normalizeFlag, uniqueUids } from "../imap/flags.js";
@@ -38,7 +39,8 @@ export function register(server: McpServer, app: AppContext) {
       }
 
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       try {
         if (action === "add") {
@@ -53,7 +55,7 @@ export function register(server: McpServer, app: AppContext) {
         }
 
         const requested = uniqueUids(uids);
-        const present = await existingUids(client, requested);
+        const present = await existingUids(client, requested, inv.account.policy.messageScope(folders));
         const missingUids = requested.filter((u) => !present.includes(u));
         if (present.length === 0) {
           return errorResult("Error flagging emails", `None of the UIDs exist in "${path}". Nothing was changed.`);

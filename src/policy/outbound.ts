@@ -2,7 +2,7 @@ import type { ImapFlow } from "imapflow";
 import type { InputRequiredResult } from "@modelcontextprotocol/server";
 import type { ToolInvocation } from "../tools/shared/define-tool.js";
 import { findSpecialFolder } from "../imap/folders.js";
-import { strictSearch } from "../imap/strict.js";
+import { strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
 import { PolicyDeniedError, type PolicyEngine, type RiskLevel } from "./engine.js";
 import { requireConfirmation } from "./confirm.js";
 
@@ -49,8 +49,11 @@ async function sentToExactly(client: ImapFlow, uids: number[], address: string):
   return found;
 }
 
-/** Recipients that never appear in To/Cc/Bcc of the Sent folder. Lookups are capped; no Sent folder → none flagged. */
-export async function findNewRecipients(client: ImapFlow, recipients: string[]): Promise<string[]> {
+/**
+ * Recipients that never appear in To/Cc/Bcc of the Sent folder. Lookups are capped; no Sent folder → none flagged.
+ * Sent mail that `scope` hides does not count, so an address only written to there counts as new (the safe side).
+ */
+export async function findNewRecipients(client: ImapFlow, recipients: string[], scope: MessageScope): Promise<string[]> {
   const sent = await findSpecialFolder(client, "\\Sent");
   if (!sent) return [];
   const lock = await client.getMailboxLock(sent, { readOnly: true });
@@ -59,7 +62,8 @@ export async function findNewRecipients(client: ImapFlow, recipients: string[]):
     for (const address of recipients.slice(0, MAX_NEW_RECIPIENT_LOOKUPS)) {
       // IMAP address search matches substrings ("john@acme.co" finds "john@acme.com"): confirm the exact address
       const hits = await strictSearch(client, { or: [{ to: address }, { cc: address }, { bcc: address }] });
-      if (!(await sentToExactly(client, hits.slice(-MAX_VERIFIED_HITS), address))) fresh.push(address);
+      const shown = await visibleUids(client, hits.slice(-MAX_VERIFIED_HITS), scope);
+      if (!(await sentToExactly(client, shown, address))) fresh.push(address);
     }
     return fresh;
   } finally {
@@ -105,7 +109,7 @@ export async function guardOutbound(
   const recipients = policy.checkRecipients(request.recipients);
   policy.checkRate();
   const newRecipients = policy.policy.send.flagNewRecipients
-    ? await findNewRecipients(await inv.account.getClient(), recipients)
+    ? await findNewRecipients(await inv.account.getClient(), recipients, policy.messageScope())
     : [];
   inv.record({
     recipients,

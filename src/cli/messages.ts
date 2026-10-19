@@ -130,8 +130,14 @@ const MESSAGES = {
   },
   smtpMissing: { de: "• Senden: kein SMTP-Server eingetragen", en: "• Sending: no SMTP server configured" },
   permissionsLine: { de: "• Rechte: {list}", en: "• Permissions: {list}" },
+  lockedFoldersLine: { de: "• Gesperrte Ordner: {list}", en: "• Locked folders: {list}" },
+  lockMatchesNothing: {
+    de: "⚠ Ordnersperre „{pattern}“ passt auf keinen Ordner – Tippfehler? Dann bleibt der gemeinte Ordner für Claude sichtbar.",
+    en: '⚠ Folder lock "{pattern}" matches no folder – a typo? Then the folder you meant stays visible to Claude.',
+  },
   doctorOk: { de: "Alles in Ordnung.", en: "Everything is fine." },
   doctorProblems: { de: "{count} Problem(e) gefunden.", en: "{count} problem(s) found." },
+  doctorWarnings: { de: "Keine Probleme, aber {count} Warnung(en) (⚠).", en: "No problems, but {count} warning(s) (⚠)." },
   accountsEmpty: { de: "Keine Postfächer eingerichtet.", en: "No mailboxes configured." },
   usage: {
     de:
@@ -143,7 +149,9 @@ const MESSAGES = {
       "                                             Microsoft-/Google-Anmeldung (erneut) durchführen\n" +
       `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
       "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
-      "                                             Berechtigungen, Standard-Postfach, Massenlimits oder Passwort ändern\n" +
+      "                                [--lock-folder <ordner>] [--unlock-folder <ordner>]\n" +
+      "                                             Berechtigungen, Standard-Postfach, Massenlimits, gesperrte Ordner\n" +
+      "                                             oder Passwort ändern\n" +
       `  ${SERVER_NAME} audit verify [<ordner|datei>]\n` +
       "                                             Prüfprotokoll auf Manipulation prüfen (Exit-Code 1 bei Problemen)",
     en:
@@ -155,7 +163,9 @@ const MESSAGES = {
       "                                             Sign in (again) to Microsoft/Google\n" +
       `  ${SERVER_NAME} accounts edit <id> [--allow|--deny <read|write|send|delete>] [--default]\n` +
       "                                [--max-messages <n>] [--max-delete <n>] [--password]\n" +
-      "                                             Change permissions, default mailbox, bulk limits or password\n" +
+      "                                [--lock-folder <folder>] [--unlock-folder <folder>]\n" +
+      "                                             Change permissions, default mailbox, bulk limits, locked folders\n" +
+      "                                             or password\n" +
       `  ${SERVER_NAME} audit verify [<folder|file>]\n` +
       "                                             Check the audit log for tampering (exit code 1 on problems)",
   },
@@ -209,6 +219,13 @@ const MESSAGES = {
   stateOn: { de: "an", en: "on" },
   stateOff: { de: "aus", en: "off" },
   editDefaultName: { de: "Standard-Postfach", en: "default account" },
+  editNotLocked: {
+    de: "„{folder}“ ist im Postfach „{id}“ nicht gesperrt. Gesperrte Ordner: {list}. Bitte genau so schreiben wie dort. Nichts wurde geändert.",
+    en: '"{folder}" is not a locked folder of the mailbox "{id}". Locked folders: {list}. Write it exactly as listed there. Nothing was changed.',
+  },
+  lockedFoldersName: { de: "gesperrte Ordner", en: "locked folders" },
+  lockedFolders: { de: "gesperrte Ordner: {list}", en: "locked folders: {list}" },
+  foldersNone: { de: "keine", en: "none" },
   loginNoDeviceCode: {
     de: "{provider} bietet keine Anmeldung mit Code. Verwenden Sie --no-browser und öffnen Sie den angezeigten Link.",
     en: "{provider} offers no sign-in with a code. Use --no-browser and open the link that is shown.",

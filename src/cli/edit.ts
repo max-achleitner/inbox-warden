@@ -16,9 +16,15 @@ export interface EditDeps {
   readSecret(question: string): Promise<string>;
 }
 
+/** Locked folders for messages: "_NDA_Inbox, _NDA_*" or "none". */
+function folderList(locale: Locale, folders: readonly string[]): string {
+  return folders.length > 0 ? folders.join(", ") : t(locale, "foldersNone");
+}
+
 /**
- * `accounts edit <id> …`: change permissions, default account, bulk limits or the password of an
- * existing mailbox without the wizard. Validates the whole configuration before anything is saved.
+ * `accounts edit <id> …`: change permissions, default account, bulk limits, locked folders
+ * (policy.folders.deny) or the password of an existing mailbox without the wizard. Validates the
+ * whole configuration before anything is saved.
  */
 export async function runAccountsEdit(cmd: AccountsEditCommand, deps: EditDeps): Promise<number> {
   const { locale, print } = deps;
@@ -35,6 +41,12 @@ export async function runAccountsEdit(cmd: AccountsEditCommand, deps: EditDeps):
     }
     if (cmd.password && account.auth.type !== "password") {
       print(t(locale, "editNotPassword", { id: account.id }));
+      return 1;
+    }
+    const locked = account.policy.folders.deny;
+    const notLocked = cmd.unlockFolders.find((folder) => !locked.includes(folder));
+    if (notLocked !== undefined) {
+      print(t(locale, "editNotLocked", { id: account.id, folder: notLocked, list: folderList(locale, locked) }));
       return 1;
     }
 
@@ -59,6 +71,19 @@ export async function runAccountsEdit(cmd: AccountsEditCommand, deps: EditDeps):
         lines.push(t(locale, "editLine", { name: `bulk.${key}`, before: target.policy.bulk[key], after: value }));
         target.policy.bulk[key] = value;
       }
+    }
+    // Every --unlock-folder entry was checked above; a pattern that is already locked is not added twice
+    const added = cmd.lockFolders.filter((folder) => !target.policy.folders.deny.includes(folder));
+    if (added.length > 0 || cmd.unlockFolders.length > 0) {
+      const deny = [...target.policy.folders.deny.filter((folder) => !cmd.unlockFolders.includes(folder)), ...added];
+      lines.push(
+        t(locale, "editLine", {
+          name: t(locale, "lockedFoldersName"),
+          before: folderList(locale, target.policy.folders.deny),
+          after: folderList(locale, deny),
+        }),
+      );
+      target.policy.folders.deny = deny;
     }
 
     const checked = ConfigSchema.safeParse(updated);

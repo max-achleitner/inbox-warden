@@ -272,6 +272,8 @@ function printAccounts(deps: SetupDeps, config: AppConfig): void {
     const tiers = (Object.keys(tierKeys) as Array<keyof typeof tierKeys>).filter((tier) => account.permissions[tier]).map((tier) => t(locale, tierKeys[tier]));
     const line = t(locale, "accountLine", { id: account.id, email: account.email, tiers: tiers.length > 0 ? tiers.join(", ") : t(locale, "tierNone") });
     p.print(account.id === defaultAccountId(config) ? line + t(locale, "defaultMarker") : line);
+    const locked = account.policy.folders.deny;
+    if (locked.length > 0) p.print(`    ${t(locale, "lockedFolders", { list: locked.join(", ") })}`);
   }
 }
 

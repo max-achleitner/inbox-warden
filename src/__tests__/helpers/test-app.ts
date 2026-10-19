@@ -43,6 +43,25 @@ export function standardFakeImap(): FakeImap {
   return imap;
 }
 
+/**
+ * FakeImap shaped like Gmail: X-GM-EXT-1, the [Gmail] system folders (All Mail, Sent Mail, Drafts,
+ * Spam, Trash, Starred, Important) and `labels` (user labels) as folders. Add mail with addGmailMessage().
+ */
+export function gmailFakeImap(labels: string[] = []): FakeImap {
+  const imap = new FakeImap();
+  imap.capabilities.set("X-GM-EXT-1", true);
+  imap.addFolder("[Gmail]", { flags: ["\\Noselect", "\\HasChildren"] });
+  imap.addFolder("[Gmail]/All Mail", { specialUse: "\\All", flags: ["\\HasNoChildren", "\\All"] });
+  imap.addFolder("[Gmail]/Drafts", { specialUse: "\\Drafts", flags: ["\\HasNoChildren", "\\Drafts"] });
+  imap.addFolder("[Gmail]/Important", { flags: ["\\HasNoChildren", "\\Important"] });
+  imap.addFolder("[Gmail]/Sent Mail", { specialUse: "\\Sent", flags: ["\\HasNoChildren", "\\Sent"] });
+  imap.addFolder("[Gmail]/Spam", { specialUse: "\\Junk", flags: ["\\HasNoChildren", "\\Junk"] });
+  imap.addFolder("[Gmail]/Starred", { specialUse: "\\Flagged", flags: ["\\HasNoChildren", "\\Flagged"] });
+  imap.addFolder("[Gmail]/Trash", { specialUse: "\\Trash", flags: ["\\HasNoChildren", "\\Trash"] });
+  for (const label of labels) imap.addFolder(label);
+  return imap;
+}
+
 const testSecrets: SecretStore = {
   get: async () => "secret",
   set: async () => {},

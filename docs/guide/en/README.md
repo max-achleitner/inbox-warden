@@ -10,9 +10,10 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
 3. [Microsoft 365 and Google Workspace](#microsoft-365-and-google-workspace)
 4. [Several mailboxes, your own mail server](#several-mailboxes-your-own-mail-server)
 5. [What may Claude do? The four permissions](#what-may-claude-do-the-four-permissions)
-6. [Everyday examples](#everyday-examples)
-7. [Security — what to keep in mind](#security)
-8. [Troubleshooting](#troubleshooting)
+6. [Lock folders away from Claude](#lock-folders-away-from-claude)
+7. [Everyday examples](#everyday-examples)
+8. [Security — what to keep in mind](#security)
+9. [Troubleshooting](#troubleshooting)
 
 ## Install in Claude Desktop
 
@@ -28,6 +29,8 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
    - Leave the server fields empty; the servers are detected from your address.
    - **Folders Claude may attach files from** and **Folder for saved attachments** (optional): Claude attaches files
      only from these folders and saves attachments only into that folder. Leave empty = no file access.
+   - **Folders Claude must not see** (optional), e.g. for mail under a non-disclosure agreement: see
+     [Lock folders away from Claude](#lock-folders-away-from-claude).
 4. Save, enable the extension, open a new chat and ask: *"What's new in my inbox?"*
 
 Claude Desktop stores your password encrypted in the macOS Keychain or the Windows Credential Manager.
@@ -95,18 +98,132 @@ operating system's keychain. Then add this in Claude Desktop under Settings → 
 | `read` | search, read, view attachments | on |
 | `write` | mark read, flag, move, create drafts, manage folders | on |
 | `send` | send email and drafts | off |
-| `delete` | move to Trash, empty Trash | off |
+| `delete` | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program | off |
 
 In the form, enter the permissions separated by commas, e.g. `read,write` (recommended) or `read,write,send`.
 
 With the command-line version, change permissions later with `inbox-warden accounts edit <id> --allow send` or
 `--deny delete`. The same command changes the default mailbox (`--default`), the limit for bulk actions
-(`--max-messages <n>`, default 500; `--max-delete <n>`, default 100) and the password (`--password`).
+(`--max-messages <n>`, default 500; `--max-delete <n>`, default 100), the password (`--password`) and locked
+folders (`--lock-folder`, see [below](#lock-folders-away-from-claude)).
 A running server picks up the change after a restart.
 
 **Sending:** when `send` is allowed, "Sending" decides how: `confirm` — Claude asks before every email
 (recommended); `direct` — no extra question; `drafts-only` — never send. Claude Desktop also asks before every
 send unless you switched that off with "Always allow". We recommend **not** using "Always allow" for sending and deleting.
+
+## Lock folders away from Claude
+
+Some mail must never reach Claude — for example correspondence under a non-disclosure agreement (NDA). For
+that you lock a folder: Claude does not see it or its subfolders, and every attempt to reach them is refused.
+
+### Lock a folder
+
+1. Create a folder in your mail program, e.g. `_NDA_Inbox` — simplest at the top level, next to the Inbox.
+2. Enter the folder, depending on how you installed Inbox Warden:
+   - **Claude Desktop extension:** open **Settings → Extensions → Inbox Warden**, enter the folder in the field
+     **Folders Claude must not see** and save. If the field is missing, update the extension to the latest
+     version.
+   - **Claude Code plugin:** `/plugin` → **inbox-warden** → **Configure**, same field.
+   - **Command-line version:**
+
+     ```bash
+     inbox-warden accounts edit main --lock-folder _NDA_Inbox
+     ```
+
+     `main` is the mailbox's id; `inbox-warden accounts list` shows every id and the folders already locked.
+     For several folders, repeat `--lock-folder`. `--unlock-folder _NDA_Inbox` removes a lock again.
+     `inbox-warden doctor` warns when a lock matches no folder — usually a typo, and the folder you meant would
+     stay visible.
+3. Restart — the lock applies only after that: quit Claude Desktop completely and open it again; in Claude Code
+   `/mcp` → select the server → **Reconnect**.
+4. Check in a new chat: *"Which folders can you see?"* — the locked folder must not be listed.
+
+**How to write the folders:** the name alone is enough, wherever the folder is: `_NDA_Inbox` also locks
+`Projects/_NDA_Inbox`. A path with `/` locks only that exact place. Subfolders are always locked too. `_NDA_*`
+locks every folder whose name starts with `_NDA_`, including ones you create later; on the command line, put such
+names in quotation marks: `--lock-folder "_NDA_*"`. In the field, separate several folders with commas, without
+quotation marks: `_NDA_Inbox, _NDA_Project_North`. If a folder name itself contains a comma, write `?` in its
+place in the field (`?` stands for any one character), or lock the folder with `--lock-folder` or in the
+configuration file.
+
+**By hand in the configuration file** (command-line version and remote mode; the extension does not read this
+file): open `~/.imap-mcp/config.json` (Windows: `%USERPROFILE%\.imap-mcp\config.json`) in a text editor, find
+`"folders"` inside `"policy"` in the mailbox's entry (`"id": "main"` or your id) and add the folder under
+`"deny"`:
+
+```json
+"folders": {
+  "deny": ["_NDA_Inbox", "_NDA_Project_North"]
+},
+```
+
+If the entry has no `"policy"` yet, add `"policy": { "folders": { "deny": ["_NDA_Inbox"] } }` to it. Then run
+`inbox-warden doctor`: it shows mistakes in the file (with a broken file the server does not start) and locks
+that match no folder. In
+remote mode the file is `config/config.json`; restart with `docker compose restart mcp`.
+
+### What the lock does
+
+- A locked folder and all its subfolders are invisible and unreachable for every tool.
+- It does not matter whether your server keeps folders below `INBOX.` (`INBOX._NDA_Inbox`).
+- **Gmail:** while any folder is locked, All Mail, Starred and Important are hidden, because they show the locked
+  mail too. A message carrying a locked label is hidden everywhere, also in other labels and the Inbox.
+- Refused attempts are recorded in the audit log (`~/.imap-mcp/audit/`, outcome `denied`).
+- **The lock is tied to the name.** If you rename the folder in your mail program, it is no longer locked: enter the
+  new name and restart. Claude itself cannot rename a locked folder.
+- Your own replies and forwards sit in Sent, drafts in Drafts, and often quote the NDA mail. The lock covers them
+  only if they are in the locked folder too (Gmail: carry the locked label).
+- Mail you delete from the locked folder goes to the Trash, and Claude can read it there until the Trash is
+  emptied. To rule that out, lock the Trash too (Claude tells you its exact name when you ask *"Which folders can
+  you see?"*): Claude can then still delete mail, that is move it to the Trash, but can no longer read the Trash.
+  On Gmail, deleted mail usually keeps the locked label in the Trash as well.
+
+### Keep NDA mail out of the Inbox
+
+The lock protects the folder only. If an NDA message sits in the Inbox even briefly, Claude can read it there.
+So have such mail sorted on arrival, by a rule that runs **on the server**. Examples for mail from
+`client-x.example`:
+
+- **Microsoft 365, Exchange, Outlook.com:** in Outlook on the web (outlook.office.com or outlook.live.com),
+  Settings → Mail → Rules → **Add new rule**: condition **Sender address includes** `client-x.example`, action
+  **Move to** `_NDA_Inbox`, tick **Stop processing more rules**, save. These rules run on the server. A rule from
+  desktop Outlook that the rules list marks "(client only)" runs only while Outlook is open on that computer —
+  until then the mail sits in the Inbox.
+- **Gmail, Google Workspace:** in Gmail in the browser, click **Show search options** in the search box, enter
+  `@client-x.example` under **From** → **Create filter** → tick **Skip the Inbox (Archive it)** and **Apply the
+  label:** `_NDA_Inbox` (**New label…** if needed) → **Create filter**. **Also apply filter to matching
+  conversations** sorts existing mail as well.
+- **Your own server:** a Sieve rule, in Roundcube or SOGo under **Filters** or as a script:
+
+  ```sieve
+  require ["fileinto"];
+  if address :domain :is "from" "client-x.example" {
+    fileinto "_NDA_Inbox";
+    stop;
+  }
+  ```
+
+  If your server keeps all folders below `INBOX.`, the target is `INBOX._NDA_Inbox`.
+- **GMX, WEB.DE, IONOS, mailbox.org:** the filter rules in the webmail; they run on the server too.
+
+Move mail that reached the Inbox before the rule existed by hand, once.
+
+### Stricter: only the folders you allow
+
+Instead of locking single folders, you can list the only folders Claude may see. This works only by hand in the
+configuration file (command-line version and remote mode, see above):
+
+```json
+"folders": {
+  "allow": ["INBOX", "Clients/**"],
+  "deny": []
+},
+```
+
+Claude then sees only the Inbox and `Clients` with all its subfolders (`/**`). Every other folder stays hidden,
+including new ones — and Sent and Drafts too, unless you list them. Whatever is under `deny` stays locked even
+if `allow` covers it. As long as the Inbox is allowed, you still need the server rule for NDA mail.
 
 ## Everyday examples
 
@@ -148,6 +265,7 @@ In Claude Desktop, logs are under **Settings → Extensions → Inbox Warden** o
 | "needs Node.js 20 or newer" | Update Claude Desktop. |
 | "Server does not support STARTTLS" | Your server offers no encryption on that port. Use port 993 (IMAP) / 465 (SMTP) or ask your provider. Unencrypted connections are deliberately impossible. |
 | "Permissions may only contain …" | Use only `read`, `write`, `send`, `delete` in "What Claude may do". |
+| "Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks" | Enter the folders in "Folders Claude must not see" without quotation marks, separated by commas. |
 | "Folder … does not exist. Did you mean …?" | Use the suggested folder name, or ask Claude for the folder list. |
 | "This mail server does not support the keyword …" | Custom keywords do not work on e.g. Microsoft 365. Use a flag or a folder instead. |
 | Sent mail missing from "Sent" | Run `inbox-warden doctor`; the `sentCopy` setting is explained in the [provider notes](../providers.md). |

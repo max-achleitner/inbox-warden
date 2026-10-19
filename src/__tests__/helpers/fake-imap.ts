@@ -19,7 +19,9 @@ export type FakeMethod =
   | "messageDelete"
   | "append"
   | "status"
-  | "getMailboxLock";
+  | "getMailboxLock"
+  /** The next FETCH that asks for Gmail labels: "false" answers without X-GM-LABELS, "throw" fails. */
+  | "labels";
 
 export type FailureMode = "false" | "throw";
 
@@ -30,7 +32,21 @@ export interface FakeMessage {
   internalDate: Date;
   /** Gmail X-GM-THRID equivalent for thread tests */
   threadId?: string;
+  /**
+   * Gmail labels (X-GM-LABELS): "\\Inbox", "\\Sent", user labels as folder paths. One Gmail
+   * message shows up in several folders; their copies share this set (see addGmailMessage).
+   */
+  labels?: Set<string>;
 }
+
+/** Gmail's system label for a special-use folder (the folder's own label, which X-GM-LABELS leaves out). */
+const GMAIL_SYSTEM_LABELS: Record<string, string> = {
+  "\\Sent": "\\Sent",
+  "\\Drafts": "\\Draft",
+  "\\Trash": "\\Trash",
+  "\\Junk": "\\Spam",
+  "\\Flagged": "\\Starred",
+};
 
 export interface FakeFolder {
   path: string;
@@ -52,6 +68,8 @@ export interface AddFolderOptions {
 
 export interface SelectedMailbox {
   path: string;
+  /** Opened with EXAMINE: CLOSE then removes nothing. */
+  readOnly: boolean;
   uidValidity: bigint;
   exists: number;
   permanentFlags: Set<string>;
@@ -67,6 +85,7 @@ export class FakeImap {
     ["UIDPLUS", true],
     ["MOVE", true],
     ["SPECIAL-USE", true],
+    ["UNSELECT", true],
   ]);
   mailbox: SelectedMailbox | false = false;
   /** What getQuota() resolves to; false = server without QUOTA support. */
@@ -104,7 +123,7 @@ export class FakeImap {
   addMessage(
     path: string,
     raw: string | Buffer,
-    opts: { flags?: string[]; internalDate?: Date; uid?: number; threadId?: string } = {},
+    opts: { flags?: string[]; internalDate?: Date; uid?: number; threadId?: string; labels?: Set<string> } = {},
   ): number {
     const folder = this.requireFolder(path);
     const uid = opts.uid ?? folder.uidNext;
@@ -115,8 +134,25 @@ export class FakeImap {
       flags: new Set(opts.flags ?? []),
       internalDate: opts.internalDate ?? new Date("2026-01-15T10:00:00Z"),
       threadId: opts.threadId,
+      labels: opts.labels,
     });
     return uid;
+  }
+
+  /**
+   * One Gmail message with `labels`, shown like Gmail does in every folder a label stands for
+   * ("\\Inbox" → INBOX, "\\Sent" → the \Sent folder, "Kunden" → "Kunden") and in All Mail, if
+   * listed. Mail in Trash or Spam shows up only there. Returns the UID per folder path.
+   */
+  addGmailMessage(raw: string | Buffer, labels: string[], opts: { flags?: string[]; internalDate?: Date; threadId?: string } = {}): Map<string, number> {
+    const shared = new Set(labels);
+    const isTrashOrSpam = labels.some((l) => l === "\\Trash" || l === "\\Spam");
+    const folders = isTrashOrSpam
+      ? [...this.folders.values()].filter((f) => labels.includes(this.ownLabel(f)))
+      : [...this.folders.values()].filter((f) => f.specialUse === "\\All" || labels.includes(this.ownLabel(f)));
+    const uids = new Map<string, number>();
+    for (const folder of folders) uids.set(folder.path, this.addMessage(folder.path, raw, { ...opts, labels: shared }));
+    return uids;
   }
 
   uidsIn(path: string): number[] {
@@ -137,13 +173,14 @@ export class FakeImap {
 
   // ─── imapflow surface ──────────────────────────────────────────────────────
 
-  async getMailboxLock(path: string, _opts?: { readOnly?: boolean }) {
+  async getMailboxLock(path: string, opts?: { readOnly?: boolean }) {
     this.record("getMailboxLock", [path]);
     if (this.takeFailure("getMailboxLock")) throw new Error(`Mailbox doesn't exist: ${path}`);
     const folder = this.folders.get(path);
     if (!folder || folder.flags.has("\\Noselect")) throw new Error(`Mailbox doesn't exist: ${path}`);
     this.mailbox = {
       path: folder.path,
+      readOnly: opts?.readOnly === true,
       uidValidity: folder.uidValidity,
       exists: folder.messages.length,
       permanentFlags: folder.permanentFlags,
@@ -166,8 +203,19 @@ export class FakeImap {
   async *fetch(range: string | number[], query: Record<string, unknown>, _opts?: { uid?: boolean }) {
     this.record("fetch", [range, query]);
     const r = toRange(range);
-    for (const m of this.selected().messages.filter((x) => inRange(x.uid, r))) {
-      yield toFetchMessage(m, query);
+    const folder = this.selected();
+    // Like Gmail: X-GM-LABELS only with X-GM-EXT-1, and without the selected folder's own label
+    let labels: ((m: FakeMessage) => Set<string>) | undefined;
+    if (query.labels && this.capabilities.has("X-GM-EXT-1")) {
+      const failure = this.takeFailure("labels");
+      if (failure === "throw") throw new Error("FETCH X-GM-LABELS failed");
+      const own = this.ownLabel(folder);
+      if (failure !== "false") labels = (m) => new Set([...(m.labels ?? [])].filter((l) => l !== own));
+    }
+    for (const m of folder.messages.filter((x) => inRange(x.uid, r))) {
+      const out = toFetchMessage(m, query);
+      if (labels) out.labels = labels(m);
+      yield out;
     }
   }
 
@@ -297,6 +345,7 @@ export class FakeImap {
     const path = this.normalizePath(requestedPath);
     const newPath = this.normalizePath(requestedNewPath);
     if (!this.folders.has(path)) throw new Error(`Mailbox doesn't exist: ${path}`);
+    this.deselectBeforeChange(path); // imapflow deselects before it sends RENAME, so even when RENAME fails
     if (this.folders.has(newPath)) throw new Error(`Mailbox already exists: ${newPath}`);
     for (const [key, folder] of [...this.folders]) {
       if (key !== path && !key.startsWith(path + "/")) continue;
@@ -305,6 +354,16 @@ export class FakeImap {
       this.folders.set(folder.path, folder);
     }
     return { path, newPath };
+  }
+
+  /** IMAP DELETE removes the folder with whatever it still contains; subfolders stay. */
+  async mailboxDelete(requestedPath: string) {
+    this.record("mailboxDelete", [requestedPath]);
+    const path = this.normalizePath(requestedPath);
+    if (!this.folders.has(path)) throw new Error(`Mailbox doesn't exist: ${path}`);
+    this.deselectBeforeChange(path);
+    this.folders.delete(path);
+    return { path };
   }
 
   async getQuota(path?: string) {
@@ -327,6 +386,30 @@ export class FakeImap {
     if (path.toUpperCase() === "INBOX") return "INBOX";
     const prefix = this.namespace?.prefix;
     return prefix && !path.startsWith(prefix) ? prefix + path : path;
+  }
+
+  /**
+   * Like imapflow before RENAME/DELETE of the selected folder: UNSELECT where the server has it,
+   * otherwise CLOSE, which permanently removes every \Deleted message unless the folder is read-only.
+   */
+  private deselectBeforeChange(path: string) {
+    if (!this.mailbox || this.mailbox.path !== path) return;
+    const unselect = this.capabilities.has("UNSELECT");
+    this.record(unselect ? "unselect" : "close", [path]);
+    if (!unselect && !this.mailbox.readOnly) {
+      const folder = this.requireFolder(path);
+      folder.messages = folder.messages.filter((m) => !m.flags.has("\\Deleted"));
+    }
+    this.mailbox = false;
+  }
+
+  /** The Gmail label a folder stands for: "\\Inbox", a system label, or the folder's path. */
+  private ownLabel(folder: FakeFolder): string {
+    if (folder.path.toUpperCase() === "INBOX") return "\\Inbox";
+    if (folder.specialUse && GMAIL_SYSTEM_LABELS[folder.specialUse]) return GMAIL_SYSTEM_LABELS[folder.specialUse];
+    if (folder.specialUse === "\\All") return "";
+    if (folder.flags.has("\\Important")) return "\\Important";
+    return folder.path;
   }
 
   private takeFailure(method: FakeMethod): FailureMode | undefined {
@@ -360,6 +443,11 @@ export class FakeImap {
       const newUid = dst.uidNext++;
       dst.messages.push({ ...m, uid: newUid, flags: new Set(m.flags) });
       uidMap.set(m.uid, newUid);
+      // Gmail: COPY adds the destination's label, MOVE also takes the source's label off
+      if (m.labels) {
+        if (remove) m.labels.delete(this.ownLabel(src));
+        m.labels.add(this.ownLabel(dst));
+      }
     }
     if (remove) src.messages = src.messages.filter((x) => !uidMap.has(x.uid));
     return { path: src.path, destination: dst.path, uidValidity: dst.uidValidity, uidMap };

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { simpleParser } from "mailparser";
 import type { AppContext } from "../context.js";
-import { requireSpecialFolder } from "../imap/folders.js";
+import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { composeMessage, type OutgoingAttachment } from "../mail/compose.js";
@@ -49,11 +49,12 @@ export function register(server: McpServer, app: AppContext) {
       const extra = (await resolveOutgoingAttachments(app.config.files, attachments)) ?? [];
 
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       let raw: Buffer;
       try {
-        raw = await downloadMessage(client, uid, path);
+        raw = await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
@@ -84,7 +85,7 @@ export function register(server: McpServer, app: AppContext) {
       }
 
       const subject = forwardSubject(original.subject, lang);
-      const draftsFolder = await requireSpecialFolder(client, "\\Drafts");
+      const draftsFolder = await requireSpecialFolder(client, "\\Drafts", folders);
       const message = await composeMessage({
         from: fromHeader(identity),
         to,

@@ -58,6 +58,30 @@ describe("runCli", () => {
     expect(lines[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write/);
   });
 
+  it("locks and unlocks folders in the config file and lists them", async () => {
+    expect(await runCli(["accounts", "edit", "main", "--lock-folder", "_NDA_Inbox", "--lock-folder", "_NDA_*"], deps)).toBe(0);
+    const saved = () => JSON.parse(fs.readFileSync(path.join(home, "config.json"), "utf8"));
+    expect(saved().accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox", "_NDA_*"]);
+    lines.length = 0;
+    expect(await runCli(["accounts", "list"], deps)).toBe(0);
+    expect(lines[0]).toMatch(/locked folders: _NDA_Inbox, _NDA_\*$/);
+
+    const before = fs.readFileSync(path.join(home, "config.json"), "utf8");
+    expect(await runCli(["accounts", "edit", "main", "--unlock-folder", "Projekt"], deps)).toBe(1);
+    expect(fs.readFileSync(path.join(home, "config.json"), "utf8")).toBe(before);
+    expect(await runCli(["accounts", "edit", "main", "--unlock-folder", "_NDA_*"], deps)).toBe(0);
+    expect(saved().accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox"]);
+  });
+
+  it("lists the folders locked through IMAP_MCP_DENY_FOLDERS in environment-only mode", async () => {
+    const envDeps = {
+      ...deps,
+      env: { ...deps.env, IMAP_MCP_EMAIL: "office@firma.at", IMAP_MCP_IMAP_HOST: "imap.firma.at", IMAP_MCP_DENY_FOLDERS: "_NDA_Inbox" },
+    };
+    expect(await runCli(["accounts", "list"], envDeps)).toBe(0);
+    expect(lines[0]).toMatch(/office@firma\.at.*locked folders: _NDA_Inbox$/);
+  });
+
   it("speaks German when asked", async () => {
     expect(await runCli(["frobnicate"], { ...deps, locale: "de" })).toBe(2);
     expect(lines[0]).toBe("Unbekannter Befehl: frobnicate");

@@ -46,7 +46,8 @@ describe("folder access", () => {
     fake.addFolder("Archive");
     fake.addFolder("Projects");
     fake.addFolder("Projects/Archive");
-    const denyArchive = account({ deny: ["Archive"] });
+    // "/" anchors the name at the top level; a bare "Archive" would hide Projects/Archive too
+    const denyArchive = account({ deny: ["/Archive"] });
     await expect(resolvePolicyFolder(denyArchive, fake.asClient(), "Archive")).rejects.toBeInstanceOf(PolicyDeniedError);
     expect(await resolvePolicyFolder(denyArchive, fake.asClient(), "Projects/Archive")).toBe("Projects/Archive");
   });
@@ -99,6 +100,56 @@ describe("folder access", () => {
     it("leaves them out of listings while folder rules apply", async () => {
       const visible = visibleFolders(account({ deny: ["Persönlich"] }), await listFolderInfo(gmailClient)).map((f) => f.path);
       expect(visible).toEqual(["INBOX"]);
+    });
+  });
+
+  describe("a locked folder and everything below it", () => {
+    const nda = account({ deny: ["_NDA_Inbox"] });
+
+    function mailbox(prefix: string) {
+      const fake = new FakeImap();
+      for (const name of ["_NDA_Inbox", "_NDA_Inbox/Projekt", "_NDA_Inbox/Projekt/2026", "Kunden", "_NDA_Inbox2"]) {
+        fake.addFolder(prefix + name);
+      }
+      return fake.asClient();
+    }
+
+    const names = ["_NDA_Inbox", "_nda_inbox", "Projekt", "2026"];
+
+    describe.each([
+      ["at the top level", "", [...names, "_NDA_Inbox/Projekt", "_NDA_Inbox.Projekt", "_NDA_Inbox/Projekt/2026"]],
+      [
+        'below the "INBOX." namespace prefix',
+        "INBOX/",
+        [...names, "INBOX/_NDA_Inbox", "INBOX._NDA_Inbox", "inbox/_nda_inbox/projekt", "INBOX._NDA_Inbox.Projekt.2026"],
+      ],
+    ])("%s", (_label, prefix, requested) => {
+      const lockedClient = mailbox(prefix);
+
+      it.each(requested)("refuses %s and says that nothing was changed", async (name) => {
+        const err = await resolvePolicyFolder(nda, lockedClient, name).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PolicyDeniedError);
+        expect((err as Error).message).toMatch(/blocked by your administrator's policy\. Nothing was changed\./);
+      });
+
+      it("lists neither the folder nor its subfolders", async () => {
+        const visible = visibleFolders(nda, await listFolderInfo(lockedClient)).map((f) => f.path);
+        expect(visible).toEqual(["INBOX", `${prefix}Kunden`, `${prefix}_NDA_Inbox2`]);
+      });
+
+      it("never suggests them for a name that matches nothing", async () => {
+        const err = await resolvePolicyFolder(nda, lockedClient, "NDA").catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(FolderNotFoundError);
+        expect((err as FolderNotFoundError).suggestions).toEqual([`${prefix}_NDA_Inbox2`]);
+      });
+    });
+
+    it('finds no subfolder path written without the "INBOX." prefix, and suggests no hidden folder', async () => {
+      for (const name of ["_NDA_Inbox/Projekt", "_NDA_Inbox.Projekt"]) {
+        const err = await resolvePolicyFolder(nda, mailbox("INBOX/"), name).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(FolderNotFoundError);
+        expect((err as FolderNotFoundError).suggestions.filter((s) => /_NDA_Inbox(\/|$)/.test(s))).toEqual([]);
+      }
     });
   });
 

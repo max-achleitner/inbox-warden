@@ -41,7 +41,7 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(source);
       try {
         const requested = uniqueUids(uids);
-        const present = await existingUids(client, requested);
+        const present = await existingUids(client, requested, inv.account.policy.messageScope(folders));
         const missingUids = requested.filter((u) => !present.includes(u));
         if (present.length === 0) {
           return errorResult("Error moving emails", `None of the UIDs exist in "${source}". Nothing was moved.`);

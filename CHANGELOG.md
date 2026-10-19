@@ -17,9 +17,17 @@ All notable changes to this project are documented here. The format follows
 - Browser sign-in on Windows starts `rundll32.exe` by its full System32 path; a bare name is looked up in the working directory first.
 - `send_draft` refuses a draft with more than one sender (two `From` headers, or several addresses in one). The check read the last `From`, while many mail programs show the first.
 - Previews of `organize_by_filter` and `delete_email` scan the sample subjects for prompt injection (`_injectionScan`), and a finding there or in a sender name raises the one-hour send confirmation like any other read.
+- A locked folder (`policy.folders.deny`) takes every folder below it along, a folder name is locked wherever it is, and the `INBOX.` prefix some servers (Dovecot, Courier, Cyrus) put before every folder no longer matters. Before, `"deny": ["_NDA_Inbox"]` left `_NDA_Inbox/Projekt`, `INBOX._NDA_Inbox` and `Projekte/_NDA_Inbox` readable. A leading `/` limits a name to the top level (`/Archiv`); a pattern with a path (`Projekte/_NDA_Inbox`) still matches only that place.
+- Renaming or deleting a folder could permanently erase mail: on servers without UNSELECT the IMAP library closed a selected folder with CLOSE first, which removes every message flagged as deleted, also messages another mail program flagged. Both now run without selecting the folder.
+- `delete_folder` refuses when the server does not report how many messages the folder holds, instead of deleting it with whatever it contains.
+- Gmail: a message that carries a locked label is hidden in every folder it shows up in (Inbox, Sent, other labels) and in every tool. It is not listed, counted, read, changed or replied to, and asking for its UID gets the same answer as a message that does not exist. Before, mail filed under a locked label stayed readable through any visible label it also carried. On such an account `get_email_count` counts by reading labels (up to 20,000 messages per call), and searches check the newest 20,000 matches.
 
 ### Added
 - Filter `{"all": true}` selects every email in a folder; it cannot be combined with other filters.
+- Folder locks for the Claude Desktop extension and the Claude Code plugin: the setting "Folders Claude must not see" (`IMAP_MCP_DENY_FOLDERS`, comma-separated, wildcards such as `_NDA_*`). Before, only a hand-edited `config.json` could lock folders.
+- `inbox-warden accounts edit <id> --lock-folder <name>` and `--unlock-folder <name>`. `accounts list` and `setup` show the locked folders of each mailbox.
+- `inbox-warden doctor` warns about a folder lock that matches no folder on the server, so a typo does not leave the real folder visible unnoticed.
+- User guide: "Lock folders away from Claude", with server rules for Microsoft 365, Gmail and Sieve that file mail into a locked folder before it reaches the Inbox.
 
 ### Changed
 - Requires Node.js 20.19.0 or newer (was 20.18.0), as `html-to-text` 10 does; Node.js 20 reached end-of-life in April 2026. The Claude Desktop extension refuses older runtimes with a clear message. Claude Desktop itself ships Node.js 24.
@@ -27,6 +35,10 @@ All notable changes to this project are documented here. The format follows
 - Upgrading a 0.1/0.2 configuration (`credentials.json`) switches sending and deleting off for the migrated mailbox; reading and organising stay as they were. Turn them on again with `inbox-warden accounts edit main --allow send` or `--allow delete`.
 - `inbox-warden setup` lists every mailbox with what Claude may do there and marks the default mailbox, and asks whether a newly added mailbox becomes the default.
 - An empty `policy.folders.allow` list stops the server with an error instead of allowing every folder; leave the key out to allow every folder.
+- Claude never deletes mail permanently. `delete_email` only moves mail into the Trash: it refuses emails that are already in the Trash or a folder below it, and accounts without a Trash folder. Emptying the Trash is done in your own mail program.
+- `send_draft` removes the sent draft only when the Sent folder holds a copy of the email. Otherwise (`sentCopy: "never"`, or storing the copy failed) the draft goes to the Trash instead of being erased; without a Trash folder it stays in Drafts.
+- Existing deny patterns now hide more (subfolders, the same name at any depth), and folder-lock refusals say that nothing was changed.
+- README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
 
 ## [0.6.0] - 2026-10-18
 

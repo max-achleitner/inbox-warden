@@ -133,6 +133,7 @@ export function register(server: McpServer, app: AppContext) {
       if (!confirmToken) {
         return previewBulk(app, inv, {
           folder: source,
+          folders,
           filters: filter,
           action: canonical,
           validate: (c) => checkKeywordStorable(c, canonical),
@@ -141,6 +142,7 @@ export function register(server: McpServer, app: AppContext) {
       return commitBulk(app, inv, {
         token: confirmToken,
         folder: source,
+        folders,
         action: canonical,
         apply: (c, uids) => applyAction(c, uids, canonical),
       });

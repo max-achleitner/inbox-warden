@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { ConfigSchema } from "../../config/schema.js";
 import { MemorySecretStore } from "../../secrets/memory-store.js";
-import type { AccountTestReport } from "../../onboarding/connection-test.js";
+import { testAccountConnection, type AccountTestReport } from "../../onboarding/connection-test.js";
+import { FakeImap } from "../../__tests__/helpers/fake-imap.js";
 import { describeTls, formatAccountList, runDoctor, type DoctorDeps } from "../doctor.js";
 
 const config = ConfigSchema.parse({
@@ -18,7 +19,7 @@ const config = ConfigSchema.parse({
 });
 
 const OK: AccountTestReport = {
-  imap: { ok: true, folderCount: 5, capabilities: { specialUse: true, uidplus: true, move: true, idle: true, customKeywords: false } },
+  imap: { ok: true, folderCount: 5, folders: [], capabilities: { specialUse: true, uidplus: true, move: true, idle: true, customKeywords: false } },
   smtp: { ok: true },
 };
 
@@ -62,6 +63,60 @@ describe("runDoctor", () => {
     expect(lines.join("\n")).toContain("✗ Sending (SMTP): SMTP does not answer");
   });
 
+  describe("folder locks", () => {
+    const lockedConfig = (deny: string[]) =>
+      ConfigSchema.parse({ ...config, accounts: [{ ...config.accounts[0], policy: { folders: { deny } } }] });
+
+    async function run(deny: string[], imap: FakeImap, locale: "de" | "en" = "en") {
+      const secrets = new MemorySecretStore();
+      await secrets.set("main", "password", "pw");
+      const lines: string[] = [];
+      const code = await runDoctor({
+        ...deps(secrets, OK, lines),
+        locale,
+        loadConfig: async () => lockedConfig(deny),
+        test: (account, provider) => testAccountConnection(account, provider, { connectImap: async () => imap as never, verifySmtp: async () => {} }),
+      });
+      return { code, text: lines.join("\n") };
+    }
+
+    function mailbox() {
+      const imap = new FakeImap();
+      imap.addFolder("_NDA_Inbox");
+      imap.addFolder("Projekte");
+      imap.addFolder("Projekte/_NDA_Nord");
+      return imap;
+    }
+
+    it("lists the locks and warns about each one that matches no folder, without failing", async () => {
+      const { code, text } = await run(["_NDA_Inbox", "_NDA_Inbx", "Projekte/_NDA_*", "Archiv/_NDA_Inbox"], mailbox());
+      expect(code).toBe(0);
+      expect(text).toContain("• Locked folders: _NDA_Inbox, _NDA_Inbx, Projekte/_NDA_*, Archiv/_NDA_Inbox");
+      expect(text).toContain('⚠ Folder lock "_NDA_Inbx" matches no folder – a typo?');
+      expect(text).toContain('⚠ Folder lock "Archiv/_NDA_Inbox" matches no folder – a typo?');
+      expect(text).not.toContain('"_NDA_Inbox" matches no folder');
+      expect(text).not.toContain('"Projekte/_NDA_*" matches no folder');
+      expect(text).toContain("No problems, but 2 warning(s)");
+    });
+
+    it("counts a bare name below another folder and the INBOX/ spelling as matches", async () => {
+      const { text } = await run(["_NDA_Nord", "INBOX/_NDA_Inbox"], mailbox());
+      expect(text).not.toContain("⚠");
+      expect(text).toContain("Everything is fine.");
+    });
+
+    it("warns in German", async () => {
+      const { text } = await run(["_NDA_Inbx"], mailbox(), "de");
+      expect(text).toContain("⚠ Ordnersperre „_NDA_Inbx“ passt auf keinen Ordner – Tippfehler?");
+      expect(text).toContain("Keine Probleme, aber 1 Warnung(en)");
+    });
+
+    it("prints nothing about locks for a mailbox without any", async () => {
+      const { text } = await run([], mailbox());
+      expect(text).not.toMatch(/[Ll]ocked folders|⚠/);
+    });
+  });
+
   it("reports an unreadable configuration", async () => {
     const lines: string[] = [];
     const d = { ...deps(new MemorySecretStore(), OK, lines), loadConfig: async () => { throw new Error("No configuration found"); } };
@@ -77,6 +132,16 @@ describe("describeTls / formatAccountList", () => {
   });
 
   it("lists accounts with auth type and tiers", () => {
-    expect(formatAccountList("en", config)[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write\+send/);
+    expect(formatAccountList("en", config)[0]).toMatch(/main\s+max@firma.example\s+mail\.firma.example\s+password\s+read\+write\+send$/);
+  });
+
+  it("shows locked folders only when there are any", () => {
+    const locked = ConfigSchema.parse({
+      ...config,
+      accounts: [{ ...config.accounts[0], policy: { folders: { deny: ["_NDA_Inbox", "_NDA_*"] } } }],
+    });
+    expect(formatAccountList("en", locked)[0]).toMatch(/read\+write\+send {2}locked folders: _NDA_Inbox, _NDA_\*$/);
+    expect(formatAccountList("de", locked)[0]).toMatch(/gesperrte Ordner: _NDA_Inbox, _NDA_\*$/);
+    expect(formatAccountList("en", config)[0]).not.toContain("locked");
   });
 });

@@ -43,8 +43,16 @@ describe("accounts edit: arguments", () => {
       makeDefault: true,
       maxMessages: 1000,
       maxDelete: 50,
+      lockFolders: [],
+      unlockFolders: [],
       password: true,
     });
+  });
+
+  it("parses repeated --lock-folder and --unlock-folder, trimmed and without repeats", () => {
+    expect(
+      edit(["main", "--lock-folder", " _NDA_Inbox ", "--lock-folder", "_NDA_*", "--lock-folder", "_NDA_Inbox", "--unlock-folder", "Alt/NDA"]),
+    ).toMatchObject({ lockFolders: ["_NDA_Inbox", "_NDA_*"], unlockFolders: ["Alt/NDA"], allow: [], makeDefault: false });
   });
 
   it.each([
@@ -55,6 +63,10 @@ describe("accounts edit: arguments", () => {
     [["main", "--max-messages", "0"], /positive whole number/],
     [["main", "--max-messages"], /needs a value/],
     [["main", "--colour"], /Unknown option/],
+    [["main", "--lock-folder"], /--lock-folder needs a folder name/],
+    [["main", "--lock-folder", "  "], /--lock-folder needs a folder name/],
+    [["main", "--unlock-folder", "--default"], /--unlock-folder needs a folder name/],
+    [["main", "--lock-folder", "_NDA_Inbox", "--unlock-folder", "_NDA_Inbox"], /both locked and unlocked/],
   ])("rejects %j", (argv, message) => {
     const cmd = parseCliArgs(["accounts", "edit", ...argv]);
     expect(cmd.command).toBe("invalid");
@@ -105,6 +117,59 @@ describe("accounts edit: command", () => {
     const { d, lines } = deps();
     expect(await runAccountsEdit(edit(["nope", "--default"]), d)).toBe(1);
     expect(lines.join("\n")).toMatch(/main, work/);
+  });
+
+  describe("locked folders", () => {
+    const withLock = (deny: string[]) => {
+      const config = base();
+      config.accounts[0].policy.folders.deny = deny;
+      return config;
+    };
+
+    it("locks folders, keeps existing locks and other settings, and shows the list before and after", async () => {
+      const { d, lines, saved } = deps(withLock(["Alt/NDA"]));
+      expect(await runAccountsEdit(edit(["main", "--lock-folder", "_NDA_Inbox", "--lock-folder", "_NDA_*", "--allow", "send"]), d)).toBe(0);
+      const account = saved[0].accounts.find((a) => a.id === "main")!;
+      expect(account.policy.folders.deny).toEqual(["Alt/NDA", "_NDA_Inbox", "_NDA_*"]);
+      expect(account.permissions.send).toBe(true);
+      expect(saved[0].accounts.find((a) => a.id === "work")!.policy.folders.deny).toEqual([]);
+      expect(lines.join("\n")).toContain("locked folders: Alt/NDA → Alt/NDA, _NDA_Inbox, _NDA_*");
+      expect(lines.join("\n")).toMatch(/[Rr]estart/);
+    });
+
+    it("does not lock a folder twice", async () => {
+      const { d, lines, saved } = deps(withLock(["_NDA_Inbox"]));
+      expect(await runAccountsEdit(edit(["main", "--lock-folder", "_NDA_Inbox"]), d)).toBe(0);
+      expect(saved).toEqual([]);
+      expect(lines.join("\n")).toMatch(/Nothing was changed/);
+    });
+
+    it("unlocks an exact entry", async () => {
+      const { d, lines, saved } = deps(withLock(["_NDA_Inbox", "_NDA_*"]));
+      expect(await runAccountsEdit(edit(["main", "--unlock-folder", "_NDA_Inbox", "--lock-folder", "Vertrag"]), d)).toBe(0);
+      expect(saved[0].accounts[0].policy.folders.deny).toEqual(["_NDA_*", "Vertrag"]);
+      expect(lines.join("\n")).toContain("locked folders: _NDA_Inbox, _NDA_* → _NDA_*, Vertrag");
+    });
+
+    it("refuses to unlock a folder that is not locked, names the locked ones and saves nothing", async () => {
+      const { d, lines, saved } = deps(withLock(["_NDA_Inbox"]));
+      expect(await runAccountsEdit(edit(["main", "--unlock-folder", "_nda_inbox", "--lock-folder", "Vertrag", "--allow", "send"]), d)).toBe(1);
+      expect(saved).toEqual([]);
+      expect(lines.join("\n")).toBe('"_nda_inbox" is not a locked folder of the mailbox "main". Locked folders: _NDA_Inbox. Write it exactly as listed there. Nothing was changed.');
+    });
+
+    it("says so in German when nothing is locked", async () => {
+      const { d, lines, saved } = deps(base(), { locale: "de" });
+      expect(await runAccountsEdit(edit(["main", "--unlock-folder", "_NDA_Inbox"]), d)).toBe(1);
+      expect(saved).toEqual([]);
+      expect(lines.join("\n")).toMatch(/„_NDA_Inbox“ ist im Postfach „main“ nicht gesperrt\. Gesperrte Ordner: keine\..*Nichts wurde geändert\./);
+    });
+
+    it("reports a lock in German", async () => {
+      const { d, lines } = deps(base(), { locale: "de" });
+      expect(await runAccountsEdit(edit(["main", "--lock-folder", "_NDA_Inbox"]), d)).toBe(0);
+      expect(lines.join("\n")).toContain("gesperrte Ordner: keine → _NDA_Inbox");
+    });
   });
 
   it("explains that there is no config file yet", async () => {

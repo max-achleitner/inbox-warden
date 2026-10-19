@@ -92,17 +92,29 @@ You decide per mailbox which of four permission levels are active:
 | **read** | on | search with filters and previews, read messages and whole conversations, attachments |
 | **write** | on | mark read, flag, move, sort many messages at once (with preview and confirmation), create reply and forward drafts, manage folders |
 | **send** | off | send email or drafts — each send confirmed by you unless you choose otherwise |
-| **delete** | off | move to Trash, empty Trash |
+| **delete** | off | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program |
 
 ## Security at a glance
 
+What protects your mailbox is what Claude is *allowed* to do, not what an email tells it:
+
+- **Sending and deleting are off by default.** Claude reads, sorts and writes drafts; you send them from
+  your mail program. You switch sending or deleting on per mailbox.
+- **You approve what leaves your mailbox.** With sending on, you confirm each send (unless you choose
+  `direct`); recipient rules and rate limits apply, and every send is recorded.
+- **Bulk changes are previewed first.** Sorting or deleting many messages at once first shows how many
+  are affected, then changes exactly those — at most 500 per action (100 for deletes) by default.
+- **Locked folders stay out of reach.** Keep mail under an NDA in a folder Claude can neither see nor open:
+  name it in the extension's form or with `inbox-warden accounts edit <id> --lock-folder <folder>`
+  ([how](docs/guide/en/README.md#lock-folders-away-from-claude)).
 - **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
   action fails and says so — it never falls back to "all mail".
-- **You approve what leaves your mailbox.** Sending is off by default; when enabled, sends are confirmed,
-  limited by recipient rules and rate limits, and recorded.
 - **Tamper-evident audit log** of every change and every sent message (no message contents).
 - **Encrypted connections only** (TLS 1.2+, no plaintext fallback); self-signed servers are pinned by fingerprint.
-- **Prompt-injection screening** of email content before Claude sees it.
+- **Prompt-injection screening is an extra signal, not a guarantee.** Email content is checked for known
+  manipulation patterns before Claude sees it. A suspicious message is flagged to Claude, and for the next
+  hour every send needs your confirmation, even in `direct` mode. The check is a heuristic that can miss
+  new tricks and flag harmless mail, so it backs up the permissions above instead of replacing them.
 - **No telemetry.** See [PRIVACY.md](PRIVACY.md), the [security overview](SECURITY.md) and the
   security documentation in [docs/security/](docs/security/threat-model.md) (threat model, data flow,
   hardening guide, [Sicherheitsübersicht für IT-Verantwortliche](docs/security/sicherheitsuebersicht.md)).
@@ -113,24 +125,38 @@ Provider-specific notes (app passwords, Microsoft 365 admin consent and SMTP AUT
 ## Verify downloads
 
 Every release is built by GitHub Actions from a tagged commit and includes `SHA256SUMS`, a CycloneDX SBOM,
-build-provenance attestations, a signed `.mcpb` and an npm package with provenance:
+build-provenance attestations, a signed `.mcpb` and an npm package with provenance.
+
+**1. Build attestation (the main check).** Proves that the file was built by this repository's release
+workflow from the tagged commit and has not been changed since. Needs the [GitHub CLI](https://cli.github.com/):
 
 ```bash
-sha256sum -c SHA256SUMS
-gh attestation verify inbox-warden-<version>.mcpb --repo max-achleitner/inbox-warden
-node scripts/verify-mcpb.mjs inbox-warden-<version>.mcpb mcpb-signing-cert.pem   # from a checkout of this repository
+gh attestation verify inbox-warden-<version>.mcpb --repo max-achleitner/inbox-warden \
+  --signer-workflow max-achleitner/inbox-warden/.github/workflows/release.yml \
+  --source-ref refs/tags/v<version>
+```
+
+The same command checks `inbox-warden-<version>.tgz`, the file published to npm. Checksums of the files you
+downloaded: `sha256sum --ignore-missing -c SHA256SUMS`.
+
+**2. Bundle signature.** The `.mcpb` is also signed. Until an organisation-validated code-signing certificate
+is available, the certificate is self-signed ([`mcpb-signing-cert.pem`](mcpb-signing-cert.pem), valid until
+17 October 2028): no certificate authority vouches for it, so compare its fingerprint yourself. From a checkout
+of this repository:
+
+```bash
+node scripts/verify-mcpb.mjs inbox-warden-<version>.mcpb mcpb-signing-cert.pem
+```
+
+The fingerprint it prints must be:
+
+```
+7E:29:A7:6C:AF:E4:25:A4:F6:03:07:45:C3:76:B0:1E:74:CE:F5:4E:DD:8B:D2:B2:C5:91:13:8B:39:AE:5E:26
 ```
 
 `npx @anthropic-ai/mcpb verify` (2.1.2) reports every bundle as "not signed" because its PKCS#7 check is not
 implemented; `scripts/verify-mcpb.mjs` checks the signature with openssl instead
 (see [release signing](docs/maintainers/release-signing.md)).
-
-Until an organisation-validated code-signing certificate is available, bundles are signed with a self-signed
-certificate ([`mcpb-signing-cert.pem`](mcpb-signing-cert.pem), valid until 17 October 2028). Pin its SHA-256 fingerprint:
-
-```
-7E:29:A7:6C:AF:E4:25:A4:F6:03:07:45:C3:76:B0:1E:74:CE:F5:4E:DD:8B:D2:B2:C5:91:13:8B:39:AE:5E:26
-```
 
 ## Upgrading from a pre-1.0 version
 

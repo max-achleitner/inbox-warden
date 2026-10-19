@@ -5,10 +5,10 @@ import { simpleParser } from "mailparser";
 import type { AppContext } from "../context.js";
 import { errorMessage } from "../errors.js";
 import * as log from "../logging/logger.js";
-import { requireSpecialFolder } from "../imap/folders.js";
+import { findSpecialFolder, listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { markOriginalAnswered } from "../mail/answered.js";
-import { downloadMessage, safeExpunge } from "../imap/strict.js";
+import { downloadMessage, safeExpunge, strictMove } from "../imap/strict.js";
 import { getHeader, removeHeaders, rfc5322Date, setHeader } from "../mail/headers.js";
 import { flattenAddresses, formatAddressList } from "../mail/reply.js";
 import { deliver, type DeliveryResult } from "../mail/send.js";
@@ -40,7 +40,10 @@ export function register(server: McpServer, app: AppContext) {
       tier: "send",
       input: {
         uid: z.number().int().positive().describe("UID of the draft in the Drafts folder"),
-        deleteAfterSend: z.boolean().default(true).describe("Delete the draft after sending (default: true)"),
+        deleteAfterSend: z
+          .boolean()
+          .default(true)
+          .describe("Remove the draft after sending (default: true); it goes to Trash unless Sent holds a copy of the email"),
         originalFolder: z
           .string()
           .optional()
@@ -53,12 +56,15 @@ export function register(server: McpServer, app: AppContext) {
     async ({ uid, deleteAfterSend, originalFolder }, inv) => {
       const deps = inv.account.getSendDeps();
       const client = await inv.account.getClient();
-      const draftsFolder = await requireSpecialFolder(client, "\\Drafts");
+      const folders = await listFolderInfo(client);
+      const draftsFolder = await requireSpecialFolder(client, "\\Drafts", folders);
+      // A draft carrying a hidden Gmail label is not found: it is neither read, sent nor moved
+      const scope = inv.account.policy.messageScope(folders);
 
       const lock = await client.getMailboxLock(draftsFolder);
       let draftRaw: Buffer;
       try {
-        draftRaw = await downloadMessage(client, uid, draftsFolder);
+        draftRaw = await downloadMessage(client, uid, draftsFolder, scope);
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
@@ -123,25 +129,39 @@ export function register(server: McpServer, app: AppContext) {
           // unknown or hidden folder: skip it — the email is already sent
         }
       }
-      const originalMarkedAnswered = await markOriginalAnswered(client, parsed.inReplyTo, answeredFolders);
+      const originalMarkedAnswered = await markOriginalAnswered(client, parsed.inReplyTo, answeredFolders, scope);
       const to = formatAddressList(flattenAddresses(parsed.to));
       inv.record({ folder: draftsFolder, uids: [uid], messageId, recipients });
       log.info("email.sent_draft", { account: inv.account.id, recipients: recipients.length, messageId });
 
+      // Nothing is deleted for good: the draft is only removed when Sent holds the same email.
+      // Otherwise it goes to Trash, where the user can still find what was sent.
       let draftDeleted = false;
+      let draftMovedTo: string | undefined;
       let draftNote: string | undefined;
       if (deleteAfterSend) {
         try {
-          const deleteLock = await client.getMailboxLock(draftsFolder);
-          try {
-            await safeExpunge(client, [uid]);
-            draftDeleted = true;
-          } finally {
-            try { deleteLock.release(); } catch { /* ignore */ }
+          const copyInSent = result.sentCopy.saved || result.sentCopy.filedByServer === true;
+          const trash = copyInSent ? undefined : await findSpecialFolder(client, "\\Trash");
+          if (!copyInSent && !trash) {
+            draftNote = "The email was sent. The draft was kept, because Sent holds no copy of the email and the account has no Trash folder.";
+          } else {
+            const deleteLock = await client.getMailboxLock(draftsFolder);
+            try {
+              if (trash) {
+                await strictMove(client, [uid], trash);
+                draftMovedTo = trash;
+              } else {
+                await safeExpunge(client, [uid]);
+                draftDeleted = true;
+              }
+            } finally {
+              try { deleteLock.release(); } catch { /* ignore */ }
+            }
           }
         } catch (err) {
           // Non-fatal: the email was sent
-          draftNote = `The email was sent, but the draft was not deleted: ${errorMessage(err)}`;
+          draftNote = `The email was sent, but the draft was not removed: ${errorMessage(err)}`;
         }
       }
 
@@ -155,6 +175,7 @@ export function register(server: McpServer, app: AppContext) {
         confirmation: outbound.confirmation,
         ...(outbound.newRecipients.length > 0 ? { newRecipients: outbound.newRecipients } : {}),
         draftDeleted,
+        ...(draftMovedTo ? { draftMovedTo } : {}),
         ...(draftNote ? { draftNote } : {}),
         originalMarkedAnswered,
       });

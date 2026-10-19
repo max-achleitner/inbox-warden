@@ -5,7 +5,7 @@
  * Skipped when IMAP_IT_HOST is not set.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { ImapFlow } from "imapflow";
+import type { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
 import { connectHarness, type Harness } from "../helpers/mcp-harness.js";
@@ -16,31 +16,7 @@ import * as searchEmails from "../../tools/search-emails.js";
 import * as moveEmail from "../../tools/move-email.js";
 import * as createDraft from "../../tools/create-draft.js";
 import * as sendEmail from "../../tools/send-email.js";
-
-const HOST = process.env.IMAP_IT_HOST;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function connect(user: string): Promise<ImapFlow> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const client = new ImapFlow({
-      host: HOST!,
-      port: 3143,
-      secure: false,
-      doSTARTTLS: false, // throwaway local test server; no real credentials involved
-      auth: { user, pass: "secret" },
-      logger: false,
-    });
-    try {
-      await client.connect();
-      return client;
-    } catch (err) {
-      lastError = err;
-      await sleep(1000);
-    }
-  }
-  throw lastError;
-}
+import { GREENMAIL_HOST as HOST, connectGreenMail as connect, sleep } from "./greenmail-client.js";
 
 async function waitForMessages(client: ImapFlow, folder: string, count: number): Promise<void> {
   for (let i = 0; i < 50; i++) {

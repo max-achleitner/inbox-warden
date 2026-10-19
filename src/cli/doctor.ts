@@ -2,7 +2,8 @@ import type { AccountConfig, AppConfig } from "../config/schema.js";
 import type { AuthProvider } from "../auth/provider.js";
 import type { SecretStore } from "../secrets/store.js";
 import { isLoopback, pinFromEndpoint } from "../connection-security.js";
-import type { AccountTestReport } from "../onboarding/connection-test.js";
+import type { AccountTestReport, ListedFolder } from "../onboarding/connection-test.js";
+import { folderDenied } from "../policy/folder-rules.js";
 import { diagnose } from "../onboarding/diagnose.js";
 import { errorMessage } from "../errors.js";
 import { t, type Locale } from "./messages.js";
@@ -26,6 +27,14 @@ export function describeTls(locale: Locale, protocol: "IMAP" | "SMTP", endpoint:
   return t(locale, "tlsStartTls", { protocol, port: endpoint.port });
 }
 
+/**
+ * Deny patterns that hide none of the listed folders. A mistyped lock ("_NDA_Inbx") would leave the
+ * folder it was meant for visible without any other sign.
+ */
+export function unmatchedDenyPatterns(deny: readonly string[], folders: readonly ListedFolder[]): string[] {
+  return deny.filter((pattern) => !folders.some((folder) => folderDenied(folder.path, folder.delimiter, { deny: [pattern] })));
+}
+
 /** Non-interactive health report. Exit code 0 = everything works, 1 = at least one problem. */
 export async function runDoctor(deps: DoctorDeps): Promise<number> {
   const { locale, print } = deps;
@@ -42,6 +51,7 @@ export async function runDoctor(deps: DoctorDeps): Promise<number> {
   const secrets = deps.secrets;
 
   let problems = 0;
+  let warnings = 0;
   for (const account of config.accounts) {
     print("");
     print(`${account.id} <${account.email}>`);
@@ -80,10 +90,22 @@ export async function runDoctor(deps: DoctorDeps): Promise<number> {
 
     const tiers = (["read", "write", "send", "delete"] as const).map((tier) => `${tier} ${account.permissions[tier] ? "✓" : "✗"}`);
     print(t(locale, "permissionsLine", { list: tiers.join(", ") }));
+    const locked = account.policy.folders.deny;
+    if (locked.length > 0) {
+      print(t(locale, "lockedFoldersLine", { list: locked.join(", ") }));
+      // A warning, not a problem: a lock may be set up before its folder exists
+      if (report.imap.ok) {
+        for (const pattern of unmatchedDenyPatterns(locked, report.imap.folders)) {
+          print(t(locale, "lockMatchesNothing", { pattern }));
+          warnings++;
+        }
+      }
+    }
   }
 
   print("");
-  print(problems === 0 ? t(locale, "doctorOk") : t(locale, "doctorProblems", { count: problems }));
+  if (problems > 0) print(t(locale, "doctorProblems", { count: problems }));
+  else print(warnings > 0 ? t(locale, "doctorWarnings", { count: warnings }) : t(locale, "doctorOk"));
   return problems === 0 ? 0 : 1;
 }
 
@@ -93,6 +115,8 @@ export function formatAccountList(locale: Locale, config: AppConfig | undefined)
     const auth = a.auth.type === "oauth2" ? `oauth2:${a.auth.provider}` : "password";
     const tiers = (["read", "write", "send", "delete"] as const).filter((tier) => a.permissions[tier]).join("+");
     const marker = config.defaultAccount === a.id ? "*" : " ";
-    return `${marker} ${a.id.padEnd(16)} ${a.email.padEnd(32)} ${a.imap.host.padEnd(28)} ${auth.padEnd(16)} ${tiers}`;
+    const row = `${marker} ${a.id.padEnd(16)} ${a.email.padEnd(32)} ${a.imap.host.padEnd(28)} ${auth.padEnd(16)} ${tiers}`;
+    const locked = a.policy.folders.deny;
+    return locked.length > 0 ? `${row}  ${t(locale, "lockedFolders", { list: locked.join(", ") })}` : row;
   });
 }

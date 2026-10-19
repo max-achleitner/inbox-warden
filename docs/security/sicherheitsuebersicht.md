@@ -11,7 +11,7 @@ Postfach ⇄ (verschlüsselt, TLS ≥ 1.2) ⇄ imap-mcp auf dem Arbeitsplatz ⇄
 | Lesen | an | Ordner, Suche, E-Mails lesen |
 | Schreiben | an | Markieren, verschieben, Entwürfe |
 | Senden | **aus** | E-Mails verschicken |
-| Löschen | **aus** | In den Papierkorb / endgültig löschen |
+| Löschen | **aus** | Nur in den Papierkorb verschieben – endgültig gelöscht wird nie (den Papierkorb leeren Sie im eigenen Mailprogramm) |
 
 Zusätzlich legt eine **Richtlinie** fest:
 - **Sendemodus:** nur Entwürfe (Empfehlung) / Bestätigung je E-Mail / direkt

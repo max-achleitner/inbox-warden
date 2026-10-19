@@ -18,8 +18,15 @@ export interface CapabilitySummary {
 
 export type StepResult<T extends object = object> = ({ ok: true } & T) | { ok: false; diagnosis: Diagnosis; error: unknown };
 
+/** A folder as the server lists it. */
+export interface ListedFolder {
+  path: string;
+  delimiter?: string;
+}
+
 export interface AccountTestReport {
-  imap: StepResult<{ capabilities: CapabilitySummary; folderCount: number }>;
+  /** `folders`: every listed folder, unfiltered by folder rules (doctor checks the deny patterns against it). */
+  imap: StepResult<{ capabilities: CapabilitySummary; folderCount: number; folders: ListedFolder[] }>;
   /** Present when the account has SMTP configured. */
   smtp?: StepResult;
 }
@@ -28,7 +35,7 @@ export interface AccountTestReport {
 export interface ImapProbeClient {
   capabilities: Map<string, unknown>;
   mailbox: false | { permanentFlags?: Set<string> };
-  list(): Promise<unknown[]>;
+  list(): Promise<ListedFolder[]>;
   getMailboxLock(path: string): Promise<{ release(): void }>;
   logout(): Promise<void>;
 }
@@ -99,6 +106,7 @@ export async function testAccountConnection(
     imap = {
       ok: true,
       folderCount: folders.length,
+      folders: folders.map((f) => ({ path: f.path, ...(f.delimiter ? { delimiter: f.delimiter } : {}) })),
       capabilities: { specialUse: has("SPECIAL-USE"), uidplus: has("UIDPLUS"), move: has("MOVE"), idle: has("IDLE"), customKeywords },
     };
   } catch (error) {

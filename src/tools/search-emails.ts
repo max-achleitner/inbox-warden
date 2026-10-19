@@ -2,9 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
+import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { searchFilterShape } from "../imap/search-query.js";
-import { hasAttachmentPart, keywordsSupported, selectByFilter } from "../imap/select.js";
+import { LABEL_SCAN_NOTE, hasAttachmentPart, keywordsSupported, selectByFilter } from "../imap/select.js";
 import { envelopeDate } from "../imap/envelope.js";
 import { previewFor } from "../mail/preview.js";
 import { highestRisk } from "../policy/observer.js";
@@ -48,10 +49,11 @@ export function register(server: McpServer, app: AppContext) {
     },
     async ({ folder, maxResults, offset, includePreview, previewChars, compact, ...filters }, inv) => {
       const client = await inv.account.getClient();
-      const path = await resolvePolicyFolder(inv.account, client, folder);
+      const folders = await listFolderInfo(client);
+      const path = await resolvePolicyFolder(inv.account, client, folder, folders);
       const lock = await client.getMailboxLock(path);
       try {
-        const selection = await selectByFilter(client, filters);
+        const selection = await selectByFilter(client, filters, inv.account.policy.messageScope(folders));
         const totalMatches = selection.uids.length;
         const pageUids = selection.uids.slice().reverse().slice(offset, offset + maxResults);
         const base = {
@@ -63,6 +65,7 @@ export function register(server: McpServer, app: AppContext) {
           totalMatches,
           offset,
           ...(selection.attachmentScanLimited ? { attachmentScanLimited: true } : {}),
+          ...(selection.labelScanLimited ? { scanLimited: true, note: LABEL_SCAN_NOTE } : {}),
         };
         inv.record({ folder: path, count: totalMatches });
 
