@@ -85,6 +85,8 @@ describe("policy coverage of tool sources", () => {
     // send-draft.ts removes only the draft it has just sent; strictMove's MOVE fallback lives in src/imap/strict.ts
     expect(users(/\bsafeExpunge\(/)).toEqual(["send-draft.ts"]);
     expect(users(/\.messageDelete\(|\.mailboxClose\(|\.messageFlagsSet\(/)).toEqual([]);
+    // imapflow deselects with CLOSE (an implicit expunge) before RENAME/DELETE on servers without UNSELECT
+    expect(offenders(/\bmailboxRename\(|\bmailboxDelete\(/, /\bwithoutImplicitExpunge\(/)).toEqual([]);
   });
 
   it("every move checks whether it goes into Trash (that is a delete)", () => {
