@@ -101,13 +101,44 @@ describe("organizing tools", () => {
       expect(imap.uidsIn("Trash")).toEqual([1]);
     });
 
-    it("permanently deleting from Trash never expunges other \\Deleted messages without UIDPLUS", async () => {
-      imap.capabilities.delete("UIDPLUS");
-      imap.addMessage("Trash", "Subject: old\r\n\r\n", { flags: ["\\Deleted"] });
-      imap.addMessage("Trash", "Subject: target\r\n\r\n");
-      const res = await h.call("delete_email", { folder: "Trash", uids: [2] });
+    it("refuses to delete permanently from Trash", async () => {
+      imap.addMessage("Trash", "Subject: old\r\n\r\n");
+      const res = await h.call("delete_email", { folder: "Trash", uids: [1] });
       expect(res.isError).toBe(true);
-      expect(imap.uidsIn("Trash")).toEqual([1, 2]);
+      expect(res.text).toMatch(/never deletes them permanently/);
+      expect(res.text).toMatch(/own mail program/);
+      expect(res.text).toMatch(/Nothing was deleted/);
+      expect(imap.uidsIn("Trash")).toEqual([1]);
+      expect(imap.callsTo("messageDelete")).toHaveLength(0);
+    });
+
+    it("refuses to delete from a folder below Trash", async () => {
+      imap.addFolder("Trash/Old");
+      imap.addMessage("Trash/Old", "Subject: old\r\n\r\n");
+      const res = await h.call("delete_email", { folder: "Trash/Old", uids: [1] });
+      expect(res.isError).toBe(true);
+      expect(res.text).toMatch(/Nothing was deleted/);
+      expect(imap.uidsIn("Trash/Old")).toEqual([1]);
+      expect(imap.callsTo("messageMove")).toHaveLength(0);
+    });
+
+    it("refuses when the account has no Trash folder instead of deleting permanently", async () => {
+      imap.folders.delete("Trash");
+      const res = await h.call("delete_email", { uids: [1] });
+      expect(res.isError).toBe(true);
+      expect(res.text).toMatch(/no Trash folder/);
+      expect(res.text).toMatch(/Nothing was deleted/);
+      expect(imap.uidsIn("INBOX")).toEqual([1, 2, 3]);
+      expect(imap.callsTo("messageDelete")).toHaveLength(0);
+    });
+
+    it("refuses a filter delete when the account has no Trash folder", async () => {
+      imap.folders.delete("Trash");
+      const res = await h.call("delete_email", { filter: { all: true } });
+      expect(res.isError).toBe(true);
+      expect(res.text).toMatch(/no Trash folder/);
+      expect(res.text).not.toMatch(/confirmToken/);
+      expect(imap.uidsIn("INBOX")).toEqual([1, 2, 3]);
     });
 
     it("reports a failed move to Trash as an error", async () => {

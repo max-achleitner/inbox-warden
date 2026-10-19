@@ -43,4 +43,48 @@ describe("FakeImap", () => {
     await imap.messageDelete("2", { uid: true });
     expect(imap.uidsIn("INBOX")).toEqual([]);
   });
+
+  describe("deselecting before RENAME/DELETE of the selected folder, like imapflow", () => {
+    async function selectedWithDeletedMessage(opts?: { readOnly?: boolean }) {
+      const imap = new FakeImap();
+      imap.addFolder("Clients");
+      imap.addMessage("Clients", "Subject: marked\r\n\r\n", { flags: ["\\Deleted"] });
+      imap.addMessage("Clients", "Subject: kept\r\n\r\n");
+      await imap.getMailboxLock("Clients", opts);
+      return imap;
+    }
+
+    it("uses UNSELECT where the server has it and removes nothing", async () => {
+      const imap = await selectedWithDeletedMessage();
+      await imap.mailboxRename("Clients", "Kunden");
+      expect(imap.callsTo("unselect")).toHaveLength(1);
+      expect(imap.uidsIn("Kunden")).toEqual([1, 2]);
+      expect(imap.mailbox).toBe(false);
+    });
+
+    it("falls back to CLOSE without UNSELECT, which expunges every \\Deleted message", async () => {
+      const imap = await selectedWithDeletedMessage();
+      imap.capabilities.delete("UNSELECT");
+      await imap.mailboxRename("Clients", "Kunden");
+      expect(imap.callsTo("close")).toHaveLength(1);
+      expect(imap.uidsIn("Kunden")).toEqual([2]);
+    });
+
+    it("CLOSE removes nothing from a folder opened read-only", async () => {
+      const imap = await selectedWithDeletedMessage({ readOnly: true });
+      imap.capabilities.delete("UNSELECT");
+      await imap.mailboxRename("Clients", "Kunden");
+      expect(imap.uidsIn("Kunden")).toEqual([1, 2]);
+    });
+
+    it("leaves other folders alone", async () => {
+      const imap = await selectedWithDeletedMessage();
+      imap.capabilities.delete("UNSELECT");
+      imap.addFolder("Empty");
+      await imap.mailboxDelete("Empty");
+      expect(imap.folders.has("Empty")).toBe(false);
+      expect(imap.uidsIn("Clients")).toEqual([1, 2]);
+      expect(imap.callsTo("close")).toHaveLength(0);
+    });
+  });
 });

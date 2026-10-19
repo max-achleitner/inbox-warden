@@ -158,6 +158,23 @@ export async function safeExpunge(client: ImapFlow, uids: number[]): Promise<voi
   }
 }
 
+/**
+ * Run a folder RENAME or DELETE (`op`) without an implicit expunge. imapflow deselects the folder
+ * first when it is selected, with CLOSE on servers without UNSELECT, and CLOSE permanently removes
+ * every message flagged \Deleted, also those another mail program flagged. While this holds a
+ * read-only lock on INBOX, the folder is not selected and no other call can select it: EXAMINE
+ * deselects without expunging (RFC 3501 6.4.2), and CLOSE removes nothing from a read-only INBOX.
+ */
+export async function withoutImplicitExpunge<T>(client: ImapFlow, op: () => Promise<T>): Promise<T> {
+  if (client.capabilities.has("UNSELECT")) return op();
+  const lock = await client.getMailboxLock("INBOX", { readOnly: true });
+  try {
+    return await op();
+  } finally {
+    try { lock.release(); } catch { /* connection may already be dead */ }
+  }
+}
+
 /** Download the full source of one message from the selected mailbox. */
 export async function downloadMessage(client: ImapFlow, uid: number, folder: string): Promise<Buffer> {
   const result = await client.download(String(uid), undefined, { uid: true });

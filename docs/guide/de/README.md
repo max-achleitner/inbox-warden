@@ -98,7 +98,7 @@ Konfiguration bearbeiten eintragen:
 | `read` | suchen, lesen, Anhänge ansehen | an |
 | `write` | als gelesen markieren, markieren, verschieben, Entwürfe anlegen, Ordner verwalten | an |
 | `send` | E-Mails und Entwürfe versenden | aus |
-| `delete` | in den Papierkorb verschieben, Papierkorb leeren | aus |
+| `delete` | in den Papierkorb verschieben – endgültig gelöscht wird nie; den Papierkorb leeren Sie in Ihrem eigenen Mailprogramm | aus |
 
 Im Formular tragen Sie die Rechte komma-getrennt ein, z. B. `read,write` (empfohlen) oder `read,write,send`.
 

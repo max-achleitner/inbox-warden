@@ -52,6 +52,8 @@ export interface AddFolderOptions {
 
 export interface SelectedMailbox {
   path: string;
+  /** Opened with EXAMINE: CLOSE then removes nothing. */
+  readOnly: boolean;
   uidValidity: bigint;
   exists: number;
   permanentFlags: Set<string>;
@@ -67,6 +69,7 @@ export class FakeImap {
     ["UIDPLUS", true],
     ["MOVE", true],
     ["SPECIAL-USE", true],
+    ["UNSELECT", true],
   ]);
   mailbox: SelectedMailbox | false = false;
   /** What getQuota() resolves to; false = server without QUOTA support. */
@@ -137,13 +140,14 @@ export class FakeImap {
 
   // ─── imapflow surface ──────────────────────────────────────────────────────
 
-  async getMailboxLock(path: string, _opts?: { readOnly?: boolean }) {
+  async getMailboxLock(path: string, opts?: { readOnly?: boolean }) {
     this.record("getMailboxLock", [path]);
     if (this.takeFailure("getMailboxLock")) throw new Error(`Mailbox doesn't exist: ${path}`);
     const folder = this.folders.get(path);
     if (!folder || folder.flags.has("\\Noselect")) throw new Error(`Mailbox doesn't exist: ${path}`);
     this.mailbox = {
       path: folder.path,
+      readOnly: opts?.readOnly === true,
       uidValidity: folder.uidValidity,
       exists: folder.messages.length,
       permanentFlags: folder.permanentFlags,
@@ -297,6 +301,7 @@ export class FakeImap {
     const path = this.normalizePath(requestedPath);
     const newPath = this.normalizePath(requestedNewPath);
     if (!this.folders.has(path)) throw new Error(`Mailbox doesn't exist: ${path}`);
+    this.deselectBeforeChange(path); // imapflow deselects before it sends RENAME, so even when RENAME fails
     if (this.folders.has(newPath)) throw new Error(`Mailbox already exists: ${newPath}`);
     for (const [key, folder] of [...this.folders]) {
       if (key !== path && !key.startsWith(path + "/")) continue;
@@ -305,6 +310,16 @@ export class FakeImap {
       this.folders.set(folder.path, folder);
     }
     return { path, newPath };
+  }
+
+  /** IMAP DELETE removes the folder with whatever it still contains; subfolders stay. */
+  async mailboxDelete(requestedPath: string) {
+    this.record("mailboxDelete", [requestedPath]);
+    const path = this.normalizePath(requestedPath);
+    if (!this.folders.has(path)) throw new Error(`Mailbox doesn't exist: ${path}`);
+    this.deselectBeforeChange(path);
+    this.folders.delete(path);
+    return { path };
   }
 
   async getQuota(path?: string) {
@@ -327,6 +342,21 @@ export class FakeImap {
     if (path.toUpperCase() === "INBOX") return "INBOX";
     const prefix = this.namespace?.prefix;
     return prefix && !path.startsWith(prefix) ? prefix + path : path;
+  }
+
+  /**
+   * Like imapflow before RENAME/DELETE of the selected folder: UNSELECT where the server has it,
+   * otherwise CLOSE, which permanently removes every \Deleted message unless the folder is read-only.
+   */
+  private deselectBeforeChange(path: string) {
+    if (!this.mailbox || this.mailbox.path !== path) return;
+    const unselect = this.capabilities.has("UNSELECT");
+    this.record(unselect ? "unselect" : "close", [path]);
+    if (!unselect && !this.mailbox.readOnly) {
+      const folder = this.requireFolder(path);
+      folder.messages = folder.messages.filter((m) => !m.flags.has("\\Deleted"));
+    }
+    this.mailbox = false;
   }
 
   private takeFailure(method: FakeMethod): FailureMode | undefined {
