@@ -9,12 +9,30 @@ import { PolicyDeniedError, tierAllowed } from "./engine.js";
  * Compared case-insensitively: on servers with case-insensitive names "trash/X" lands in Trash too.
  */
 export function movesIntoTrash(folders: FolderInfo[], destination: string): boolean {
+  return inTrash(folders, destination);
+}
+
+/** Whether `path` is the Trash folder or a folder below it (case-insensitive, see above). */
+export function inTrash(folders: FolderInfo[], path: string): boolean {
   const trash = pickSpecialFolder(folders, "\\Trash");
   if (!trash) return false;
-  const target = destination.toLowerCase();
+  const target = path.toLowerCase();
   if (target === trash.toLowerCase()) return true;
   const delimiter = folders.find((f) => f.path === trash)?.delimiter;
   return !!delimiter && target.startsWith((trash + delimiter).toLowerCase());
+}
+
+/**
+ * Nothing is ever deleted permanently (owner decision): delete_email only moves mail into Trash.
+ * Mail that is already there stays until the user empties the Trash in their own mail program.
+ */
+export function checkNotInTrash(folders: FolderInfo[], path: string): void {
+  if (!inTrash(folders, path)) return;
+  throw new PolicyDeniedError(
+    `"${path}" is the Trash folder or inside it. delete_email only moves emails into the Trash and never deletes them permanently. ` +
+      "To remove them for good, empty the Trash (or delete them there) in your own mail program. Nothing was deleted.",
+    "delete.permanent",
+  );
 }
 
 export function checkTrashMove(account: { readonly config: AccountConfig }): void {

@@ -80,6 +80,13 @@ describe("policy coverage of tool sources", () => {
     expect(offenders(/\.getQuota\(/, /\bresolvePolicyFolder\(/)).toEqual([]);
   });
 
+  it("no tool deletes mail permanently (deleting only moves it into Trash)", () => {
+    const users = (uses: RegExp) => toolSources().filter(({ source }) => uses.test(source)).map(({ file }) => file);
+    // send-draft.ts removes only the draft it has just sent; strictMove's MOVE fallback lives in src/imap/strict.ts
+    expect(users(/\bsafeExpunge\(/)).toEqual(["send-draft.ts"]);
+    expect(users(/\.messageDelete\(|\.mailboxClose\(|\.messageFlagsSet\(/)).toEqual([]);
+  });
+
   it("every move checks whether it goes into Trash (that is a delete)", () => {
     // delete-email.ts is the delete tier itself
     expect(offenders(/\bstrictMove\(/, /\bmovesIntoTrash\(/, ["delete-email.ts"])).toEqual([]);
