@@ -35,7 +35,10 @@ export async function resolvePolicyFolder(
   }
   if (resolved) {
     if (!account.policy.folderAllowed(resolved.path, resolved.delimiter, resolved.aggregate)) {
-      throw new PolicyDeniedError(`Access to the folder "${requested}" is blocked by your administrator's policy.`, "folders");
+      throw new PolicyDeniedError(
+        `Access to the folder "${requested}" is blocked by your administrator's policy. Nothing was changed.`,
+        "folders",
+      );
     }
     return resolved.path;
   }
