@@ -130,8 +130,14 @@ const MESSAGES = {
   },
   smtpMissing: { de: "• Senden: kein SMTP-Server eingetragen", en: "• Sending: no SMTP server configured" },
   permissionsLine: { de: "• Rechte: {list}", en: "• Permissions: {list}" },
+  lockedFoldersLine: { de: "• Gesperrte Ordner: {list}", en: "• Locked folders: {list}" },
+  lockMatchesNothing: {
+    de: "⚠ Ordnersperre „{pattern}“ passt auf keinen Ordner – Tippfehler? Dann bleibt der gemeinte Ordner für Claude sichtbar.",
+    en: '⚠ Folder lock "{pattern}" matches no folder – a typo? Then the folder you meant stays visible to Claude.',
+  },
   doctorOk: { de: "Alles in Ordnung.", en: "Everything is fine." },
   doctorProblems: { de: "{count} Problem(e) gefunden.", en: "{count} problem(s) found." },
+  doctorWarnings: { de: "Keine Probleme, aber {count} Warnung(en) (⚠).", en: "No problems, but {count} warning(s) (⚠)." },
   accountsEmpty: { de: "Keine Postfächer eingerichtet.", en: "No mailboxes configured." },
   usage: {
     de:

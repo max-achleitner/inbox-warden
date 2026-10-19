@@ -16,7 +16,7 @@ beforeAll(async () => {
 import { runSetup, suggestAccountId, type SetupDeps } from "../setup.js";
 
 const OK: AccountTestReport = {
-  imap: { ok: true, folderCount: 7, capabilities: { specialUse: true, uidplus: true, move: true, idle: true, customKeywords: true } },
+  imap: { ok: true, folderCount: 7, folders: [], capabilities: { specialUse: true, uidplus: true, move: true, idle: true, customKeywords: true } },
   smtp: { ok: true },
 };
 

@@ -87,6 +87,10 @@ describe("testAccountConnection", () => {
       verifySmtp: async () => {},
     });
     expect(report.imap).toMatchObject({ ok: true, folderCount: 2, capabilities: { uidplus: true, move: true, specialUse: true, customKeywords: true } });
+    expect(report.imap.ok && report.imap.folders).toEqual([
+      { path: "INBOX", delimiter: "/" },
+      { path: "Sent", delimiter: "/" },
+    ]);
     expect(report.smtp).toEqual({ ok: true });
   });
 
