@@ -73,7 +73,7 @@ accounts use an app password instead.
 ## Several mailboxes, your own mail server
 
 For several mailboxes in one installation, or a server with a self-signed certificate, install the command-line
-version (needs Node.js 20.18 or newer):
+version (needs Node.js 20.19 or newer):
 
 ```bash
 npm install -g inbox-warden

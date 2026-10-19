@@ -16,7 +16,7 @@ iCloud, Yahoo, or your own mail server.
 | Google Workspace sign-in (your organisation's OAuth client) | ✓ | ✓ | ✓ |
 | Several mailboxes in one installation | — | — | ✓ |
 | Own server with a self-signed certificate (pinned) | — | — | ✓ |
-| Needs Node.js on the computer | no | no | yes (20.18+) |
+| Needs Node.js on the computer | no | no | yes (20.19+) |
 
 **Microsoft 365 and Outlook.com are a preview.** Inbox Warden does not ship its own Microsoft app yet, so your
 administrator registers one once ([steps](docs/guide/providers.md#microsoft-365--exchange-online--for-the-administrator)),
@@ -57,7 +57,7 @@ reply drafting and mailbox clean-up.
 
 ### Command line (several mailboxes, own certificates)
 
-Requires Node.js 20.18 or newer.
+Requires Node.js 20.19 or newer.
 
 ```bash
 npm install -g inbox-warden

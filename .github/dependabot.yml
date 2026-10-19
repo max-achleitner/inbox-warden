@@ -8,6 +8,10 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    ignore:
+      # Types must match the oldest supported Node.js (engines.node), or code using newer APIs compiles
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: development

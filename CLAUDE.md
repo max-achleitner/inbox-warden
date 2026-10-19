@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Inbox Warden (`inbox-warden`) is an MCP (Model Context Protocol) server that exposes IMAP/SMTP email operations for one or more mail accounts as tools for AI clients. Built with TypeScript (ES modules, Node ≥ 20.18), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`), zod 4, `imapflow` 2 for IMAP, `nodemailer` 10 for SMTP and message composition, and `mailparser` for parsing. A prompt injection detection layer scans email content before it is returned to the AI.
+Inbox Warden (`inbox-warden`) is an MCP (Model Context Protocol) server that exposes IMAP/SMTP email operations for one or more mail accounts as tools for AI clients. Built with TypeScript (ES modules, Node ≥ 20.19), MCP TypeScript SDK v2 (`@modelcontextprotocol/server`), zod 4, `imapflow` 2 for IMAP, `nodemailer` 10 for SMTP and message composition, and `mailparser` for parsing. A prompt injection detection layer scans email content before it is returned to the AI.
 
 Production-readiness work is specified in `docs/superpowers/specs/2026-10-14-production-readiness-design.md` and executed through the plans in `docs/superpowers/plans/`.
 

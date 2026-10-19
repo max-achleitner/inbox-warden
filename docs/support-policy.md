@@ -6,7 +6,7 @@
 - **Supported versions.** The latest minor release of the current major version receives fixes. Security fixes
   are also back-ported to the previous minor release for 90 days after a new minor release.
 - **Node.js.** Supported on Node.js versions that are in "Active LTS" or "Maintenance LTS" and at least
-  20.18.0. Dropping a Node.js version is a minor release when that version has reached end-of-life, otherwise
+  20.19.0. Dropping a Node.js version is a minor release when that version has reached end-of-life, otherwise
   a major release.
 - **Mail providers.** Tested on every release: Gmail (app password), Google Workspace (OAuth), Microsoft 365
   (OAuth), one German/Austrian hoster, and a self-hosted Dovecot/Postfix server.
