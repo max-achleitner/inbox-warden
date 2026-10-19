@@ -104,8 +104,9 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
   `direct`); recipient rules and rate limits apply, and every send is recorded.
 - **Bulk changes are previewed first.** Sorting or deleting many messages at once first shows how many
   are affected, then changes exactly those — at most 500 per action (100 for deletes) by default.
-- **Locked folders stay out of reach.** With the command-line version, keep mail under an NDA in a folder
-  Claude can neither see nor open ([how](docs/guide/en/README.md#lock-folders-away-from-claude)).
+- **Locked folders stay out of reach.** Keep mail under an NDA in a folder Claude can neither see nor open:
+  name it in the extension's form or with `inbox-warden accounts edit <id> --lock-folder <folder>`
+  ([how](docs/guide/en/README.md#lock-folders-away-from-claude)).
 - **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
   action fails and says so — it never falls back to "all mail".
 - **Tamper-evident audit log** of every change and every sent message (no message contents).
