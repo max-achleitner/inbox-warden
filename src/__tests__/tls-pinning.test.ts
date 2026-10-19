@@ -56,7 +56,10 @@ describe("certificate pinning", () => {
   });
 
   it("fails with a plain-language error when the fingerprint does not match a trusted cert", async () => {
-    const wrongPin = { fingerprint256: "00:" + cert.fingerprint256.slice(3), certificatePem: cert.cert };
+    // Change the first byte; replacing it with a fixed "00" left the pin unchanged in 1 of 256 random certificates
+    const firstByte = cert.fingerprint256.startsWith("00") ? "01" : "00";
+    const wrongPin = { fingerprint256: firstByte + cert.fingerprint256.slice(2), certificatePem: cert.cert };
+    expect(wrongPin.fingerprint256).not.toBe(cert.fingerprint256);
     await expect(handshake(server.port, pinnedTlsOptions(wrongPin))).rejects.toBeInstanceOf(CertificatePinMismatchError);
   });
 
