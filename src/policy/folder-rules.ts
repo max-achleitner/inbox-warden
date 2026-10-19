@@ -1,7 +1,7 @@
 export interface FolderRules {
-  /** When set, only folders matching one of these patterns are visible. */
+  /** When set, only folders matching one of these patterns are visible (each by itself: subfolders need "X/**"). */
   allow?: string[];
-  /** Folders matching any of these patterns are never visible (deny wins over allow). */
+  /** Folders matching any of these patterns, and every folder below them, are never visible (deny wins over allow). */
   deny: string[];
 }
 

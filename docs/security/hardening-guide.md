@@ -36,7 +36,13 @@ Recommended settings for companies. Start with the baseline, then pick a profile
 
 Every policy setting is checked strictly: a misspelt key stops the server with an error instead of being ignored.
 
-Folder patterns use `/` as the separator whatever the server uses: write `INBOX/HR`, not `INBOX.HR`.
+`policy.folders` locks folders away from the AI in every tool. A hidden folder is not listed, counted, searched or read. Mail cannot be moved into or out of it, flagged or deleted there, and replies or forwards of its mail cannot be drafted. The folder cannot be renamed or deleted, and no folder can be created in it or renamed into it. Every refusal says that nothing was changed. Patterns are case-insensitive globs (`*` within one level, `**` across levels).
+
+- **Deny covers subfolders.** `"deny": ["_NDA_Inbox"]` hides `_NDA_Inbox` and every folder below it (`_NDA_Inbox/Projekt`, `_NDA_Inbox/Projekt/2026`). A pattern without `**/` is matched from the top level (or from below the `INBOX.` prefix, see below), so `Projekte/_NDA_Inbox` stays visible. Write `**/_NDA_Inbox` to hide the name at any depth. Deny wins over allow.
+- **Allow does not cover subfolders.** With `allow`, only the folders a pattern matches are visible, and an allowed folder does not open the folders below it. Write `Archiv/**` for a folder and everything below it.
+- **The separator and the `INBOX.` prefix do not matter.** Patterns use `/` whatever the server uses: write `INBOX/HR`, not `INBOX.HR`. Some servers (Dovecot, Courier, Cyrus) keep every folder below INBOX (`INBOX.Kunden`). Patterns match with and without that leading `INBOX/`, so `_NDA_Inbox` also hides `INBOX._NDA_Inbox`. Write names without `INBOX/`, because `INBOX/_NDA_Inbox` does not match `_NDA_Inbox` on a server without the prefix. Two side effects: on a server where INBOX has real subfolders, `HR` also hides `INBOX/HR`; and denying `INBOX` hides every folder below it, which on the servers above means every folder.
+- **Rules match names.** Renaming a locked folder in the mail program or on the server unlocks it, with all its mail, under its new name, and a server rule that still files into the old name may then deliver to INBOX instead. Check `policy.folders` and the server rules after every folder rename. The AI itself cannot rename a locked folder.
+- **File locked mail on the server.** To keep mail such as NDA correspondence away from the AI entirely, let a server-side rule (Sieve, Exchange transport or inbox rule, Gmail filter with "Skip the Inbox") move it into the locked folder on delivery. A rule in the desktop mail program runs only while the program is open, so the mail sits in INBOX, visible to the AI, until then.
 
 `allowedRecipientDomains` always lets the mailbox's own domains through. For a mailbox at a public provider (gmail.com, gmx.de, outlook.com) that means every address at that provider, so use it with company domains.
 
