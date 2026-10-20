@@ -47,7 +47,7 @@ describe("PolicyEngine", () => {
   it("caps bulk operations with a stricter limit for deletes", () => {
     const e = engine(policy({}, { bulk: { maxMessages: 10, maxDelete: 2 } }));
     e.checkBulk(10, "move");
-    expect(() => e.checkBulk(11, "move")).toThrow(/11 messages match, more than the limit of 10 per operation/);
+    expect(() => e.checkBulk(11, "move")).toThrow(/11 messages match, more than the limit of 10 per operation set in this mailbox's settings\. Nothing was changed\./);
     expect(() => e.checkBulk(3, "delete")).toThrow(/limit of 2 per operation for deleting/);
   });
 

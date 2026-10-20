@@ -38,7 +38,7 @@ All notable changes to this project are documented here. The format follows
 - Claude never deletes mail permanently. `delete_email` only moves mail into the Trash: it refuses emails that are already in the Trash or a folder below it, and accounts without a Trash folder. Emptying the Trash is done in your own mail program.
 - `send_draft` removes the sent draft only when the Sent folder holds a copy of the email. Otherwise (`sentCopy: "never"`, or storing the copy failed) the draft goes to the Trash instead of being erased; without a Trash folder it stays in Drafts.
 - Existing deny patterns now hide more (subfolders, the same name at any depth), and folder-lock refusals say that nothing was changed.
-- Refusals for locked folders and blocked recipient domains say that the mailbox's settings block them, instead of naming an administrator.
+- Refusals for locked folders, blocked recipient domains, bulk limits and blocked attachment types say that the mailbox's settings cause them, instead of naming an administrator.
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
 
 ## [0.6.0] - 2026-10-18

@@ -52,7 +52,7 @@ const NDA_MESSAGE_ID = "<vertrag-1@partner.example>";
 const SENT = "[Gmail]/Sent Mail";
 /** Anything of the hidden messages: subjects, bodies, attachment, sender. */
 const SECRET = /Phoenix|vertraulich|geheim|unterschreiben|vertrag\.txt|Vertragsentwurf|partner@partner\.example/;
-const DENIED = /is locked in this mailbox's settings\. Nothing was changed\.|because of your administrator's folder policy/;
+const DENIED = /is locked in this mailbox's settings\. Nothing was changed\.|because of this mailbox's folder locks/;
 
 /** Every folder with its messages' UIDs, flags and labels: what any change to the mailbox would show up in. */
 function snapshot(imap: FakeImap) {

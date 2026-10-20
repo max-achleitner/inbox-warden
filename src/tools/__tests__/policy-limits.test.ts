@@ -218,7 +218,7 @@ describe("policy limits in tools", () => {
     const h = await t.connect(manageFolders.registerRename);
     const res = await h.call("rename_folder", { path: "Archive", newPath: "Old" });
     expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/folder policy.*Nothing was renamed/);
+    expect(res.text).toMatch(/because of this mailbox's folder locks\. Nothing was renamed\./);
     expect(res.text).not.toContain("Secret");
     expect([...t.imap().folders.keys()]).toEqual(expect.arrayContaining(["Archive", "Archive/Secret"]));
     await h.close();
