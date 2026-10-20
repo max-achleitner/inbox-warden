@@ -75,7 +75,7 @@ describe("summarize_senders", () => {
     const { h } = await setup({ folders: { deny: ["Privat"] } });
     const res = await h.call("summarize_senders", { folder: "Privat" });
     expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/blocked by your administrator's policy/);
+    expect(res.text).toMatch(/is locked in this mailbox's settings\. Nothing was changed\./);
     await h.close();
   });
 

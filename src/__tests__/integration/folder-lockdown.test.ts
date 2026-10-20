@@ -53,7 +53,7 @@ const TOOLS = [
   manageFolders.registerDelete,
 ];
 
-const DENIED = /blocked by your administrator's policy\. Nothing was changed\./;
+const DENIED = /is locked in this mailbox's settings\. Nothing was changed\./;
 const NDA_MESSAGE_ID = "<vertrag-it@partner.example>";
 
 interface FolderState {

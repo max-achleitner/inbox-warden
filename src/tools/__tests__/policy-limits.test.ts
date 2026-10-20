@@ -155,7 +155,7 @@ describe("policy limits in tools", () => {
       const h = await t.connect(manageFolders.registerCreate);
       const res = await h.call("create_folder", { path: "Secret/Leak" });
       expect(res.isError).toBe(true);
-      expect(res.text).toMatch(/blocked by your administrator's policy/);
+      expect(res.text).toMatch(/is locked in this mailbox's settings\. Nothing was changed\./);
       expect(t.imap().folders.has("INBOX/Secret/Leak")).toBe(false);
       await h.close();
     });

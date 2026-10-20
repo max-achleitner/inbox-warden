@@ -45,7 +45,7 @@ const ALL_FOLDER_TOOLS = [
 ];
 
 const NDA_MESSAGE_ID = "<vertrag-1@partner.example>";
-const DENIED = /blocked by your administrator's policy\. Nothing was changed\./;
+const DENIED = /is locked in this mailbox's settings\. Nothing was changed\./;
 
 /** Every folder with its messages' UIDs and flags: what any change to the mailbox would show up in. */
 function snapshot(imap: FakeImap) {
@@ -262,7 +262,7 @@ describe("folder scope in tools", () => {
   it.each(["INBOX/HR", "inbox/hr", "INBOX.HR", "HR"])("refuses search_emails in %s", async (folder) => {
     const res = await h.call("search_emails", { folder });
     expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/blocked by your administrator's policy/);
+    expect(res.text).toMatch(/is locked in this mailbox's settings/);
   });
 
   it("refuses read_email and get_email_count in a denied folder", async () => {
@@ -274,7 +274,7 @@ describe("folder scope in tools", () => {
     expect((await h.call("get_thread", { folder: "INBOX/HR", uid: 1 })).isError).toBe(true);
     const across = await h.call("get_thread", { uid: 1, extraFolders: ["HR"] });
     expect(across.isError).toBe(true);
-    expect(across.text).toMatch(/blocked by your administrator's policy/);
+    expect(across.text).toMatch(/is locked in this mailbox's settings/);
   });
 
   it("refuses moving mail into a denied folder", async () => {

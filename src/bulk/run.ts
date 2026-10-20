@@ -81,7 +81,7 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
       );
     }
     if (selection.attachmentScanLimited || selection.labelScanLimited) {
-      const what = selection.attachmentScanLimited ? "check their attachments" : "check them against your administrator's folder policy";
+      const what = selection.attachmentScanLimited ? "check their attachments" : "check them against this mailbox's folder locks";
       throw new Error(`Too many messages match to ${what} reliably. Nothing was changed. Narrow the filter (for example with since/before) and preview again.`);
     }
     const count = selection.uids.length;

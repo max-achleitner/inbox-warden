@@ -170,7 +170,7 @@ export class PolicyEngine {
   checkFolder(folderPath: string, delimiter?: string): void {
     if (!this.folderAllowed(folderPath, delimiter)) {
       throw new PolicyDeniedError(
-        `Access to the folder "${folderPath}" is blocked by your administrator's policy. Nothing was changed.`,
+        `Access to the folder "${folderPath}" is locked in this mailbox's settings. Nothing was changed.`,
         "folders",
       );
     }

@@ -59,7 +59,7 @@ describe("outbound policy in send tools", () => {
     const h = await t.connect(sendEmail.register);
     const res = await h.call("send_email", mail);
     expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/blocked by your administrator's policy/);
+    expect(res.text).toMatch(/is blocked in this mailbox's settings\. Nothing was sent\./);
     expect(t.capture().sent).toHaveLength(0);
     await h.close();
   });

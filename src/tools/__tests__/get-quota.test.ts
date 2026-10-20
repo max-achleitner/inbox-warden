@@ -36,7 +36,7 @@ describe("get_quota", () => {
     const scoped = await t.connect(getQuota.register);
     const res = await scoped.call("get_quota", { path: "Privat" });
     expect(res.isError).toBe(true);
-    expect(res.text).toMatch(/blocked by your administrator's policy/);
+    expect(res.text).toMatch(/is locked in this mailbox's settings/);
     expect(t.imap().callsTo("getQuota")).toEqual([]);
     await scoped.close();
   });
