@@ -170,7 +170,7 @@ export class PolicyEngine {
   checkFolder(folderPath: string, delimiter?: string): void {
     if (!this.folderAllowed(folderPath, delimiter)) {
       throw new PolicyDeniedError(
-        `Access to the folder "${folderPath}" is locked in this mailbox's settings. Nothing was changed.`,
+        `The folder "${folderPath}" is locked in this mailbox's settings. Nothing was changed.`,
         "folders",
       );
     }
@@ -181,7 +181,7 @@ export class PolicyEngine {
     if (count > limit) {
       throw new PolicyDeniedError(
         `${count} messages match, more than the limit of ${limit} per operation` +
-          `${action === "delete" ? " for deleting" : ""} set in this mailbox's settings. Nothing was changed.` +
+          `${action === "delete" ? " for deleting" : ""} set in this mailbox's settings. Nothing was changed. ` +
           "Do not split the same change into smaller batches. Choose a narrower selection only if that is what the user actually wants " +
           "(one sender or one topic), or let the mailbox owner raise the limit with " +
           `"${SERVER_NAME} accounts edit <account> ${action === "delete" ? "--max-delete" : "--max-messages"} <n>".`,
