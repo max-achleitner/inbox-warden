@@ -136,6 +136,19 @@ describe("loadConfig", () => {
     });
   });
 
+  it("explains a missing incoming server in the form's words", () => {
+    let message = "";
+    try {
+      configFromEnv({ IMAP_MCP_EMAIL: "a@example.invalid", IMAP_MCP_PASSWORD: "x" });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/No incoming mail server \(IMAP\) is known for a@example\.invalid/);
+    expect(message).toMatch(/Advanced: incoming server \(IMAP\)/);
+    expect(message).toMatch(/don't look up servers online/);
+    expect(message).toMatch(/IMAP_MCP_IMAP_HOST/);
+  });
+
   it("loads an existing v2 file unchanged", async () => {
     const config = configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" });
     await saveConfig(config, env);

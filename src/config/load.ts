@@ -108,7 +108,11 @@ export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
 export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
   const email = nonEmpty(env.IMAP_MCP_EMAIL)!;
   const imapHost = nonEmpty(env.IMAP_MCP_IMAP_HOST);
-  if (!imapHost) throw new ConfigError("IMAP_MCP_IMAP_HOST is required when configuring through environment variables.");
+  if (!imapHost) {
+    throw new ConfigError(
+      `No incoming mail server (IMAP) is known for ${email}. Enter it under "Advanced: incoming server (IMAP)", or switch off "Advanced: don't look up servers online" so it can be detected. (IMAP_MCP_IMAP_HOST is not set.)`,
+    );
+  }
   const smtpHost = nonEmpty(env.IMAP_MCP_SMTP_HOST);
   const username = nonEmpty(env.IMAP_MCP_USERNAME);
   const name = nonEmpty(env.IMAP_MCP_DISPLAY_NAME);

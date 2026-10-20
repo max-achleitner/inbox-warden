@@ -101,4 +101,14 @@ describe("withDetectedEndpoints (env-only mode)", () => {
     const guessOnly = { IMAP_MCP_EMAIL: "info@kleine-firma.at" };
     expect(await withDetectedEndpoints(guessOnly, (e) => detectProvider(e, noNetwork))).toBe(guessOnly);
   });
+
+  it("fills Gmail's servers from the built-in table when lookups are off", async () => {
+    const env = await withDetectedEndpoints({ IMAP_MCP_EMAIL: "a@gmail.com", IMAP_MCP_NO_AUTOCONFIG: "1" });
+    expect(env).toMatchObject({ IMAP_MCP_IMAP_HOST: "imap.gmail.com", IMAP_MCP_IMAP_PORT: "993", IMAP_MCP_SMTP_HOST: "smtp.gmail.com" });
+  });
+
+  it("does not look anything up for an unknown domain when lookups are off", async () => {
+    const input = { IMAP_MCP_EMAIL: "a@example.invalid", IMAP_MCP_NO_AUTOCONFIG: "1" };
+    expect(await withDetectedEndpoints(input)).toBe(input);
+  });
 });
