@@ -48,6 +48,7 @@ All notable changes to this project are documented here. The format follows
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
 
 ### Fixed
+- `health_check` counts every prompt-injection scan (`security.totalScans`, `totalDetections`), also those of search results, threads, attachments and previews. Before, only `read_email` counted. The counters are per process; `security.since` gives the start time.
 - `search_emails` and `read_email` agree on what an attachment is. `read_email` now also gives `hasAttachment` and marks images embedded in the email (logos) with `embedded: true`; it still lists every part with its index. Before, `search_emails` said `hasAttachment: false` while `read_email` listed the logos as attachments.
 - `search_emails` returns the newest mail first by date received (`sortedBy: "date"`) and pages over that order. Before, results came in UID order, which mixes up mail that was moved into a folder: it gets a new UID but keeps its date. Above 20,000 matches the UID order is kept (`sortedBy: "uid"` and a `note`).
 - The Claude Desktop extension can be installed again: the signed 0.6.0 bundle was rejected by Claude Desktop ("Invalid comment length"). From 0.7.0 on the bundle is not signed; checksums and the build attestation prove its origin.
