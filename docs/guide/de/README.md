@@ -308,7 +308,7 @@ In Claude Desktop finden Sie die Protokolle unter **Einstellungen → Erweiterun
 | „No Microsoft application (client) ID is configured …“ | Kommandozeilen-Version: die OAuth client ID von Ihrem Administrator in `inbox-warden setup` eintragen. |
 | „Microsoft 365 has SMTP sending disabled for this mailbox …“ | Ihr Administrator muss „Authentifiziertes SMTP“ aktivieren ([Anbieterhinweise](../providers.md)). |
 | „needs Node.js 20 or newer“ | Claude Desktop aktualisieren. |
-| „Server does not support STARTTLS“ | Ihr Server bietet keine Verschlüsselung an. Port 993 (IMAP) bzw. 465 (SMTP) eintragen oder den Anbieter fragen. Unverschlüsselte Verbindungen sind absichtlich nicht möglich. |
+| „Server does not support STARTTLS“ | Ihr Server bietet keine Verschlüsselung an. Port 993 (IMAP) bzw. 465 (SMTP) im Serverfeld als `Server:Port` eintragen (z. B. `imap.example.com:993`) oder den Anbieter fragen. Unverschlüsselte Verbindungen sind absichtlich nicht möglich. |
 | „Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks“ | Im Feld **Locked folders (comma-separated)** die Ordner ohne Anführungszeichen eintragen, mit Kommas getrennt. |
 | `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | Der Ordner ist absichtlich gesperrt. Zum Entsperren ihn aus **Locked folders (comma-separated)** entfernen und einen neuen Chat öffnen. |
 | „Folder … does not exist. Did you mean …?“ | Ordnernamen wie vorgeschlagen verwenden oder Claude nach der Ordnerliste fragen. |

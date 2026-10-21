@@ -12,8 +12,8 @@ iCloud, Yahoo, or your own mail server.
 |---|---|---|---|
 | Install | drag a file into Settings → Extensions | two commands | `npm install -g` + `setup` |
 | Password / app password (Gmail, GMX, IONOS, iCloud, own server …) | ✓ | ✓ | ✓ |
-| Microsoft 365 sign-in (preview) | ✓ (ask Claude "please sign me in") | ✓ | ✓ |
-| Google Workspace sign-in (your organisation's OAuth client) | ✓ | ✓ | ✓ |
+| Microsoft 365 sign-in (preview) | — | — | ✓ |
+| Google Workspace sign-in (your organisation's OAuth client) | — | — | ✓ |
 | Several mailboxes in one installation | — | — | ✓ |
 | Own server with a self-signed certificate (pinned) | — | — | ✓ |
 | Needs Node.js on the computer | no | no | yes (20.19+) |

@@ -290,7 +290,7 @@ In Claude Desktop, logs are under **Settings → Extensions → Inbox Warden** o
 | "No Microsoft application (client) ID is configured …" | Command-line version: enter the OAuth client ID from your administrator in `inbox-warden setup`. |
 | "Microsoft 365 has SMTP sending disabled for this mailbox …" | Your administrator must enable Authenticated SMTP ([provider notes](../providers.md)). |
 | "needs Node.js 20 or newer" | Update Claude Desktop. |
-| "Server does not support STARTTLS" | Your server offers no encryption on that port. Use port 993 (IMAP) / 465 (SMTP) or ask your provider. Unencrypted connections are deliberately impossible. |
+| "Server does not support STARTTLS" | Your server offers no encryption on that port. Use port 993 (IMAP) / 465 (SMTP), written in the server field as `server:port` (e.g. `imap.example.com:993`), or ask your provider. Unencrypted connections are deliberately impossible. |
 | "Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks" | Enter the folders in **Locked folders (comma-separated)** without quotation marks, separated by commas. |
 | `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | The folder is locked on purpose. To unlock it, remove it from **Locked folders (comma-separated)** and start a new chat. |
 | "Folder … does not exist. Did you mean …?" | Use the suggested folder name, or ask Claude for the folder list. |
