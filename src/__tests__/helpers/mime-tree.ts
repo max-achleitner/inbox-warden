@@ -9,6 +9,8 @@ export interface FakeStructureNode {
   parameters?: Record<string, string>;
   encoding?: string;
   size?: number;
+  /** Content-ID header value, as imapflow reports it. */
+  id?: string;
   disposition?: string;
   dispositionParameters?: Record<string, string>;
   childNodes?: FakeStructureNode[];
@@ -59,6 +61,7 @@ function walk(raw: Buffer, part: string | undefined, parts: Map<string, Buffer>)
     parameters: contentType.params,
     encoding: (headerField(head, "content-transfer-encoding") ?? "7bit").toLowerCase(),
     size: body.length,
+    ...(headerField(head, "content-id") ? { id: headerField(head, "content-id")!.trim() } : {}),
     ...(disposition.value ? { disposition: disposition.value, dispositionParameters: disposition.params } : {}),
   };
 

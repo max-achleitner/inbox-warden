@@ -24,7 +24,9 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create draft",
       description:
         "Create a draft email and save it to the Drafts folder for review before sending. " +
-        "Uses the sender's display name and signature. Returns the draft's uid for send_draft.",
+        "Uses the sender's display name and signature. Returns the draft's uid." +
+        // send_draft is only registered when some account may send (same predicate as defineTool)
+        (app.anyAccountAllows("send") ? " send_draft can send it after the user has reviewed it." : ""),
       tier: "write",
       input: {
         to: z.string().describe("Recipient email address(es), comma-separated"),

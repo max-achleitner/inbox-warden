@@ -50,4 +50,16 @@ describe("create_draft", () => {
     const res = await h.call("create_draft", { to: "a@example.com", subject: "s", body: "b" });
     expect(res.isError).toBe(true);
   });
+
+  it("mentions send_draft only when some account offers the send tier", async () => {
+    const off = createTestApp([{ permissions: { read: true, write: true, send: false, delete: false } }]);
+    const hOff = await off.connect(createDraft.register);
+    expect(await hOff.description("create_draft")).not.toContain("send_draft");
+    await hOff.close();
+
+    const on = createTestApp();
+    const hOn = await on.connect(createDraft.register);
+    expect(await hOn.description("create_draft")).toContain("send_draft");
+    await hOn.close();
+  });
 });

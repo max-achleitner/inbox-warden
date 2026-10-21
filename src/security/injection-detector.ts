@@ -288,6 +288,14 @@ export interface ScanInput {
   addressNames?: string[];
 }
 
+let totalScans = 0;
+let totalDetections = 0;
+
+/** How many scans ran and how many found something, since this process started (shown by health_check). */
+export function scanStats(): { totalScans: number; totalDetections: number } {
+  return { totalScans, totalDetections };
+}
+
 /**
  * Scan email content for prompt injection attempts.
  * Returns metadata with findings — never modifies the original content.
@@ -336,6 +344,8 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
 
   const riskLevel = computeRiskLevel(findings);
   const hasInjection = findings.length > 0;
+  totalScans++;
+  if (hasInjection) totalDetections++;
 
   let sanitizedPreview: string | undefined;
   if (hasInjection) {

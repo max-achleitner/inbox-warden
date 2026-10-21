@@ -23,7 +23,7 @@ export const searchFilterShape = {
   flagged: z.boolean().optional().describe("true = only flagged/starred, false = only unflagged"),
   answered: z.boolean().optional().describe("true = only replied-to, false = only unreplied"),
   keyword: z.string().min(1).optional().describe("Only emails carrying this custom keyword, e.g. $Done"),
-  hasAttachment: z.boolean().optional().describe("true = only with attachments, false = only without"),
+  hasAttachment: z.boolean().optional().describe("true = only with attachments, false = only without (images embedded in the email, such as logos, do not count; Gmail's own has:attachment via gmailQuery does)"),
   largerThan: z.number().int().positive().optional().describe("Only emails larger than this many bytes"),
   smallerThan: z.number().int().positive().optional().describe("Only emails smaller than this many bytes"),
   header: z.record(z.string().min(1), z.string().min(1)).optional().describe('Header substring matches, e.g. {"List-Id": "newsletter"}'),
