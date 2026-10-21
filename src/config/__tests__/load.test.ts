@@ -27,6 +27,16 @@ describe("loadConfig", () => {
     env = { IMAP_MCP_HOME: dir };
   });
 
+  it("does not quote a corrupt config file in the error", async () => {
+    const file = path.join(dir, "config.json");
+    fs.writeFileSync(file, '{"password": hunter2secret}');
+    const err = await loadConfig(env, { secrets: new MemorySecrets() }).catch((e) => e as Error);
+    expect(err).toBeInstanceOf(ConfigError);
+    expect((err as Error).message).toContain(file);
+    expect((err as Error).message).toContain("not valid JSON");
+    expect((err as Error).message).not.toContain("hunter2");
+  });
+
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   });

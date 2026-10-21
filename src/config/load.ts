@@ -197,6 +197,11 @@ function readJson(file: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      // JSON.parse quotes part of the file in its message; a corrupt config may hold a password, so keep only the location.
+      const where = /line \d+ column \d+|position \d+/.exec(err.message)?.[0];
+      throw new ConfigError(`Could not read ${file}: it is not valid JSON${where ? ` (${where})` : ""}.`);
+    }
     throw new ConfigError(`Could not read ${file}: ${(err as Error).message}`);
   }
 }
