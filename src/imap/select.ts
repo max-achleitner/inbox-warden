@@ -1,5 +1,6 @@
 import type { ImapFlow, MailboxObject } from "imapflow";
 import { ImapOperationError, strictSearch, withoutHiddenLabels, type MessageScope } from "./strict.js";
+import { countsAsAttachment } from "./attachment-rule.js";
 import { compileSearch, hasNonAsciiText, type SearchFilters } from "./search-query.js";
 
 /** Cap for the client-side attachment check (IMAP has no attachment search criterion). */
@@ -35,9 +36,12 @@ export function hasAttachmentPart(structure: any): boolean {
   if (!structure) return false;
   if (structure.disposition === "attachment") return true; // also an attached message/rfc822, which has childNodes
   if (structure.childNodes) return structure.childNodes.some(hasAttachmentPart);
-  const named = Boolean(structure.dispositionParameters?.filename || structure.parameters?.name);
-  const embeddedImage = String(structure.type ?? "").startsWith("image/") && Boolean(structure.id);
-  return named && !embeddedImage;
+  return countsAsAttachment({
+    disposition: structure.disposition,
+    contentType: structure.type,
+    hasContentId: Boolean(structure.id),
+    hasName: Boolean(structure.dispositionParameters?.filename || structure.parameters?.name),
+  });
 }
 
 /**
