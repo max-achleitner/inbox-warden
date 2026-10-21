@@ -30,7 +30,21 @@ describe("newestFirst", () => {
     const client = await setup();
     const lock = await client.getMailboxLock("INBOX");
     try {
-      expect(await newestFirst(client, [1, 2, 3, 4], 3)).toEqual({ uids: [4, 3, 2, 1], sortedBy: "uid" });
+      expect(await newestFirst(client, [1, 2, 3, 4], 3)).toEqual({ uids: [4, 3, 2, 1], sortedBy: "uid", reason: "limit" });
+    } finally {
+      lock.release();
+    }
+  });
+
+  it("keeps the order by UID when the server returns no date for a message", async () => {
+    const client = await setup();
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const fetch = client.fetch.bind(client);
+      client.fetch = async function* (...args: any[]) {
+        for await (const msg of fetch(...args)) yield msg.uid === 2 ? { ...msg, internalDate: undefined } : msg;
+      };
+      expect(await newestFirst(client, [1, 2, 3, 4])).toEqual({ uids: [4, 3, 2, 1], sortedBy: "uid", reason: "missing-dates" });
     } finally {
       lock.release();
     }

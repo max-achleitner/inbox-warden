@@ -13,7 +13,8 @@ import { highestRisk } from "../policy/observer.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
 
-const UID_ORDER_NOTE =
+const MISSING_DATES_NOTE = "Some messages had no date received, so the results are in order of arrival in this folder (highest UID first).";
+const LIMIT_ORDER_NOTE =
   "Too many matches to order by date: the results are ordered by arrival in this folder (highest UID first), which is not always the order of the dates. Narrow the filter (for example with since/before) for a date order.";
 
 /** Safely extract address from an envelope address object */
@@ -63,7 +64,8 @@ export function register(server: McpServer, app: AppContext) {
         const pageUids = ordered.uids.slice(offset, offset + maxResults);
         const notes = [
           ...(selection.labelScanLimited ? [LABEL_SCAN_NOTE] : []),
-          ...(ordered.sortedBy === "uid" ? [UID_ORDER_NOTE] : []),
+          ...(ordered.reason === "limit" ? [LIMIT_ORDER_NOTE] : []),
+          ...(ordered.reason === "missing-dates" ? [MISSING_DATES_NOTE] : []),
         ];
         const base = {
           account: inv.account.id,
