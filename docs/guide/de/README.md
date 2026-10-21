@@ -20,20 +20,34 @@ darf, und standardmäßig versenden Sie Entwürfe selbst.
 
 1. Laden Sie die Datei `inbox-warden-<Version>.mcpb` von der
    [Release-Seite](https://github.com/max-achleitner/inbox-warden/releases/latest) herunter.
-2. Doppelklicken Sie die Datei. Claude Desktop öffnet einen Installationsdialog. Klicken Sie auf **Installieren**.
-3. Füllen Sie das Formular aus:
-   - **E-Mail-Adresse**.
-   - **Anmeldung:** `password` für die meisten Anbieter; `microsoft` für Microsoft 365, `google` für Google Workspace
-     (siehe [unten](#microsoft-365-und-google-workspace)).
-   - **Passwort** (bei Gmail, Yahoo und iCloud ein App-Passwort, siehe unten) — bei `microsoft` und `google` leer lassen.
-   - **Ihr Name** — so erscheinen Sie bei Empfängern, z. B. „Maximilian Achleitner“.
-   - Die Serverfelder können Sie leer lassen; die Server werden aus Ihrer Adresse erkannt.
-   - **Ordner für Anhänge** und **Ablageordner** (optional): Nur aus diesen Ordnern darf Claude Dateien an Entwürfe
-     anhängen, und nur in den Ablageordner speichert Claude Anhänge. Leer lassen = kein Dateizugriff.
-   - **Ordner, die Claude nicht sehen darf** (optional), z. B. für Mails unter einer Verschwiegenheitsvereinbarung:
-     siehe [Ordner für Claude sperren](#ordner-für-claude-sperren).
-   - **Sprache:** `de`, damit Zitatzeilen „Am … schrieb …“ lauten.
+2. Öffnen Sie Claude Desktop, klicken Sie unten links auf Ihr Profil und wählen Sie **Einstellungen →
+   Erweiterungen** (englisch: Settings → Extensions). Ziehen Sie die Datei in das Feld dort. Ein Doppelklick auf
+   die Datei funktioniert nicht. Claude Desktop öffnet einen Installationsdialog. Klicken Sie auf **Installieren**
+   (englisch: Install).
+3. Füllen Sie das Formular aus. Die Feldtitel sind englisch; nötig sind nur E-Mail-Adresse und Passwort:
+   - **Email address** — Ihre E-Mail-Adresse.
+   - **Password (Gmail: app password)** — Ihr Passwort; bei Gmail, Yahoo und iCloud ein App-Passwort (siehe unten).
+   - **Your name (optional)** — so erscheinen Sie bei Empfängern, z. B. „Maximilian Achleitner“.
+   - **Claude may send email** (Schalter, aus) — einschalten, wenn Claude E-Mails senden darf. Claude fragt Sie
+     dann vor jeder E-Mail.
+   - **Claude may move email to Trash** (Schalter, aus) — einschalten, wenn Claude Mails löschen darf. Endgültig
+     gelöscht wird nie.
+   - **Locked folders (comma-separated)** — gesperrte Ordner, z. B. für Mails unter einer
+     Verschwiegenheitsvereinbarung: siehe [Ordner für Claude sperren](#ordner-für-claude-sperren).
+   - **Attachment folders (optional)** und **Download folder (optional)** — Nur aus diesen Ordnern darf Claude
+     Dateien an Entwürfe anhängen, und nur in den Download-Ordner speichert Claude Anhänge. Leer lassen = kein
+     Dateizugriff.
+   - Die Felder mit **Advanced** lassen Sie normalerweise leer; die Server werden aus Ihrer Adresse erkannt:
+     **Advanced: incoming server (IMAP)** und **Advanced: outgoing server (SMTP)** für einen eigenen Mailserver
+     (schreiben Sie `Server:Port`; ohne Port gelten 993 und 465), **Advanced: login name, if different**
+     (Anmeldename, falls er von der Adresse abweicht) und der Schalter **Advanced: don't look up servers online**
+     (Server nicht im Internet nachschlagen). Ist er an, funktionieren Gmail, GMX, iCloud und die anderen
+     eingebauten Anbieter weiterhin; jede andere Adresse braucht dann beide Serverfelder.
 4. Speichern, Erweiterung aktivieren, neuen Chat öffnen und fragen: *„Was ist neu in meinem Posteingang?“*
+
+Lesen und Ordnen von Mails ist immer erlaubt, und vor dem Senden wird immer bei Ihnen nachgefragt. Die Sprache
+der Antworten richtet sich nach Ihrem Betriebssystem. Die Anmeldung für Microsoft 365 und Google Workspace gehört
+nicht zu diesem Formular: siehe [unten](#microsoft-365-und-google-workspace).
 
 Ihr Passwort wird von Claude Desktop verschlüsselt im Schlüsselbund (macOS) bzw. in der Windows-Anmeldeinformationsverwaltung gespeichert.
 
@@ -43,7 +57,7 @@ Gmail, Yahoo und iCloud lassen fremde Programme nur mit einem **App-Passwort** z
 
 - **Gmail:** Zwei-Schritt-Bestätigung einschalten, dann unter https://myaccount.google.com/apppasswords
   ein App-Passwort für „Inbox Warden“ erstellen. Bei Firmenkonten (Google Workspace) kann Ihr Administrator
-  das abgeschaltet haben — dann die Google-Anmeldung verwenden (nächster Abschnitt).
+  das abgeschaltet haben — dann die Kommandozeilen-Version mit Google-Anmeldung verwenden (nächster Abschnitt).
 - **iCloud:** https://account.apple.com → Anmeldung und Sicherheit → App-spezifische Passwörter.
 - **Yahoo:** Kontoeinstellungen → Kontosicherheit → App-Passwort generieren.
 - **GMX und Web.de:** In den Webmail-Einstellungen „POP3/IMAP-Abruf“ erlauben; bei aktivierter
@@ -55,14 +69,24 @@ Details zu allen Anbietern: [Anbieterhinweise](../providers.md).
 
 *Die Unterstützung für Microsoft 365 ist eine Vorschau: Sie wurde noch nicht mit einem echten Microsoft-365-Mandanten getestet.*
 
-Microsoft 365 erlaubt keine Anmeldung mit Passwort mehr; Sie melden sich im Browser an. Das geht direkt in Claude Desktop:
+Microsoft 365 erlaubt keine Anmeldung mit Passwort mehr; Sie melden sich im Browser an. Die Claude-Desktop-Erweiterung
+bietet diese Anmeldung nicht an. Verwenden Sie die Kommandozeilen-Version (benötigt Node.js 20.19 oder neuer):
 
-1. Im Formular **Anmeldung** auf `microsoft` stellen, das Passwortfeld leer lassen und die **OAuth client ID**
-   eintragen, die Ihnen Ihr Administrator gegeben hat (und den **Tenant**, falls er ihn nennt). Inbox Warden bringt
-   noch keine eigene Microsoft-App mit; Ihr Administrator registriert sie einmalig ([Anbieterhinweise](../providers.md)).
-2. Neuen Chat öffnen und schreiben: *„Bitte melde mich bei meinem Postfach an.“*
-   Claude öffnet die Microsoft-Anmeldeseite in Ihrem Browser.
-3. Anmelden und zustimmen. Danach Claude sagen: *„Ich habe mich angemeldet.“* — Claude schließt die Anmeldung ab.
+1. Installieren Sie sie und starten Sie den Assistenten:
+
+   ```bash
+   npm install -g inbox-warden
+   inbox-warden setup
+   ```
+
+2. Wählen Sie Microsoft 365 (oder Google Workspace) und tragen Sie die **OAuth client ID** ein, die Ihnen Ihr
+   Administrator gegeben hat (und den **Tenant**, falls er ihn nennt). Inbox Warden bringt noch keine eigene
+   Microsoft-App mit; Ihr Administrator registriert sie einmalig ([Anbieterhinweise](../providers.md)). Der
+   Assistent öffnet die Anmeldeseite in Ihrem Browser.
+3. Anmelden und zustimmen. Danach tragen Sie den Server in Claude Desktop ein, wie im nächsten Abschnitt beschrieben.
+
+Läuft eine Anmeldung ab, führen Sie `inbox-warden accounts login <id>` aus oder bitten Claude im Chat:
+*„Bitte melde mich bei meinem Postfach an.“*
 
 Die Anmeldung bleibt gespeichert (im Schlüsselbund Ihres Betriebssystems); nach einem Neustart ist keine neue
 Anmeldung nötig, solange Ihr Unternehmen sie nicht widerruft.
@@ -71,9 +95,8 @@ Anmeldung nötig, solange Ihr Unternehmen sie nicht widerruft.
 (Administratorzustimmung), und für Ihr Postfach muss „Authentifiziertes SMTP“ aktiviert sein, damit Claude
 Entwürfe versenden kann. Die genauen Schritte stehen in den [Anbieterhinweisen](../providers.md).
 
-**Google Workspace:** **Anmeldung** auf `google` stellen und die **OAuth client ID** sowie das
-**OAuth client secret** eintragen, die Ihr Administrator für Ihre Organisation angelegt hat; dann wie oben
-*„Bitte melde mich an“*. Private Gmail-Konten verwenden stattdessen ein App-Passwort.
+**Google Workspace:** Der Assistent fragt nach der **OAuth client ID** und dem **OAuth client secret**, die Ihr
+Administrator für Ihre Organisation angelegt hat. Private Gmail-Konten verwenden stattdessen ein App-Passwort.
 
 ## Mehrere Postfächer, eigener Mailserver
 
@@ -103,7 +126,8 @@ Konfiguration bearbeiten eintragen:
 | `send` | E-Mails und Entwürfe versenden | aus |
 | `delete` | in den Papierkorb verschieben – endgültig gelöscht wird nie; den Papierkorb leeren Sie in Ihrem eigenen Mailprogramm | aus |
 
-Im Formular tragen Sie die Rechte komma-getrennt ein, z. B. `read,write` (empfohlen) oder `read,write,send`.
+In der Claude-Desktop-Erweiterung sind `read` und `write` immer an. Die beiden Schalter **Claude may send email**
+und **Claude may move email to Trash** (beide aus) fügen `send` und `delete` hinzu.
 
 In der Kommandozeilen-Version ändern Sie Rechte später mit `inbox-warden accounts edit <id> --allow send` bzw.
 `--deny delete`. Dort lassen sich auch das Standard-Postfach (`--default`), das Limit für Massenaktionen
@@ -111,10 +135,14 @@ In der Kommandozeilen-Version ändern Sie Rechte später mit `inbox-warden accou
 Ordner (`--lock-folder`, siehe [unten](#ordner-für-claude-sperren)) ändern.
 Ein laufender Server übernimmt die Änderung nach einem Neustart.
 
-**Versand:** Wenn Sie `send` erlauben, bestimmt „Versand“, wie gesendet wird:
-`confirm` — Claude fragt vor jeder E-Mail nach (empfohlen); `direct` — ohne zusätzliche Rückfrage;
-`drafts-only` — nie senden. Zusätzlich fragt Claude Desktop vor jedem Versand nach, sofern Sie das nicht mit
-„Immer erlauben“ abgeschaltet haben. Wir empfehlen, „Immer erlauben“ für Versand und Löschen **nicht** zu verwenden.
+**Änderungen übernehmen:** Claude Desktop — Einstellungen speichern, dann einen neuen Chat öffnen. Claude Code —
+`/mcp` → Server auswählen → **Reconnect**. Kommandozeilen-Version — Server neu starten.
+
+**Versand:** Die Erweiterung fragt vor jeder E-Mail bei Ihnen nach. Die Modi `confirm` (fragt vor jeder E-Mail
+nach, Standard), `direct` (ohne zusätzliche Rückfrage) und `drafts-only` (nie senden) gibt es nur in der
+Konfiguration der Kommandozeilen-Version. Zusätzlich fragt Claude Desktop vor jedem Versand nach, sofern Sie das
+nicht mit „Immer erlauben“ abgeschaltet haben. Wir empfehlen, „Immer erlauben“ für Versand und Löschen **nicht** zu
+verwenden.
 
 ## Ordner für Claude sperren
 
@@ -127,10 +155,11 @@ nicht, und jeder Zugriff darauf wird abgelehnt.
 1. Legen Sie im Mailprogramm einen Ordner an, z. B. `_NDA_Inbox` — am einfachsten auf oberster Ebene, neben
    dem Posteingang.
 2. Tragen Sie den Ordner ein, je nachdem, wie Sie Inbox Warden installiert haben:
-   - **Claude-Desktop-Erweiterung:** **Einstellungen → Erweiterungen → Inbox Warden** öffnen und den Ordner im
-     Feld **Ordner, die Claude nicht sehen darf** eintragen, dann speichern. Fehlt das Feld, aktualisieren Sie
-     die Erweiterung auf die neueste Version.
-   - **Claude-Code-Plugin:** `/plugin` → **inbox-warden** → **Configure**, dasselbe Feld.
+   - **Claude-Desktop-Erweiterung:** unten links auf Ihr Profil klicken, dann **Einstellungen → Erweiterungen →
+     Inbox Warden → Konfigurieren** (englisch: Settings → Extensions → Inbox Warden → Configure). Den Ordner im
+     Feld **Locked folders (comma-separated)** eintragen und speichern. Fehlt das Feld, aktualisieren Sie die
+     Erweiterung auf die neueste Version.
+   - **Claude-Code-Plugin:** `/plugin` → **Installed** → **Inbox Warden** → **Configure**, dasselbe Feld.
    - **Kommandozeilen-Version:**
 
      ```bash
@@ -141,12 +170,14 @@ nicht, und jeder Zugriff darauf wird abgelehnt.
      gesperrten Ordner. Für mehrere Ordner wiederholen Sie `--lock-folder`. `--unlock-folder _NDA_Inbox` hebt
      eine Sperre wieder auf. `inbox-warden doctor` warnt, wenn eine Sperre auf keinen Ordner passt — meist ein
      Tippfehler, und der gemeinte Ordner bliebe sichtbar.
-3. Neu starten — erst danach gilt die Sperre: Claude Desktop ganz beenden und neu öffnen; in Claude Code
-   `/mcp` → Server auswählen → **Reconnect**.
+3. Änderung übernehmen — erst danach gilt die Sperre: in Claude Desktop einen neuen Chat öffnen (das Speichern
+   startet die Erweiterung neu); in Claude Code `/mcp` → Server auswählen → **Reconnect**; in der Kommandozeile den
+   Server neu starten.
 4. In einem neuen Chat prüfen: *„Welche Ordner siehst du?“* — der gesperrte Ordner darf nicht vorkommen.
 
 **So schreiben Sie die Ordner:** Der Name genügt, wo auch immer der Ordner liegt: `_NDA_Inbox` sperrt auch
-`Projekte/_NDA_Inbox`. Ein Pfad mit `/` sperrt nur genau diese Stelle. Unterordner sind immer mitgesperrt.
+`Projekte/_NDA_Inbox`. Groß- und Kleinschreibung spielen keine Rolle: `_NDA_Inbox` sperrt auch `_NDA_INBOX`. Ein
+Pfad mit `/` sperrt nur genau diese Stelle. Unterordner sind immer mitgesperrt.
 `_NDA_*` sperrt alle Ordner, deren Name mit `_NDA_` beginnt, auch später angelegte; in der Kommandozeile setzen
 Sie solche Namen in Anführungszeichen: `--lock-folder "_NDA_*"`. Im Feld trennen Sie mehrere Ordner mit Kommas,
 ohne Anführungszeichen: `_NDA_Inbox, _NDA_Projekt_Nord`. Enthält ein Ordnername selbst ein Komma, schreiben Sie im
@@ -200,10 +231,11 @@ läuft. Beispiele für Mails von `kunde-x.example`:
   speichern. Diese Regeln laufen auf dem Server. Eine Regel aus Outlook für den Desktop, die in der Regelliste
   mit „(nur Client)“ markiert ist, läuft dagegen nur, solange Outlook auf diesem Computer geöffnet ist — bis
   dahin liegt die Mail im Posteingang.
-- **Gmail, Google Workspace:** in Gmail im Browser im Suchfeld auf **Suchoptionen anzeigen** klicken, bei
-  **Von** `@kunde-x.example` eintragen → **Filter erstellen** → **Posteingang überspringen (Archivieren)** und
+- **Gmail, Google Workspace:** in Gmail im Browser im Suchfeld auf das Symbol mit den Reglern am rechten Ende
+  (**Suchoptionen anzeigen**) klicken, bei **Von** `@kunde-x.example` eintragen → **Filter erstellen** → **Posteingang überspringen (Archivieren)** und
   **Label anwenden:** `_NDA_Inbox` (bei Bedarf **Neues Label**) ankreuzen → **Filter erstellen**. Mit **Filter
-  auch auf übereinstimmende Konversationen anwenden** werden vorhandene Mails gleich mit einsortiert.
+  auch auf übereinstimmende Konversationen anwenden** werden vorhandene Mails gleich mit einsortiert. Alternativer Weg: Einstellungen → **Filter und blockierte
+  Adressen** → **Neuen Filter erstellen**.
 - **Eigener Server:** eine Sieve-Regel, in Roundcube oder SOGo unter **Filter** oder als Skript:
 
   ```sieve
@@ -269,15 +301,16 @@ In Claude Desktop finden Sie die Protokolle unter **Einstellungen → Erweiterun
 
 | Meldung | Ursache und Lösung |
 |---|---|
-| „Authentication failed“ / „Anmeldung fehlgeschlagen“ | Passwort falsch oder App-Passwort nötig (siehe oben). Microsoft 365: Anmeldung `microsoft` wählen. |
-| „Enter the password (or app password) …“ | Passwort eintragen oder bei „Anmeldung“ `microsoft` bzw. `google` wählen. |
-| „Not signed in yet — ask me to run sign_in“ | Claude schreiben: *„Bitte melde mich an.“* Der Browser öffnet sich. |
-| „No Microsoft application (client) ID is configured …“ | Die OAuth client ID von Ihrem Administrator im Formular eintragen. |
+| „Authentication failed“ / „Anmeldung fehlgeschlagen“ | Passwort falsch oder App-Passwort nötig (siehe oben). Microsoft 365: die Kommandozeilen-Version verwenden (`inbox-warden setup`). |
+| „Inbox Warden is not set up correctly …“ | Claude nennt das Problem. Öffnen Sie Einstellungen → Erweiterungen → Inbox Warden → **Konfigurieren** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), korrigieren Sie das genannte Feld, speichern Sie und öffnen Sie einen neuen Chat. |
+| „Cannot connect to the extension server“ | Meist ist **Advanced: don't look up servers online** eingeschaltet, obwohl Inbox Warden die Adresse nicht kennt: ausschalten oder beide Serverfelder ausfüllen. Ab 0.7.0 erklärt Claude die Ursache im Chat. |
+| „Not signed in yet — ask me to run sign_in“ | Nur Kommandozeilen-Version: Claude schreiben *„Bitte melde mich an.“* oder `inbox-warden accounts login <id>` ausführen. Der Browser öffnet sich. |
+| „No Microsoft application (client) ID is configured …“ | Kommandozeilen-Version: die OAuth client ID von Ihrem Administrator in `inbox-warden setup` eintragen. |
 | „Microsoft 365 has SMTP sending disabled for this mailbox …“ | Ihr Administrator muss „Authentifiziertes SMTP“ aktivieren ([Anbieterhinweise](../providers.md)). |
 | „needs Node.js 20 or newer“ | Claude Desktop aktualisieren. |
 | „Server does not support STARTTLS“ | Ihr Server bietet keine Verschlüsselung an. Port 993 (IMAP) bzw. 465 (SMTP) eintragen oder den Anbieter fragen. Unverschlüsselte Verbindungen sind absichtlich nicht möglich. |
-| „Permissions may only contain …“ | Im Feld „Was Claude darf“ nur `read`, `write`, `send`, `delete` verwenden. |
-| „Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks“ | Im Feld „Ordner, die Claude nicht sehen darf“ die Ordner ohne Anführungszeichen eintragen, mit Kommas getrennt. |
+| „Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks“ | Im Feld **Locked folders (comma-separated)** die Ordner ohne Anführungszeichen eintragen, mit Kommas getrennt. |
+| `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | Der Ordner ist absichtlich gesperrt. Zum Entsperren ihn aus **Locked folders (comma-separated)** entfernen und einen neuen Chat öffnen. |
 | „Folder … does not exist. Did you mean …?“ | Ordnernamen wie vorgeschlagen verwenden oder Claude nach der Ordnerliste fragen. |
 | „This mail server does not support the keyword …“ | Eigene Schlagwörter gehen z. B. bei Microsoft 365 nicht. Stattdessen „markieren“ oder einen Ordner verwenden. |
 | Gesendete Mails fehlen im Ordner „Gesendet“ | `inbox-warden doctor` ausführen; die Einstellung `sentCopy` erklären die [Anbieterhinweise](../providers.md). |

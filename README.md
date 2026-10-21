@@ -25,16 +25,13 @@ and the Microsoft sign-in has not yet been tested against a real Microsoft 365 t
 ### Claude Desktop (recommended for most people)
 
 1. Download `inbox-warden-<version>.mcpb` from the [latest release](https://github.com/max-achleitner/inbox-warden/releases/latest).
-2. Open Claude Desktop → **Settings → Extensions** and drag the file into that window. Claude Desktop shows an install dialog — click **Install**.
-3. Enter your email address and choose the sign-in method:
-   - `password` (default): enter your password; Gmail, Yahoo and iCloud need an
-     [app password](docs/guide/en/README.md#app-passwords).
-   - `microsoft` (Microsoft 365, preview) or `google` (Google Workspace): leave the password empty, enter the
-     OAuth client ID from your administrator, then ask Claude
-     *"Please sign me in"* — your browser opens the sign-in page. See
-     [Microsoft 365 and Google Workspace](docs/guide/en/README.md#microsoft-365-and-google-workspace).
-
-   Leave the server fields empty; they are detected from your address.
+2. Open Claude Desktop, click your profile (bottom left) → **Settings → Extensions**, drag the file into the field
+   there (double-clicking does not work) and click **Install**.
+3. Enter your email address and your password; Gmail, Yahoo and iCloud need an
+   [app password](docs/guide/en/README.md#app-passwords). Leave the server fields empty; they are detected from your
+   address. Microsoft 365 and Google Workspace sign-in is not in this form: use the command-line version
+   ([steps](docs/guide/en/README.md#microsoft-365-and-google-workspace)). To change a setting later, open
+   Profile → Settings → Extensions → Inbox Warden → **Configure**, save and start a new chat.
 4. Start a new chat: *"What's new in my inbox?"*
 
 Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain. By default Claude
