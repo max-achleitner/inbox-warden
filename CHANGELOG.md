@@ -46,6 +46,7 @@ All notable changes to this project are documented here. The format follows
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
 
 ### Fixed
+- The Claude Desktop extension can be installed again: the signed 0.6.0 bundle was rejected by Claude Desktop ("Invalid comment length"). From 0.7.0 on the bundle is not signed; checksums and the build attestation prove its origin.
 - With "don't look up servers online" switched on, Gmail, GMX, iCloud and the other built-in providers are still recognised; before, the extension did not start at all for them.
 
 ## [0.6.0] - 2026-10-18

@@ -10,7 +10,7 @@ iCloud, Yahoo, or your own mail server.
 
 | | Claude Desktop extension | Claude Code plugin | Command line (npm) |
 |---|---|---|---|
-| Install | double-click a file | two commands | `npm install -g` + `setup` |
+| Install | drag a file into Settings → Extensions | two commands | `npm install -g` + `setup` |
 | Password / app password (Gmail, GMX, IONOS, iCloud, own server …) | ✓ | ✓ | ✓ |
 | Microsoft 365 sign-in (preview) | ✓ (ask Claude "please sign me in") | ✓ | ✓ |
 | Google Workspace sign-in (your organisation's OAuth client) | ✓ | ✓ | ✓ |
@@ -25,7 +25,7 @@ and the Microsoft sign-in has not yet been tested against a real Microsoft 365 t
 ### Claude Desktop (recommended for most people)
 
 1. Download `inbox-warden-<version>.mcpb` from the [latest release](https://github.com/max-achleitner/inbox-warden/releases/latest).
-2. Double-click the file. Claude Desktop shows an install dialog — click **Install**.
+2. Open Claude Desktop → **Settings → Extensions** and drag the file into that window. Claude Desktop shows an install dialog — click **Install**.
 3. Enter your email address and choose the sign-in method:
    - `password` (default): enter your password; Gmail, Yahoo and iCloud need an
      [app password](docs/guide/en/README.md#app-passwords).
@@ -41,8 +41,9 @@ Passwords are stored encrypted by Claude Desktop, sign-ins in your operating sys
 can read and create drafts, but cannot send or delete — you send drafts from your mail program.
 
 **Team and Enterprise administrators** can upload the bundle once for the whole organisation
-(Organization settings → Connectors → Desktop), allow-list it, and require signed extensions
-(`isDesktopExtensionSignatureRequired`). See [Verify downloads](#verify-downloads) and the
+(Organization settings → Connectors → Desktop) and allow-list it. Do not set
+`isDesktopExtensionSignatureRequired`: with Claude Desktop 3.x it blocks every locally installed extension,
+because Desktop cannot confirm any signature. See [Verify downloads](#verify-downloads) and the
 [hardening guide](docs/security/hardening-guide.md).
 
 ### Claude Code
@@ -125,7 +126,7 @@ Provider-specific notes (app passwords, Microsoft 365 admin consent and SMTP AUT
 ## Verify downloads
 
 Every release is built by GitHub Actions from a tagged commit and includes `SHA256SUMS`, a CycloneDX SBOM,
-build-provenance attestations, a signed `.mcpb` and an npm package with provenance.
+build-provenance attestations, an unsigned `.mcpb` and an npm package with provenance.
 
 **1. Build attestation (the main check).** Proves that the file was built by this repository's release
 workflow from the tagged commit and has not been changed since. Needs the [GitHub CLI](https://cli.github.com/):
@@ -139,24 +140,9 @@ gh attestation verify inbox-warden-<version>.mcpb --repo max-achleitner/inbox-wa
 The same command checks `inbox-warden-<version>.tgz`, the file published to npm. Checksums of the files you
 downloaded: `sha256sum --ignore-missing -c SHA256SUMS`.
 
-**2. Bundle signature.** The `.mcpb` is also signed. Until an organisation-validated code-signing certificate
-is available, the certificate is self-signed ([`mcpb-signing-cert.pem`](mcpb-signing-cert.pem), valid until
-17 October 2028): no certificate authority vouches for it, so compare its fingerprint yourself. From a checkout
-of this repository:
-
-```bash
-node scripts/verify-mcpb.mjs inbox-warden-<version>.mcpb mcpb-signing-cert.pem
-```
-
-The fingerprint it prints must be:
-
-```
-7E:29:A7:6C:AF:E4:25:A4:F6:03:07:45:C3:76:B0:1E:74:CE:F5:4E:DD:8B:D2:B2:C5:91:13:8B:39:AE:5E:26
-```
-
-`npx @anthropic-ai/mcpb verify` (2.1.2) reports every bundle as "not signed" because its PKCS#7 check is not
-implemented; `scripts/verify-mcpb.mjs` checks the signature with openssl instead
-(see [release signing](docs/maintainers/release-signing.md)).
+**2. Bundle signature.** 0.6.0 bundles were signed; from 0.7.0 on they are not (see
+[release signing](docs/maintainers/release-signing.md)). The attestation and the checksums prove where a bundle
+came from.
 
 ## Upgrading from a pre-1.0 version
 

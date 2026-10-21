@@ -61,8 +61,8 @@ As soon as `policy.folders` hides any folder, folders that show the mail of all 
 ## 3. Claude client settings (Team / Enterprise)
 
 - Use a **Team or Enterprise** plan for business data (admin controls, data processing agreement).
-- **Desktop extensions:** enable the extension allowlist and upload the signed `.mcpb` bundle org-wide (Organization settings → Connectors → Desktop). Turn off installs from the public directory if you do not need them.
-- **Require signed extensions:** set the policy `isDesktopExtensionSignatureRequired` to `true`.
+- **Desktop extensions:** enable the extension allowlist and upload the `.mcpb` bundle org-wide (Organization settings → Connectors → Desktop). Turn off installs from the public directory if you do not need them.
+- **Do not require signed extensions:** leave `isDesktopExtensionSignatureRequired` unset. With Claude Desktop 3.x it blocks every locally installed extension, because Desktop cannot confirm any signature; bundles from 0.7.0 on are unsigned. Check downloads with the build attestation and `SHA256SUMS` instead.
 - **Disable persistent "Always allow":** set `mcpPersistentAlwaysAllowEnabled` to `false`, so users approve sending and deleting each time.
 - **Local developer servers:** set `isLocalDevMcpEnabled` to `false` on staff machines that should only run approved extensions.
 - These policies are set via MDM on macOS (domain `com.anthropic.claudefordesktop`) or via the Windows policy registry; see Anthropic's admin documentation: https://support.claude.com/en/articles/12622667 (verify key names against the current article before rollout).
@@ -85,13 +85,13 @@ As soon as `policy.folders` hides any folder, folders that show the mail of all 
 
 - **Verify the audit log** monthly and after incidents: `inbox-warden audit verify` (exit code 1 when records were changed or removed). Store the printed head hash somewhere else (ticket, password manager); a later verification that ends at an older hash reveals deleted records.
 - **Review** `denied` outcomes and injection findings in the audit log; repeated denials show the AI being steered.
-- **Update** with every security release (see `SECURITY.md`); install only signed bundles.
+- **Update** with every security release (see `SECURITY.md`); check downloads against the build attestation and `SHA256SUMS`.
 - **Incident response:** (1) revoke the app password/OAuth grant, (2) run `inbox-warden audit verify`, (3) review the audit log and the Sent folder for the time window, (4) report to the data protection officer if personal data left the company.
 
 ## 7. Checklist for approval
 
 - [ ] Commercial Claude plan with DPA
-- [ ] Signed bundle distributed via the org allowlist; signature requirement on
+- [ ] Bundle distributed via the org allowlist; origin checked against the build attestation and `SHA256SUMS`
 - [ ] Persistent "Always allow" disabled
 - [ ] Send tier off or `drafts-only` for general staff; `confirm` with domain allowlist where enabled
 - [ ] Delete tier off

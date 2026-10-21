@@ -8,7 +8,7 @@
    repository `inbox-warden`, workflow `release.yml`, environment `release`. Afterwards set
    "Require two-factor authentication and disallow tokens".
 2. **GitHub environment `release`** (Settings → Environments): required reviewer = you; deployment
-   branches/tags = tags matching `v*.*.*`; add the signing secrets from `release-signing.md`.
+   branches/tags = tags matching `v*.*.*`; signing is paused (see `release-signing.md`), so no signing secrets are needed.
 3. **Tag protection** (Settings → Rules → new tag ruleset for `v*`): only maintainers may create tags.
 
 ## Every release
@@ -17,7 +17,7 @@
 2. `npm version x.y.z` — bumps `package.json`, syncs the plugin manifest (npm `version` hook), commits and tags `vx.y.z`.
 3. `git push origin master --follow-tags`.
 4. Approve the `release` environment once when the `publish` job asks.
-5. Check the release page: `.mcpb`, `.tgz`, SBOM and `SHA256SUMS` attached; `npm view inbox-warden@x.y.z dist.attestations` shows provenance.
+5. Check the release page: `.mcpb` (unsigned since 0.7.0; the workflow's ZIP check passed), `.tgz`, SBOM and `SHA256SUMS` attached; `npm view inbox-warden@x.y.z dist.attestations` shows provenance.
 6. `claude plugin marketplace update achleitner && claude plugin update inbox-warden@achleitner` installs the new bundle.
 
 The plugin manifest on `master` points at the new release URL from step 3 on; installs started before the
@@ -34,7 +34,8 @@ pre-release, so `npm install inbox-warden` keeps installing the stable version. 
 
 ```bash
 sha256sum -c SHA256SUMS
-node scripts/verify-mcpb.mjs inbox-warden-x.y.z.mcpb mcpb-signing-cert.pem   # not `mcpb verify`: 2.1.2 reports every bundle as unsigned
 gh attestation verify inbox-warden-x.y.z.mcpb --repo max-achleitner/inbox-warden
 npm audit signatures   # in a project that installed inbox-warden
 ```
+
+`scripts/verify-mcpb.mjs` is for 0.6.0 only; later bundles carry no signature.

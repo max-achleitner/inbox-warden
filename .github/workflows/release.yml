@@ -68,6 +68,7 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run build:mcpb
       - run: npm run smoke:mcpb
+      - run: npm run check:mcpb-zip -- build/*.mcpb
       - name: Collect unsigned artefacts
         run: |
           mkdir -p unsigned
@@ -101,23 +102,7 @@ jobs:
         with:
           name: unsigned
           path: release
-      - name: Sign bundle
-        env:
-          CERT_PEM: ${{ secrets.MCPB_SIGNING_CERT_PEM }}
-          KEY_PEM: ${{ secrets.MCPB_SIGNING_KEY_PEM }}
-          INTERMEDIATE_PEM: ${{ secrets.MCPB_SIGNING_INTERMEDIATE_PEM }}
-        run: |
-          umask 077
-          VERSION="${GITHUB_REF_NAME#v}"
-          printf '%s\n' "$CERT_PEM" > "$RUNNER_TEMP/cert.pem"
-          printf '%s\n' "$KEY_PEM" > "$RUNNER_TEMP/key.pem"
-          export MCPB_SIGNING_CERT_FILE="$RUNNER_TEMP/cert.pem" MCPB_SIGNING_KEY_FILE="$RUNNER_TEMP/key.pem"
-          if [ -n "$INTERMEDIATE_PEM" ]; then
-            printf '%s\n' "$INTERMEDIATE_PEM" > "$RUNNER_TEMP/intermediate.pem"
-            export MCPB_SIGNING_INTERMEDIATE_FILES="$RUNNER_TEMP/intermediate.pem"
-          fi
-          npm run sign:mcpb -- "release/inbox-warden-$VERSION.mcpb"
-          rm -f "$RUNNER_TEMP"/*.pem
+      - run: npm run check:mcpb-zip -- release/*.mcpb
       - name: SBOM, release notes and checksums
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
