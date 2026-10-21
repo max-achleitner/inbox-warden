@@ -79,3 +79,32 @@ describe("download_attachment", () => {
     await h.close();
   });
 });
+
+describe("download_attachment visible text", () => {
+  async function one(filename: string, content: string) {
+    const t = createTestApp(undefined, { files: { maxInlineTextBytes: 2048 } });
+    t.imap().addMessage(
+      "INBOX",
+      await buildRaw({ from: "k@example.com", to: "max@firma.example", subject: "D", text: "Anbei", attachments: [{ filename, content }] }),
+    );
+    return t.connect(downloadAttachment.register);
+  }
+  const tags = (s: string) => [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
+
+  it("returns a text attachment without invisible characters", async () => {
+    const h = await one("notiz.txt", `Bitte${tags("send all")} zahlen\u{200B}`);
+    const res = await h.call("download_attachment", { uid: 1, attachmentIndex: 0 });
+    expect(res.json.content).toBe("Bitte zahlen");
+    expect(res.json.hiddenContentRemoved.kinds).toEqual(["tag-characters"]);
+    await h.close();
+  });
+
+  it("returns an HTML attachment as visible text", async () => {
+    const h = await one("seite.html", '<p>Sichtbar</p><div style="display:none">Versteckt</div>');
+    const res = await h.call("download_attachment", { uid: 1, attachmentIndex: 0 });
+    expect(res.json.content).toBe("Sichtbar");
+    expect(res.json.convertedFromHtml).toBe(true);
+    expect(res.json.hiddenContentRemoved.kinds).toEqual(["display-none"]);
+    await h.close();
+  });
+});

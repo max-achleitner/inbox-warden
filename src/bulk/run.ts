@@ -10,6 +10,7 @@ import { selectByFilter } from "../imap/select.js";
 import { envelopeDate } from "../imap/envelope.js";
 import { summarizeSenders } from "../imap/senders.js";
 import { highestRisk } from "../policy/observer.js";
+import { visibleString } from "../mail/visible-text.js";
 import { scanSubjectOnly, type InjectionScanResult } from "../security/injection-detector.js";
 import type { SearchFilters } from "../imap/search-query.js";
 import { jsonResult } from "../tools/shared/result.js";
@@ -100,7 +101,7 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
 
     const sample: Array<{ uid: number; date?: string; from: string; subject: string; _injectionScan?: InjectionScanResult }> = [];
     for await (const msg of client.fetch(selection.uids.slice(-SAMPLE_SIZE), { uid: true, envelope: true }, { uid: true })) {
-      const subject = msg.envelope?.subject ?? "";
+      const subject = visibleString(msg.envelope?.subject ?? "");
       const scan = subject ? scanSubjectOnly(subject) : undefined;
       sample.push({
         uid: msg.uid,

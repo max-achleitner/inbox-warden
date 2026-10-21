@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Security
+- Search previews, subjects, sender names, bulk previews and sender summaries no longer contain invisible characters or hidden HTML text. `download_attachment` returns HTML attachments as visible text (`convertedFromHtml`) and strips invisible characters from text attachments.
 - `read_email` and `get_thread` give Claude only the text a reader sees: elements hidden with inline styles or simple style rules (`display:none`, white on white, 1px fonts, off-screen, …), invisible characters and Unicode tag characters are removed, and `hiddenContentRemoved` says how much. When the plain-text part says more than the visible HTML, Claude gets the HTML text (`textPartDiffers`). `includeHtml` returns the cleaned HTML. The plain-text quote in reply drafts and inline forwards carries the visible text too.
 - A damaged configuration file is no longer quoted in error messages; before, a fragment of it (possibly a password) could appear in the log.
 - Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { fullText } from "../mail/text.js";
+import { stripInvisible, visibleString } from "../mail/visible-text.js";
 import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
@@ -53,7 +55,7 @@ export function register(server: McpServer, app: AppContext) {
       if (!attachment) {
         throw new Error(`No attachment at index ${attachmentIndex}. Email has ${parsed.attachments.length} attachments.`);
       }
-      const filename = attachment.filename || `attachment_${attachmentIndex}`;
+      const filename = visibleString(attachment.filename || `attachment_${attachmentIndex}`);
       const contentType = attachment.contentType;
       inv.account.policy.checkAttachment(filename, attachment.size, false);
       const files = app.config.files;
@@ -70,10 +72,15 @@ export function register(server: McpServer, app: AppContext) {
             `"${filename}" is ${formatBytes(attachment.size)}, more than the ${formatBytes(files.maxInlineTextBytes)} of text that can be passed to the AI. Nothing was returned.${saveHint}`,
           );
         }
-        const content = attachment.content.toString("utf-8");
+        const raw = attachment.content.toString("utf-8");
+        const isHtml = contentType === "text/html" || /\.html?$/i.test(filename);
+        const visible = isHtml ? fullText({ html: raw }) : undefined;
+        const plain = isHtml ? undefined : stripInvisible(raw);
+        const content = visible ? visible.text : plain!.text;
+        const hiddenContentRemoved = visible ? visible.hidden : plain!.removed;
         const scan = scanForInjection({ body: content, attachmentNames: [filename] });
         inv.record({ injectionRisk: scan.riskLevel });
-        return jsonResult({ ...meta, encoding: "utf-8", content, ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
+        return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
       }
 
       const nameScan = scanForInjection({ attachmentNames: [filename] });

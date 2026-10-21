@@ -14,9 +14,9 @@
 | Operation | Data leaving the mail server | Data reaching the LLM |
 |---|---|---|
 | list / count folders | Folder names, counts | Folder names and counts (hidden folders excluded) |
-| search | Envelope data, flags, size, preview snippet | Sender, recipients, subject, date, preview, injection scan result |
+| search | Envelope data, flags, size, preview snippet | Sender, recipients, subject, date, preview (visible text only), injection scan result |
 | read | Full message (parsed locally) | Visible text (hidden elements and invisible characters removed; bounded length; cleaned HTML only on request), attachment names/sizes, injection scan |
-| download attachment | Attachment | Text attachments as text; images as image content; other files only as file name (saved to the download folder instead of the conversation) |
+| download attachment | Attachment | Text attachments as visible text (HTML attachments converted); images as image content; other files only as file name (saved to the download folder instead of the conversation) |
 | draft / reply / forward | Original message (for quoting) | The draft summary returned by the tool |
 | send | — (draft or composed message goes **to** the mail server) | Delivery result, Message-ID |
 | organise (move / flag / delete) | UIDs, folder names | Result counts |

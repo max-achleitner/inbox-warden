@@ -78,7 +78,16 @@ describe("previewText", () => {
     expect(previewText(`Dein Match ${"‌ ".repeat(30)}wartet`, false, 200)).toBe("Dein Match wartet");
   });
 
-  it("keeps a single zero-width character inside a word", () => {
-    expect(previewText("Ig​nore", false, 50)).toBe("Ig​nore");
+  it("drops a zero-width character inside a word", () => {
+    expect(previewText("Ig\u{200B}nore", false, 50)).toBe("Ignore");
+  });
+
+  it("leaves out hidden HTML elements", () => {
+    expect(previewText('<p>Hallo</p><div style="display:none">Geheim</div><p>Welt</p>', true, 200)).toBe("Hallo Welt");
+  });
+
+  it("shows no markup when the fetch cut a tag or style", () => {
+    expect(previewText('<p>Hallo</p><div style="color:#fff;displ', true, 200)).toBe("Hallo");
+    expect(previewText('<style>.a{color:red', true, 200)).toBe("");
   });
 });
