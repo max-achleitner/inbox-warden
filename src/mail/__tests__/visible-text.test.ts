@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stripInvisible, visibleHtml } from "../visible-text.js";
-import { htmlToText } from "../text.js";
+import { convert } from "html-to-text";
 import { mailFixture } from "../../__tests__/helpers/mail-fixtures.js";
 
 const tags = (s: string) => [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
@@ -23,8 +23,17 @@ describe("stripInvisible", () => {
   });
 });
 
-// plain(): htmlToText from ../text.js (Task 1: still the plain html-to-text call) over already cleaned HTML
-const plain = (html: string) => htmlToText(html).trim();
+// plain(): html-to-text over already cleaned HTML (text.ts's htmlToText would clean it a second time, without the removed <style>)
+const plain = (html: string) =>
+  convert(html, {
+    wordwrap: 120,
+    selectors: [
+      { selector: "a", options: { linkBrackets: ["[", "]"] } },
+      { selector: "img", format: "skip" },
+      { selector: "style", format: "skip" },
+      { selector: "script", format: "skip" },
+    ],
+  }).trim();
 
 describe("visibleHtml", () => {
   it.each([
