@@ -34,7 +34,7 @@ and the Microsoft sign-in has not yet been tested against a real Microsoft 365 t
    Profile → Settings → Extensions → Inbox Warden → **Configure**, save and start a new chat.
 4. Start a new chat: *"What's new in my inbox?"*
 
-Passwords are stored encrypted by Claude Desktop, sign-ins in your operating system's keychain. By default Claude
+The extension's password is stored encrypted by Claude Desktop; the command-line version keeps passwords and sign-ins in your operating system's keychain. By default Claude
 can read and create drafts, but cannot send or delete — you send drafts from your mail program.
 
 **Team and Enterprise administrators** can upload the bundle once for the whole organisation
@@ -50,7 +50,7 @@ claude plugin marketplace add max-achleitner/inbox-warden
 claude plugin install inbox-warden@achleitner
 ```
 
-Then `/plugin` → **inbox-warden** → **Configure**. The plugin adds skills for inbox triage,
+Then `/plugin` → **Installed** → **Inbox Warden** → **Configure**. The plugin adds skills for inbox triage,
 reply drafting and mailbox clean-up.
 
 ### Command line (several mailboxes, own certificates)

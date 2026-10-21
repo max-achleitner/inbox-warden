@@ -46,7 +46,7 @@ darf, und standardmäßig versenden Sie Entwürfe selbst.
 4. Speichern, Erweiterung aktivieren, neuen Chat öffnen und fragen: *„Was ist neu in meinem Posteingang?“*
 
 Lesen und Ordnen von Mails ist immer erlaubt, und vor dem Senden wird immer bei Ihnen nachgefragt. Die Sprache
-der Antworten richtet sich nach Ihrem Betriebssystem. Die Anmeldung für Microsoft 365 und Google Workspace gehört
+der Zitatzeile und des Weiterleitungskopfs in Entwürfen richtet sich nach Ihrem Betriebssystem. Die Anmeldung für Microsoft 365 und Google Workspace gehört
 nicht zu diesem Formular: siehe [unten](#microsoft-365-und-google-workspace).
 
 Ihr Passwort wird von Claude Desktop verschlüsselt im Schlüsselbund (macOS) bzw. in der Windows-Anmeldeinformationsverwaltung gespeichert.
@@ -310,7 +310,7 @@ In Claude Desktop finden Sie die Protokolle unter **Einstellungen → Erweiterun
 | „needs Node.js 20 or newer“ | Claude Desktop aktualisieren. |
 | „Server does not support STARTTLS“ | Ihr Server bietet keine Verschlüsselung an. Port 993 (IMAP) bzw. 465 (SMTP) im Serverfeld als `Server:Port` eintragen (z. B. `imap.example.com:993`) oder den Anbieter fragen. Unverschlüsselte Verbindungen sind absichtlich nicht möglich. |
 | „Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks“ | Im Feld **Locked folders (comma-separated)** die Ordner ohne Anführungszeichen eintragen, mit Kommas getrennt. |
-| `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | Der Ordner ist absichtlich gesperrt. Zum Entsperren ihn aus **Locked folders (comma-separated)** entfernen und einen neuen Chat öffnen. |
+| `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | Der Ordner ist absichtlich gesperrt. Zum Entsperren entfernen Sie ihn aus **Locked folders (comma-separated)** und öffnen einen neuen Chat. |
 | „Folder … does not exist. Did you mean …?“ | Ordnernamen wie vorgeschlagen verwenden oder Claude nach der Ordnerliste fragen. |
 | „This mail server does not support the keyword …“ | Eigene Schlagwörter gehen z. B. bei Microsoft 365 nicht. Stattdessen „markieren“ oder einen Ordner verwenden. |
 | Gesendete Mails fehlen im Ordner „Gesendet“ | `inbox-warden doctor` ausführen; die Einstellung `sentCopy` erklären die [Anbieterhinweise](../providers.md). |

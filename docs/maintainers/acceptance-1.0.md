@@ -18,10 +18,9 @@ moving, (4) with send enabled: send the draft — copy appears exactly once in S
       and "draft a reply" without help (observe, do not assist)
 - [ ] macOS: same
 - [ ] Optional fields left empty: everything works (Review Focus 1)
-- [ ] Microsoft 365 in the extension: sign-in method `microsoft`, no password, no servers; "please sign me in" opens the browser,
-      the second `sign_in` finishes, mail is listed; after restarting Claude Desktop no new sign-in is needed
-      (refresh token in the OS keychain, bundle has no native modules)
-- [ ] Form validation: sign-in method `password` with an empty password shows "Enter the password (or app password) …" in the log
+- [ ] Microsoft 365 / Google Workspace via the command-line version (`inbox-warden setup`, then `accounts login`): the extension form has no
+      sign-in method; "please sign me in" (`sign_in` tool) works in the command-line server
+- [ ] Form validation: an empty password (or a wrong entry such as a bad port) makes Claude explain the problem via the setup-problem answer ("Inbox Warden is not set up correctly …"), not a bare "Cannot connect"
 
 ## Claude Code plugin
 - [ ] `claude plugin marketplace add max-achleitner/inbox-warden` + `claude plugin install inbox-warden@achleitner`,

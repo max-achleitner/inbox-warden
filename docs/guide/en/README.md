@@ -40,8 +40,8 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
      built-in providers still work; any other address then needs both server fields.
 4. Save, enable the extension, open a new chat and ask: *"What's new in my inbox?"*
 
-Reading and organising mail is always on, and sending always asks you first. The language of the replies follows
-your operating system. Microsoft 365 and Google Workspace sign-in is not part of this form: see
+Reading and organising mail is always on, and sending always asks you first. The language of the quote line and
+forward header in drafts follows your operating system. Microsoft 365 and Google Workspace sign-in is not part of this form: see
 [below](#microsoft-365-and-google-workspace).
 
 Claude Desktop stores your password encrypted in the macOS Keychain or the Windows Credential Manager.
