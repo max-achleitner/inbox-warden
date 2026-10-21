@@ -158,6 +158,7 @@ export function register(server: McpServer, app: AppContext) {
         const scan = scanForInjection({
           subject,
           body: own.text,
+          hidden: full.hiddenText || undefined,
           addressNames: [...from, ...to].map((a) => a.name),
         });
         risks.push(scan.riskLevel);

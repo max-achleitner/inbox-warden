@@ -9,7 +9,7 @@ import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage } from "../imap/strict.js";
 import { fullText, pageText } from "../mail/text.js";
-import { visibleString } from "../mail/visible-text.js";
+import { stripInvisible, visibleString } from "../mail/visible-text.js";
 import { flattenAddresses } from "../mail/reply.js";
 import { countsAsAttachment } from "../imap/attachment-rule.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -66,15 +66,21 @@ export function register(server: McpServer, app: AppContext) {
       }
 
       const full = fullText(parsed);
-      const subject = visibleString(parsed.subject);
+      const subjectVisible = stripInvisible(parsed.subject ?? "");
+      const subject = parsed.subject === undefined ? undefined : subjectVisible.text;
+      const attachmentNames = parsed.attachments.map((a) => stripInvisible(a.filename ?? ""));
+      const addressNames = [parsed.from, parsed.replyTo, parsed.to, parsed.cc]
+        .flatMap((field) => flattenAddresses(field))
+        .map((a) => stripInvisible(a.name ?? ""));
 
       // Full injection scan on the complete content, not just the returned page
       const _injectionScan = scanForInjection({
         subject,
         body: full.text || undefined,
-        html: parsed.html || undefined,
-        attachmentNames: parsed.attachments.map((a) => visibleString(a.filename)).filter((n): n is string => Boolean(n)),
-        addressNames: [parsed.from, parsed.replyTo, parsed.to, parsed.cc].flatMap((field) => flattenAddresses(field)).map((a) => visibleString(a.name)),
+        hidden: [full.hiddenText, subjectVisible.hiddenText, ...attachmentNames.map((n) => n.hiddenText), ...addressNames.map((n) => n.hiddenText)]
+          .filter(Boolean).join("\n") || undefined,
+        attachmentNames: attachmentNames.map((n) => n.text).filter(Boolean),
+        addressNames: addressNames.map((n) => n.text),
       });
       if (_injectionScan.hasInjection) {
         log.warn("injection.detected", {

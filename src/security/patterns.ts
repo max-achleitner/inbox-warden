@@ -1,17 +1,25 @@
 /**
- * Injection detection patterns and confidence scores.
+ * Injection detection patterns, their strength and the risk scoring.
  * All regexes are compiled once at module load for performance.
  */
 
 import type { InjectionType } from "./injection-detector.js";
 
+/** Strong patterns are explicit instructions to an AI; generic ones also occur in ordinary mail. */
+export type PatternStrength = "strong" | "generic";
+
+export type ScanLocation = "subject" | "body" | "hidden" | "headers" | "attachment_name" | "address_name";
+
 export interface PatternDef {
   type: InjectionType;
   pattern: RegExp;
   description: string;
-  confidence: number;
-  locations: Array<"subject" | "body" | "html" | "headers" | "attachment_name" | "address_name">;
+  strength: PatternStrength;
+  locations: ScanLocation[];
 }
+
+/** Confidence reported per finding (kept for result compatibility). */
+export const CONFIDENCE: Record<PatternStrength, number> = { strong: 0.9, generic: 0.5 };
 
 // ─── A. Direct Instruction Injection ─────────────────────────────────────────
 
@@ -21,106 +29,64 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
     type: "system_prompt_override",
     pattern: /\[\s*(SYSTEM|ADMIN|OVERRIDE|INSTRUCTION|ANWEISUNG)\s*\]/i,
     description: "System/admin tag in brackets",
-    confidence: 0.7,
-    locations: ["subject", "address_name", "body", "html"],
+    strength: "generic",
+    locations: ["subject", "address_name", "body", "hidden"],
   },
   {
     type: "system_prompt_override",
     pattern: /(?:^|\n)\s*(?:---+|===+|\*\*\*+)\s*(?:SYSTEM|ADMIN|NEW INSTRUCTIONS|NEUE ANWEISUNGEN|SYSTEMANWEISUNG)/im,
     description: "Delimiter followed by system override keyword",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "system_prompt_override",
     pattern: /\b(?:you are now|du bist jetzt|your new role|deine neue rolle)\b/i,
     description: "Role reassignment attempt",
-    confidence: 0.8,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:ignore (?:all )?previous|ignoriere (?:alle )?vorherigen?)\s+(?:instructions?|prompts?|anweisungen?|context)\b/i,
     description: "Ignore previous instructions",
-    confidence: 0.9,
-    locations: ["subject", "address_name", "body", "html"],
+    strength: "strong",
+    locations: ["subject", "address_name", "body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:you must now|du musst jetzt|execute the following|führe (?:folgendes|folgenden befehl) aus)\b/i,
     description: "Direct command to AI",
-    confidence: 0.8,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:new instructions|neue anweisungen|updated instructions|aktualisierte anweisungen)\b/i,
     description: "New instructions declaration",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:ignore|bypass|disable|skip)\s+(?:all\s+)?(?:safety|security|content|ethical)\s+(?:guidelines?|rules?|restrictions?|filters?|policies?)\b/i,
     description: "Instruction to bypass safety guidelines",
-    confidence: 0.9,
-    locations: ["body", "html"],
+    strength: "strong",
+    locations: ["body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:disregard|discard|forget|override)\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|context|rules?|guidelines?)\b/i,
     description: "Disregard/override instructions",
-    confidence: 0.9,
-    locations: ["subject", "address_name", "body", "html"],
+    strength: "strong",
+    locations: ["subject", "address_name", "body", "hidden"],
   },
   {
     type: "instruction_injection",
     pattern: /\b(?:from now on|ab jetzt|ab sofort)\s*,?\s*(?:you|du|the assistant|der assistent)\s+(?:will|must|should|wirst|musst|sollst)\b/i,
     description: "Behavioral override from now on",
-    confidence: 0.85,
-    locations: ["body", "html"],
-  },
-];
-
-// ─── D. HTML/Comment Injection ───────────────────────────────────────────────
-
-const HTML_PATTERNS: PatternDef[] = [
-  {
-    type: "html_comment_injection",
-    pattern: /<!--[\s\S]*?(?:instruction|ignore|system|override|anweisung|prompt|assistant|you must|du musst)[\s\S]*?-->/i,
-    description: "HTML comment containing instruction-like text",
-    confidence: 0.85,
-    locations: ["html"],
-  },
-  {
-    type: "html_comment_injection",
-    // Match hidden elements but exclude <style>, <head>, <meta>, <title> tags
-    // which legitimately use display:none in email clients (Outlook, Gmail)
-    pattern: /<(?!style|head|meta|title|!\[)[^>]+(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0|opacity\s*:\s*0|height\s*:\s*0[^0-9]|width\s*:\s*0[^0-9]|position\s*:\s*absolute[^>]*left\s*:\s*-\d{3,})/i,
-    description: "Hidden HTML element with CSS concealment",
-    confidence: 0.75,
-    locations: ["html"],
-  },
-  {
-    type: "html_comment_injection",
-    pattern: /<[^>]+(?:color\s*:\s*(?:white|#fff(?:fff)?|transparent|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)))/i,
-    description: "Text with invisible color styling",
-    confidence: 0.7,
-    locations: ["html"],
-  },
-  {
-    type: "html_comment_injection",
-    pattern: /<script[\s>]/i,
-    description: "Script tag in email HTML",
-    confidence: 0.8,
-    locations: ["html"],
-  },
-  {
-    type: "html_comment_injection",
-    pattern: /\bdata-instruction\s*=/i,
-    description: "Data attribute with instruction payload",
-    confidence: 0.85,
-    locations: ["html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
 ];
 
@@ -131,29 +97,29 @@ const STRUCTURED_PATTERNS: PatternDef[] = [
     type: "structured_data_injection",
     pattern: /[{,]\s*"(?:role|system|function_call|tool_use)"\s*:\s*"/i,
     description: "JSON object with role/system/function_call fields",
-    confidence: 0.8,
-    locations: ["body", "html"],
+    strength: "strong",
+    locations: ["body", "hidden"],
   },
   {
     type: "structured_data_injection",
     pattern: /<\s*(?:system|instruction|override|prompt|tool_call)\s*>/i,
     description: "XML/HTML tag mimicking system structures",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "structured_data_injection",
     pattern: /^(?:role|system|instruction)\s*:\s*.+/im,
     description: "YAML-like system/role/instruction keys",
-    confidence: 0.7,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "structured_data_injection",
     pattern: /```(?:system|prompt|instructions?)[\s\n]/i,
     description: "Code block labeled as system prompt",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
 ];
 
@@ -162,59 +128,66 @@ const STRUCTURED_PATTERNS: PatternDef[] = [
 const SOCIAL_PATTERNS: PatternDef[] = [
   {
     type: "authority_impersonation",
-    pattern: /\b(?:authorized|approved|verified|certified)\s+(?:by|from)\s+(?:anthropic|openai|google|microsoft|the (?:system|admin|developer))\b/i,
-    description: "Fake authorization from AI company or admin",
-    confidence: 0.9,
-    locations: ["body", "html"],
+    pattern: /\b(?:authorized|approved|verified|certified)\s+(?:by|from)\s+(?:anthropic|openai)\b/i,
+    description: "Fake authorization from AI company",
+    strength: "strong",
+    locations: ["body", "hidden"],
+  },
+  {
+    type: "authority_impersonation",
+    pattern: /\b(?:authorized|approved|verified|certified)\s+(?:by|from)\s+(?:google|microsoft|the (?:system|admin|developer))\b/i,
+    description: "Authorization claim by a company or admin",
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "authority_impersonation",
     pattern: /\b(?:anthropic|openai)\s+(?:security|support|admin|engineering)\s+team\b/i,
     description: "Impersonation of AI company team",
-    confidence: 0.9,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "authority_impersonation",
     pattern: /\b(?:vorautorisiert|genehmigt durch|autorisiert von|bestätigt durch)\s+(?:die )?(?:IT|administration|system|geschäftsführung)\b/i,
     description: "German fake authorization claim",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "social_engineering",
     pattern: /\b(?:do not|don't|never|nicht)\s+(?:tell|inform|notify|mention|reveal|show|display|informiere|erwähne|zeige)\s+(?:the\s+)?(?:user|human|person|nutzer|benutzer|anwender)\b/i,
     description: "Instruction to hide actions from user",
-    confidence: 0.9,
-    locations: ["body", "html"],
+    strength: "strong",
+    locations: ["body", "hidden"],
   },
   {
     type: "social_engineering",
-    pattern: /\b(?:silently|secretly|quietly|heimlich|still|unbemerkt)\s+(?:forward|send|create|draft|execute|weiterleiten|senden|erstellen|ausführen)\b/i,
+    pattern: /\b(?:silently|secretly|quietly|heimlich|unbemerkt)\s+(?:forward|send|create|draft|execute|weiterleiten|senden|erstellen|ausführen)\b/i,
     description: "Secret action instruction",
-    confidence: 0.9,
-    locations: ["body", "html"],
+    strength: "strong",
+    locations: ["body", "hidden"],
   },
   {
     type: "social_engineering",
     pattern: /\b(?:keep this confidential|vertraulich behandeln|do not disclose|nicht weitergeben)\b/i,
     description: "Secrecy instruction",
-    confidence: 0.7,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "social_engineering",
     pattern: /\b(?:immediately|sofort|urgent(?:ly)?|dringend)\s+(?:execute|forward|send|comply|ausführen|weiterleiten|senden)\b/i,
     description: "Urgency combined with action command",
-    confidence: 0.8,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "authority_impersonation",
     pattern: /\b(?:pre-?authorized|admin override|system override|maintenance mode|debug mode)\b/i,
     description: "Fake override/authorization claim",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
 ];
 
@@ -225,15 +198,15 @@ const EXFILTRATION_PATTERNS: PatternDef[] = [
     type: "data_exfiltration",
     pattern: /\b(?:forward|send|draft|weiterleiten|senden)\s+(?:all|the|alle|die)?\s*(?:emails?|messages?|data|contents?|passwords?|credentials?|e-?mails?|nachrichten|daten|inhalte|passwörter)\s+(?:to|an)\b/i,
     description: "Instruction to exfiltrate data via email",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "generic",
+    locations: ["body", "hidden"],
   },
   {
     type: "data_exfiltration",
     pattern: /\b(?:create a? ?draft|erstelle? (?:einen? )?entwurf)\s+(?:with|containing|mit|enthält)\s+(?:user|the|alle|all)\s*(?:data|information|emails?|daten|informationen)\b/i,
     description: "Draft creation for data exfiltration",
-    confidence: 0.85,
-    locations: ["body", "html"],
+    strength: "strong",
+    locations: ["body", "hidden"],
   },
 ];
 
@@ -241,7 +214,6 @@ const EXFILTRATION_PATTERNS: PatternDef[] = [
 
 export const ALL_PATTERNS: PatternDef[] = [
   ...INSTRUCTION_PATTERNS,
-  ...HTML_PATTERNS,
   ...STRUCTURED_PATTERNS,
   ...SOCIAL_PATTERNS,
   ...EXFILTRATION_PATTERNS,
@@ -280,19 +252,24 @@ export const HEX_SEQUENCE = /(?:0x[0-9A-Fa-f]{2}\s*){4,}|(?:\\x[0-9A-Fa-f]{2}){4
 
 // ─── Compound scoring ────────────────────────────────────────────────────────
 
-export function computeRiskLevel(findings: Array<{ confidence: number }>): "none" | "low" | "medium" | "high" | "critical" {
-  if (findings.length === 0) return "none";
+export const RISK_POINTS: Record<PatternStrength, number> = { strong: 3, generic: 1 };
 
-  const maxConfidence = Math.max(...findings.map((f) => f.confidence));
-  const totalWeight = findings.reduce((sum, f) => sum + f.confidence, 0);
-
-  // Multiple low-confidence findings escalate
-  if (findings.length >= 3 && totalWeight >= 2.0) return "critical";
-  if (findings.length >= 2 && totalWeight >= 1.5) return "high";
-
-  // Single finding thresholds
-  if (maxConfidence >= 0.9) return "critical";
-  if (maxConfidence >= 0.8) return "high";
-  if (maxConfidence >= 0.6) return "medium";
-  return "low";
+/**
+ * Sum of RISK_POINTS over the distinct descriptions (the same phrase twice counts once):
+ * 0 none, 1 low, 2 medium, 3-4 high, 5 or more critical.
+ */
+export function computeRiskLevel(
+  findings: Array<{ description: string; strength: PatternStrength }>,
+): "none" | "low" | "medium" | "high" | "critical" {
+  const byDescription = new Map<string, PatternStrength>();
+  for (const f of findings) {
+    if (byDescription.get(f.description) !== "strong") byDescription.set(f.description, f.strength);
+  }
+  let points = 0;
+  for (const strength of byDescription.values()) points += RISK_POINTS[strength];
+  if (points === 0) return "none";
+  if (points === 1) return "low";
+  if (points === 2) return "medium";
+  if (points <= 4) return "high";
+  return "critical";
 }

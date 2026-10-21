@@ -14,8 +14,13 @@ import {
   BASE64_BLOCK,
   URL_ENCODED_SEQUENCE,
   HEX_SEQUENCE,
+  CONFIDENCE,
   computeRiskLevel,
+  type PatternStrength,
+  type ScanLocation,
 } from "./patterns.js";
+
+export type { PatternStrength, ScanLocation } from "./patterns.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -26,7 +31,6 @@ export type InjectionType =
   | "authority_impersonation"
   | "unicode_obfuscation"
   | "invisible_text"
-  | "html_comment_injection"
   | "structured_data_injection"
   | "social_engineering"
   | "encoding_evasion"
@@ -35,9 +39,11 @@ export type InjectionType =
 export interface InjectionFinding {
   type: InjectionType;
   description: string;
-  location: "subject" | "body" | "html" | "headers" | "attachment_name" | "address_name";
+  location: ScanLocation;
   snippet: string;
+  /** 0.9 strong, 0.5 generic (kept for result compatibility). */
   confidence: number;
+  strength: PatternStrength;
 }
 
 export interface InjectionScanResult {
@@ -62,7 +68,7 @@ function makeSnippet(text: string, match: RegExpMatchArray | RegExpExecArray): s
 
 function scanPatterns(
   text: string,
-  location: InjectionFinding["location"],
+  location: ScanLocation,
   findings: InjectionFinding[],
 ): void {
   // Filter patterns applicable to this location
@@ -76,7 +82,8 @@ function scanPatterns(
         description: pat.description,
         location,
         snippet: makeSnippet(text, match),
-        confidence: pat.confidence,
+        confidence: CONFIDENCE[pat.strength],
+        strength: pat.strength,
       });
     }
     // Reset lastIndex for non-global patterns used with exec
@@ -89,6 +96,7 @@ function scanPatterns(
     if (normalized !== text) {
       // Check if normalization revealed hidden injection patterns
       let foundViaUnicode = false;
+      let viaStrong = false;
       for (const pat of applicable) {
         // Only re-check if the original didn't match
         const originalMatch = pat.pattern.test(text);
@@ -98,12 +106,14 @@ function scanPatterns(
 
         if (!originalMatch && normalizedMatch) {
           foundViaUnicode = true;
+          if (pat.strength === "strong") viaStrong = true;
           findings.push({
             type: pat.type,
             description: `${pat.description} (detected via unicode normalization)`,
             location,
             snippet: makeSnippet(normalized, normalizedMatch),
-            confidence: Math.min(pat.confidence + 0.05, 1.0),
+            confidence: CONFIDENCE[pat.strength],
+            strength: pat.strength,
           });
         }
       }
@@ -114,7 +124,8 @@ function scanPatterns(
           description: "Text uses Unicode trick characters to obfuscate injection patterns",
           location,
           snippet: text.slice(0, 200),
-          confidence: 0.85,
+          confidence: CONFIDENCE[viaStrong ? "strong" : "generic"],
+          strength: viaStrong ? "strong" : "generic",
         });
       }
     }
@@ -125,7 +136,7 @@ function scanPatterns(
 
 function scanUnicodeObfuscation(
   text: string,
-  location: InjectionFinding["location"],
+  location: ScanLocation,
   findings: InjectionFinding[],
 ): void {
   if (!hasNonAscii(text)) return;
@@ -149,12 +160,15 @@ function scanUnicodeObfuscation(
 
   // Only flag if there's a meaningful cluster (>= 4 trick chars)
   if (trickCharCount >= 4) {
+    // Strong only when the letters, once normalised, spell something instruction-like
+    const strength: PatternStrength = DECODED_INJECTION_KEYWORDS.test(normalizeToASCII(text)) ? "strong" : "generic";
     findings.push({
       type: "unicode_obfuscation",
       description: `${trickCharCount} Unicode trick characters detected (mathematical, enclosed, regional indicator, fullwidth, or circled)`,
       location,
       snippet: text.slice(0, 200),
-      confidence: trickCharCount >= 8 ? 0.9 : 0.75,
+      confidence: CONFIDENCE[strength],
+      strength,
     });
   }
 }
@@ -163,7 +177,7 @@ function scanUnicodeObfuscation(
 
 function scanInvisibleText(
   text: string,
-  location: InjectionFinding["location"],
+  location: ScanLocation,
   findings: InjectionFinding[],
 ): void {
   // Check for zero-width character clusters (preheader padding of newsletters does not count)
@@ -182,7 +196,8 @@ function scanInvisibleText(
         description: `${invisibleMatches.length} zero-width characters detected${interleaved ? " interleaved with visible text" : ""}`,
         location,
         snippet: text.slice(0, 200),
-        confidence: interleaved ? 0.9 : 0.7,
+        confidence: CONFIDENCE[interleaved ? "strong" : "generic"],
+        strength: interleaved ? "strong" : "generic",
       });
     }
   }
@@ -195,7 +210,8 @@ function scanInvisibleText(
       description: `${bidiMatches.length} bidirectional text override characters detected`,
       location,
       snippet: text.slice(0, 200),
-      confidence: 0.75,
+      confidence: CONFIDENCE.generic,
+      strength: "generic",
     });
   }
 }
@@ -207,7 +223,7 @@ const DECODED_INJECTION_KEYWORDS = /(?:ignore|system|override|instruction|execut
 
 function scanEncodingEvasion(
   text: string,
-  location: InjectionFinding["location"],
+  location: ScanLocation,
   findings: InjectionFinding[],
 ): void {
   // Base64 detection
@@ -224,7 +240,8 @@ function scanEncodingEvasion(
           description: "Base64-encoded string decodes to instruction-like text",
           location,
           snippet: `Encoded: ${candidate.slice(0, 40)}... → Decoded: ${decoded.slice(0, 100)}`,
-          confidence: 0.8,
+          confidence: CONFIDENCE.generic,
+          strength: "generic",
         });
         break; // One finding is enough
       }
@@ -244,7 +261,8 @@ function scanEncodingEvasion(
           description: "URL-encoded string decodes to instruction-like text",
           location,
           snippet: `Encoded: ${match[0].slice(0, 60)} → Decoded: ${decoded.slice(0, 100)}`,
-          confidence: 0.8,
+          confidence: CONFIDENCE.generic,
+          strength: "generic",
         });
         break;
       }
@@ -266,7 +284,8 @@ function scanEncodingEvasion(
           description: "Hex-encoded string decodes to instruction-like text",
           location,
           snippet: `Encoded: ${match[0].slice(0, 60)} → Decoded: ${decoded.slice(0, 100)}`,
-          confidence: 0.8,
+          confidence: CONFIDENCE.generic,
+          strength: "generic",
         });
         break;
       }
@@ -281,7 +300,8 @@ function scanEncodingEvasion(
 export interface ScanInput {
   subject?: string;
   body?: string;
-  html?: string;
+  /** Text the reader cannot see (hidden HTML, comments, invisible characters); scanning only, never shown. */
+  hidden?: string;
   headers?: string;
   attachmentNames?: string[];
   /** Display names of From, Reply-To, To and Cc, which the tools show next to the addresses. */
@@ -303,11 +323,11 @@ export function scanStats(): { totalScans: number; totalDetections: number } {
 export function scanForInjection(input: ScanInput): InjectionScanResult {
   const findings: InjectionFinding[] = [];
 
-  const fields: Array<{ text: string; location: InjectionFinding["location"] }> = [];
+  const fields: Array<{ text: string; location: ScanLocation }> = [];
 
   if (input.subject) fields.push({ text: input.subject, location: "subject" });
   if (input.body) fields.push({ text: input.body, location: "body" });
-  if (input.html) fields.push({ text: input.html, location: "html" });
+  if (input.hidden) fields.push({ text: input.hidden, location: "hidden" });
   if (input.headers) fields.push({ text: input.headers, location: "headers" });
   if (input.attachmentNames) {
     for (const name of input.attachmentNames) {
@@ -338,7 +358,8 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
       description: `Combined attack using ${uniqueTypes.size} different techniques`,
       location: "body",
       snippet: `Techniques: ${[...uniqueTypes].join(", ")}`,
-      confidence: 0.95,
+      confidence: CONFIDENCE.generic,
+      strength: "generic",
     });
   }
 

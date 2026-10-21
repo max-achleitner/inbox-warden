@@ -78,7 +78,7 @@ export function register(server: McpServer, app: AppContext) {
         const plain = isHtml ? undefined : stripInvisible(raw);
         const content = visible ? visible.text : plain!.text;
         const hiddenContentRemoved = visible ? visible.hidden : plain!.removed;
-        const scan = scanForInjection({ body: content, attachmentNames: [filename] });
+        const scan = scanForInjection({ body: content, hidden: (visible ? visible.hiddenText : plain!.hiddenText) || undefined, attachmentNames: [filename] });
         inv.record({ injectionRisk: scan.riskLevel });
         return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
       }
