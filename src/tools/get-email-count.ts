@@ -69,7 +69,7 @@ export function register(server: McpServer, app: AppContext) {
         const counts = await count(path);
         if (!counts) {
           throw new Error(
-            `"${path}" holds too many emails to count them without the ones your administrator's folder policy hides (at most ${LABEL_SCAN_LIMIT} per call). ` +
+            `"${path}" holds too many emails to count them without the ones this mailbox's folder locks hide (at most ${LABEL_SCAN_LIMIT} per call). ` +
               "Use search_emails with since/before to count a period instead.",
           );
         }

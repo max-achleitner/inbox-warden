@@ -35,7 +35,7 @@ Jede schreibende, sendende oder löschende Aktion wird in einem **manipulationss
 
 ## Empfohlene Einstellungen
 1. Business-Tarif mit Auftragsverarbeitungsvertrag.
-2. Erweiterung nur signiert und zentral über die Organisations-Freigabeliste verteilen; „Signatur erforderlich“ aktivieren.
+2. Erweiterung zentral über die Organisations-Freigabeliste verteilen. „Signatur erforderlich“ (`isDesktopExtensionSignatureRequired`) nicht aktivieren: Mit Claude Desktop 3.x blockiert es jede lokal installierte Erweiterung, und die Pakete ab 0.7.0 sind unsigniert. Die Herkunft belegen Prüfsummen (`SHA256SUMS`) und die Build-Attestierung; prüfen Sie Downloads damit.
 3. Dauerhafte „Immer erlauben“-Freigaben deaktivieren.
 4. Senden: „nur Entwürfe“ für die meisten Mitarbeitenden; wo Senden nötig ist, Bestätigungsmodus plus Domain-Freigabeliste.
 5. Löschen aus. Sensible Ordner sperren.

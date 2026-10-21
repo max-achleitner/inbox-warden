@@ -29,8 +29,8 @@ export interface ServeHttpHandle {
  */
 export async function startServeHttp(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<ServeHttpHandle | number> {
   const secrets = createRuntimeSecretStore(env);
-  // Env-only accounts only carry address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 disables it).
-  const configEnv = env.IMAP_MCP_NO_AUTOCONFIG === "1" ? env : await withDetectedEndpoints(env);
+  // Env-only accounts only carry address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 limits it to the built-in provider table).
+  const configEnv = await withDetectedEndpoints(env);
   const config = await loadConfig(configEnv, { secrets });
   const http = resolveHttpConfig(config, env, parseFlags(argv));
   const runtime = buildHttpRuntime(config, http, { secrets, createAppContext, createServer: createRemoteServer });

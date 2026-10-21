@@ -73,6 +73,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run build:mcpb
+      - run: npm run check:mcpb-zip -- build/*.mcpb
       - run: npm run smoke:mcpb
 
   audit:

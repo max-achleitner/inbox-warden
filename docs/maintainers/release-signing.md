@@ -1,6 +1,27 @@
 # Signing the Claude Desktop extension
 
-Release bundles (`.mcpb`) are signed so that administrators can enforce
+## Paused since 0.7.0
+
+From 0.7.0 on the release bundle (`.mcpb`) is **not signed**. Two reasons:
+
+1. `mcpb sign` 2.1.2 appends the signature block (`MCPB_SIG_V1 … MCPB_SIG_END`) after the ZIP end-of-central-directory
+   record and leaves the ZIP comment length at 0. Claude Desktop 3.1623 opens the whole file with yauzl 3's strict
+   check and fails with "Invalid comment length. Expected: 1872. Found: 0", so the signed 0.6.0 bundle cannot be
+   installed.
+2. Desktop's PKCS#7 check (node-forge `verify()`) always throws "PKCS#7 signature verification not yet
+   implemented", so Desktop never shows an extension as signed anyway.
+
+The origin of a bundle is proven by `SHA256SUMS` and the GitHub build attestation. CI opens every built and
+released bundle the way Desktop does (`npm run check:mcpb-zip -- <file>`).
+
+Resume signing only when both hold: a Claude Desktop version whose extension check really verifies PKCS#7 (look in
+its `app.asar` for node-forge's "PKCS#7 signature verification not yet implemented"; it must be gone) and a bundle
+layout that Desktop's ZIP reader accepts (`check:mcpb-zip` passes on the signed file). Everything below is kept as
+reference for that day and for verifying 0.6.0.
+
+---
+
+Release bundles (`.mcpb`) up to 0.6.0 were signed so that administrators can enforce
 `isDesktopExtensionSignatureRequired` and users can check who published a bundle.
 
 **Do not rely on `mcpb verify` (2.1.2):** it reports every bundle as "not signed", because node-forge's

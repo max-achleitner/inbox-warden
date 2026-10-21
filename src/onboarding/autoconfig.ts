@@ -167,11 +167,12 @@ export async function detectProvider(email: string, deps: DetectDeps = {}): Prom
 /**
  * Env-only mode (MCPB bundle, containers): fill IMAP_MCP_IMAP_HOST/PORT and IMAP_MCP_SMTP_HOST/PORT
  * from detection when only IMAP_MCP_EMAIL is given. Guessed hosts are never used here because
- * nobody can confirm them before the password is sent.
+ * nobody can confirm them before the password is sent. IMAP_MCP_NO_AUTOCONFIG=1 switches off the
+ * network lookups only; the built-in provider table still applies.
  */
 export async function withDetectedEndpoints(
   env: NodeJS.ProcessEnv,
-  detect: (email: string) => Promise<DetectedProvider> = (e) => detectProvider(e),
+  detect: (email: string) => Promise<DetectedProvider> = (e) => detectProvider(e, { network: env.IMAP_MCP_NO_AUTOCONFIG !== "1" }),
 ): Promise<NodeJS.ProcessEnv> {
   const email = env.IMAP_MCP_EMAIL?.trim();
   if (!email || env.IMAP_MCP_IMAP_HOST?.trim()) return env;

@@ -14,7 +14,7 @@ Inbox Warden is software that runs on your own computer (or on your own server, 
 
 - Your IMAP and SMTP servers.
 - Microsoft's or Google's sign-in endpoints, only when you use that sign-in method.
-- **Server detection**, only when the server fields are empty: a DNS lookup of your domain's mail servers and requests to `autoconfig.<your domain>` and Mozilla's `autoconfig.thunderbird.net`. These see your email domain, never your password or your mail. Turn on "Do not look up server settings online" (or set `IMAP_MCP_NO_AUTOCONFIG=1`) and enter the servers yourself to avoid them.
+- **Server detection**, only when the server fields are empty: a DNS lookup of your domain's mail servers and requests to `autoconfig.<your domain>` and Mozilla's `autoconfig.thunderbird.net`. These see your email domain, never your password or your mail. Turn on "Advanced: don't look up servers online" (or set `IMAP_MCP_NO_AUTOCONFIG=1`) and enter the servers yourself to avoid them.
 
 ## Where email content goes
 

@@ -130,7 +130,7 @@ export function registerRename(server: McpServer, app: AppContext) {
       // RENAME moves every subfolder too: a hidden one would land where its deny rule no longer applies
       const descendants = delimiter ? folders.filter((f) => f.path.startsWith(resolved + delimiter)) : [];
       const refusal = new PolicyDeniedError(
-        `"${resolved}" cannot be renamed or moved because of your administrator's folder policy. Nothing was renamed.`,
+        `"${resolved}" cannot be renamed or moved because of this mailbox's folder locks. Nothing was renamed.`,
         "folders",
       );
       if (descendants.some((f) => !inv.account.policy.folderAllowed(f.path, f.delimiter, f.aggregate))) throw refusal;

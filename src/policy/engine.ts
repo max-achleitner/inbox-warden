@@ -31,7 +31,7 @@ const EXECUTABLE_EXTENSIONS = new Set([
   "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "one",
 ]);
 
-/** A request the administrator's policy does not allow. Reported to the AI as outcome "denied". */
+/** A request the mailbox's settings do not allow. Reported to the AI as outcome "denied". */
 export class PolicyDeniedError extends Error {
   constructor(message: string, readonly rule: string) {
     super(message);
@@ -170,7 +170,7 @@ export class PolicyEngine {
   checkFolder(folderPath: string, delimiter?: string): void {
     if (!this.folderAllowed(folderPath, delimiter)) {
       throw new PolicyDeniedError(
-        `Access to the folder "${folderPath}" is blocked by your administrator's policy. Nothing was changed.`,
+        `The folder "${folderPath}" is locked in this mailbox's settings. Nothing was changed.`,
         "folders",
       );
     }
@@ -181,7 +181,7 @@ export class PolicyEngine {
     if (count > limit) {
       throw new PolicyDeniedError(
         `${count} messages match, more than the limit of ${limit} per operation` +
-          `${action === "delete" ? " for deleting" : ""} set by your administrator's policy. Nothing was changed. ` +
+          `${action === "delete" ? " for deleting" : ""} set in this mailbox's settings. Nothing was changed. ` +
           "Do not split the same change into smaller batches. Choose a narrower selection only if that is what the user actually wants " +
           "(one sender or one topic), or let the mailbox owner raise the limit with " +
           `"${SERVER_NAME} accounts edit <account> ${action === "delete" ? "--max-delete" : "--max-messages"} <n>".`,
@@ -208,7 +208,7 @@ export class PolicyEngine {
     if (savingToDisk && this.policy.attachments.blockExecutables && isExecutableFilename(filename)) {
       throw new PolicyDeniedError(
         `"${filename}" is a program or script file (or an Office document with macros) and is not saved for safety reasons ` +
-          "(your administrator's policy). Nothing was saved.",
+          "(this mailbox's settings). Nothing was saved.",
         "attachments.blockExecutables",
       );
     }

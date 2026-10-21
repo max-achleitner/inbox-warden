@@ -6,7 +6,13 @@
  * value for), number fields may arrive as "0", booleans as "true"/"false", and free-text fields
  * may have stray spaces or capitals. This runs before host detection and loadConfig(), which then
  * only see clean IMAP_MCP_* values.
+ *
+ * It also maps the form onto the variables the server reads: the two switches (send, move to
+ * Trash) become IMAP_MCP_PERMISSIONS, "name:port" in a server field is split into host and port,
+ * and the other switch becomes IMAP_MCP_NO_AUTOCONFIG.
  */
+import { isIPv6 } from "node:net";
+import { SERVER_NAME } from "../version.js";
 import * as path from "node:path";
 
 export class BundleConfigError extends Error {
@@ -23,6 +29,15 @@ const PORT_LABELS: Record<string, string> = {
   IMAP_MCP_IMAP_PORT: "IMAP port",
   IMAP_MCP_SMTP_PORT: "SMTP port",
 };
+const HOST_LABELS: Record<string, { label: string; portKey: string }> = {
+  IMAP_MCP_IMAP_HOST: { label: "Advanced: incoming server (IMAP)", portKey: "IMAP_MCP_IMAP_PORT" },
+  IMAP_MCP_SMTP_HOST: { label: "Advanced: outgoing server (SMTP)", portKey: "IMAP_MCP_SMTP_PORT" },
+};
+const SWITCH_LABELS = {
+  IMAP_MCP_NO_AUTOCONFIG: "Advanced: don't look up servers online",
+  IMAP_MCP_ALLOW_SEND: "Claude may send email",
+  IMAP_MCP_ALLOW_DELETE: "Claude may move email to Trash",
+};
 const TIERS = ["read", "write", "send", "delete"];
 const CHOICES: Record<string, { label: string; values: string[] }> = {
   IMAP_MCP_AUTH: { label: "Sign-in method", values: ["password", "microsoft", "google"] },
@@ -36,6 +51,8 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
   // A form that has a password field but left it empty (MCPB, plugin) — unlike a hand-written
   // config without the variable, which may rely on the keychain or IMAP_MCP_PASSWORD_FILE.
   const passwordFieldLeftEmpty = "IMAP_MCP_PASSWORD" in env;
+  // Same for the permission switches: present in the form, but an unexpanded one counts as off.
+  const switchesPresent = "IMAP_MCP_ALLOW_SEND" in env || "IMAP_MCP_ALLOW_DELETE" in env;
 
   for (const key of Object.keys(env)) {
     if (!key.startsWith("IMAP_MCP_") && key !== "IMAP_PASSWORD") continue;
@@ -58,16 +75,30 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
     env[key] = String(port);
   }
 
-  // MCPB booleans arrive as "true"/"false"; Plan 4 switches the lookups off only for "1".
-  if (env.IMAP_MCP_NO_AUTOCONFIG !== undefined) {
-    const value = env.IMAP_MCP_NO_AUTOCONFIG.toLowerCase();
-    if (value === "true" || value === "1") env.IMAP_MCP_NO_AUTOCONFIG = "1";
-    else if (value === "false" || value === "0") delete env.IMAP_MCP_NO_AUTOCONFIG;
-    else {
-      throw new BundleConfigError(
-        `"Do not look up server settings online" must be true or false — not "${env.IMAP_MCP_NO_AUTOCONFIG}".`,
-      );
+  for (const [key, { label, portKey }] of Object.entries(HOST_LABELS)) {
+    const value = env[key];
+    if (value === undefined) continue;
+    const { host, port } = splitHostPort(value, label);
+    env[key] = host;
+    if (port === undefined) continue;
+    const given = env[portKey];
+    if (given !== undefined && given !== port) {
+      throw new BundleConfigError(`"${label}" says port ${port}, but the port setting says ${given}. Use one of them.`);
     }
+    env[portKey] = port;
+  }
+
+  // MCPB booleans arrive as "true"/"false"; Plan 4 switches the lookups off only for "1".
+  if (switchOn(env, "IMAP_MCP_NO_AUTOCONFIG")) env.IMAP_MCP_NO_AUTOCONFIG = "1";
+  else delete env.IMAP_MCP_NO_AUTOCONFIG;
+
+  // The two permission switches stand in for IMAP_MCP_PERMISSIONS unless that is set (containers).
+  const allowSend = switchOn(env, "IMAP_MCP_ALLOW_SEND");
+  const allowDelete = switchOn(env, "IMAP_MCP_ALLOW_DELETE");
+  delete env.IMAP_MCP_ALLOW_SEND;
+  delete env.IMAP_MCP_ALLOW_DELETE;
+  if (switchesPresent && env.IMAP_MCP_PERMISSIONS === undefined) {
+    env.IMAP_MCP_PERMISSIONS = ["read", "write", ...(allowSend ? ["send"] : []), ...(allowDelete ? ["delete"] : [])].join(",");
   }
 
   if (env.IMAP_MCP_ATTACHMENT_DIRS !== undefined) {
@@ -102,9 +133,44 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
   const hasPassword = ["IMAP_MCP_PASSWORD", "IMAP_MCP_PASSWORD_FILE", "IMAP_PASSWORD"].some((key) => env[key] !== undefined);
   if (envOnly && passwordSignIn && passwordFieldLeftEmpty && !hasPassword) {
     throw new BundleConfigError(
-      `Enter the password (or app password) for ${env.IMAP_MCP_EMAIL}, or choose "microsoft" or "google" as sign-in method.`,
+      `Enter the password (or app password) for ${env.IMAP_MCP_EMAIL} in the settings. Microsoft 365 or Google Workspace sign-in: use the command-line version (${SERVER_NAME} setup).`,
     );
   }
+}
+
+/** A switch: true/1 is on, false/0 is off, a missing (or unexpanded) one is off, anything else is refused. */
+function switchOn(env: NodeJS.ProcessEnv, key: keyof typeof SWITCH_LABELS): boolean {
+  const value = env[key];
+  if (value === undefined) return false;
+  const lower = value.toLowerCase();
+  if (lower === "true" || lower === "1") return true;
+  if (lower === "false" || lower === "0") return false;
+  throw new BundleConfigError(`"${SWITCH_LABELS[key]}" must be on or off — not "${value}".`);
+}
+
+/** "name", "name:port", "[v6]", "[v6]:port" or a bare IPv6 address (more than one colon, no brackets). */
+function splitHostPort(value: string, label: string): { host: string; port?: string } {
+  const broken = () =>
+    new BundleConfigError(`"${label}" must be a server name, optionally with :port (1–65535) — not "${value}".`);
+  let host: string;
+  let port: string | undefined;
+  if (value.startsWith("[")) {
+    const match = /^\[([^\]]+)\](?::(.*))?$/.exec(value);
+    if (!match) throw broken();
+    host = match[1];
+    port = match[2];
+    if (!isIPv6(host)) throw broken();
+  } else if (value.split(":").length === 2) {
+    [host, port] = value.split(":");
+  } else {
+    host = value;
+    if (value.includes(":") && !isIPv6(value)) throw broken();
+  }
+  if (host === "") throw broken();
+  if (port === undefined) return { host };
+  const number = /^\d+$/.test(port) ? Number(port) : NaN;
+  if (!Number.isInteger(number) || number < 1 || number > 65535) throw broken();
+  return { host, port: String(number) };
 }
 
 function cleanDirectories(values: string[]): string[] {

@@ -8,10 +8,9 @@ Install:
     claude plugin marketplace add max-achleitner/inbox-warden
     claude plugin install inbox-warden@achleitner
 
-Then run `/plugin`, select **inbox-warden** → **Configure**, and enter your email address and either
-your (app) password or the sign-in method `microsoft` (Microsoft 365, preview) / `google` plus the OAuth client ID
-from your administrator (then ask Claude "please sign me in").
-Defaults: Claude may read and create drafts; sending and deleting are off.
+Then run `/plugin`, open **Installed**, select **Inbox Warden** and choose **Configure**. Only the email address and
+the password are required (Gmail, iCloud and Yahoo need an app password).
+Defaults: Claude may read and create drafts; sending and moving mail to the Trash are off until you switch them on.
 
-Several mailboxes or a self-signed server certificate: use the command-line installation described in the
-main README instead of this plugin.
+Microsoft 365 or Google Workspace sign-in, several mailboxes, or a self-signed server certificate: use the
+command-line version described in the main README instead of this plugin.

@@ -69,7 +69,7 @@ export function evaluateRecipients(addresses: string[], rules: RecipientRules): 
       return {
         ok: false,
         rule: "send.blockedRecipientDomains",
-        reason: `Sending to ${domain} is blocked by your administrator's policy. Nothing was sent.`,
+        reason: `Sending to ${domain} is blocked in this mailbox's settings. Nothing was sent.`,
       };
     }
     const own = rules.ownDomains.includes(domain);

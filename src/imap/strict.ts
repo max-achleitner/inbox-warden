@@ -51,7 +51,7 @@ export const UNSCOPED: MessageScope = { labelCheck: async () => null };
 export class LabelCheckError extends ImapOperationError {
   constructor(cause?: unknown) {
     super(
-      "The mail server did not report the Gmail labels of every message, so it cannot be checked which messages your administrator's folder policy hides. " +
+      "The mail server did not report the Gmail labels of every message, so it cannot be checked which messages this mailbox's folder locks hide. " +
         "Nothing was changed. Try again; if this keeps happening, check the connection to the mail server.",
       "labels",
     );

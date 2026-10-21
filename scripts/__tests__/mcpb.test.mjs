@@ -6,47 +6,80 @@ const template = JSON.parse(readFileSync(new URL("../../mcpb/manifest.json", imp
 const pkg = { name: "inbox-warden", version: "1.2.3" };
 const tools = [{ name: "search_emails", description: "Search emails." }];
 
+const D5_KEYS = [
+  "email", "password", "display_name", "allow_send", "allow_delete", "locked_folders",
+  "attachment_dirs", "download_dir", "imap_host", "smtp_host", "username", "skip_server_lookup",
+];
+const D5_TITLES = [
+  "Email address",
+  "Password (Gmail: app password)",
+  "Your name (optional)",
+  "Claude may send email",
+  "Claude may move email to Trash",
+  "Locked folders (comma-separated)",
+  "Attachment folders (optional)",
+  "Download folder (optional)",
+  "Advanced: incoming server (IMAP)",
+  "Advanced: outgoing server (SMTP)",
+  "Advanced: login name, if different",
+  "Advanced: don't look up servers online",
+];
+
 describe("mcpb/manifest.json", () => {
   it("passes configuration only through the agreed env-only variables", () => {
     expect(Object.keys(template.server.mcp_config.env).sort()).toEqual([
-      "IMAP_MCP_AUTH",
+      "IMAP_MCP_ALLOW_DELETE",
+      "IMAP_MCP_ALLOW_SEND",
       "IMAP_MCP_DENY_FOLDERS",
       "IMAP_MCP_DISPLAY_NAME",
       "IMAP_MCP_DOWNLOAD_DIR",
       "IMAP_MCP_EMAIL",
       "IMAP_MCP_IMAP_HOST",
-      "IMAP_MCP_IMAP_PORT",
-      "IMAP_MCP_LANG",
-      "IMAP_MCP_LOCALE",
       "IMAP_MCP_NO_AUTOCONFIG",
-      "IMAP_MCP_OAUTH_CLIENT_ID",
-      "IMAP_MCP_OAUTH_CLIENT_SECRET",
-      "IMAP_MCP_OAUTH_TENANT",
       "IMAP_MCP_PASSWORD",
-      "IMAP_MCP_PERMISSIONS",
-      "IMAP_MCP_SEND_MODE",
       "IMAP_MCP_SMTP_HOST",
-      "IMAP_MCP_SMTP_PORT",
       "IMAP_MCP_USERNAME",
     ]);
   });
 
   it("ships safe defaults: Claude drafts, the human sends; nothing is deleted", () => {
-    expect(template.user_config.permissions.default).toBe("read,write");
-    expect(template.user_config.send_mode.default).toBe("confirm");
-  });
-
-  it("offers password, Microsoft 365 and Google sign-in, password by default", () => {
-    expect(template.user_config.auth_method.default).toBe("password");
-    expect(template.user_config.auth_method.description).toMatch(/password.*microsoft.*google/s);
-    expect(template.user_config.skip_server_lookup.default).toBe(false);
-  });
-
-  it("masks every secret, never requires the password and gives secrets no default", () => {
-    for (const key of ["password", "oauth_client_secret"]) {
-      expect(template.user_config[key]).toMatchObject({ sensitive: true, required: false });
-      expect(template.user_config[key].default).toBeUndefined();
+    for (const key of ["allow_send", "allow_delete", "skip_server_lookup"]) {
+      expect(template.user_config[key]).toMatchObject({ type: "boolean", default: false });
     }
+  });
+
+  it("asks only for what most people need, in this order", () => {
+    expect(Object.keys(template.user_config)).toEqual(D5_KEYS);
+  });
+
+  it("titles explain themselves (Claude Code shows titles only)", () => {
+    expect(Object.values(template.user_config).map((field) => field.title)).toEqual(D5_TITLES);
+    for (const field of Object.values(template.user_config)) expect(field.title).not.toContain("/");
+  });
+
+  it("passes the switches, not the old choice fields", () => {
+    const env = template.server.mcp_config.env;
+    expect(env.IMAP_MCP_ALLOW_SEND).toBe("${user_config.allow_send}");
+    expect(env.IMAP_MCP_ALLOW_DELETE).toBe("${user_config.allow_delete}");
+    for (const dropped of [
+      "IMAP_MCP_AUTH", "IMAP_MCP_OAUTH_CLIENT_ID", "IMAP_MCP_OAUTH_TENANT", "IMAP_MCP_OAUTH_CLIENT_SECRET",
+      "IMAP_MCP_IMAP_PORT", "IMAP_MCP_SMTP_PORT", "IMAP_MCP_PERMISSIONS", "IMAP_MCP_SEND_MODE", "IMAP_MCP_LOCALE", "IMAP_MCP_LANG",
+    ]) {
+      expect(env).not.toHaveProperty(dropped);
+    }
+  });
+
+  it("carries an icon", () => {
+    expect(template.icon).toBe("icon.png");
+    const png = readFileSync(new URL("../../mcpb/icon.png", import.meta.url));
+    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(png.readUInt32BE(16)).toBe(512);
+    expect(png.readUInt32BE(20)).toBe(512);
+  });
+
+  it("masks the password, never requires it and gives it no default", () => {
+    expect(template.user_config.password).toMatchObject({ sensitive: true, required: false });
+    expect(template.user_config.password.default).toBeUndefined();
   });
 
   it("lets the user lock folders away from Claude; empty locks nothing", () => {
@@ -86,7 +119,7 @@ describe("renderManifest", () => {
 
   it("rejects a reference to an undeclared field", () => {
     const broken = structuredClone(template);
-    broken.server.mcp_config.env.IMAP_MCP_LOCALE = "${user_config.langauge}";
+    broken.server.mcp_config.env.IMAP_MCP_DOWNLOAD_DIR = "${user_config.langauge}";
     expect(() => renderManifest(broken, pkg, tools)).toThrow(/undeclared user_config "langauge"/);
   });
 

@@ -86,7 +86,92 @@ describe("applyBundleEnv", () => {
     const off: NodeJS.ProcessEnv = { IMAP_MCP_NO_AUTOCONFIG: "false" };
     applyBundleEnv(off);
     expect(off).toEqual({});
-    expect(() => applyBundleEnv({ IMAP_MCP_NO_AUTOCONFIG: "maybe" })).toThrow(/true or false/);
+    expect(() => applyBundleEnv({ IMAP_MCP_NO_AUTOCONFIG: "maybe" })).toThrow(
+      /"Advanced: don't look up servers online" must be on or off — not "maybe"/,
+    );
+    const mixed: NodeJS.ProcessEnv = { IMAP_MCP_NO_AUTOCONFIG: "TRUE" };
+    applyBundleEnv(mixed);
+    expect(mixed).toEqual({ IMAP_MCP_NO_AUTOCONFIG: "1" });
+  });
+
+  it("maps the two switches onto permissions", () => {
+    const sendOnly: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "true", IMAP_MCP_ALLOW_DELETE: "false" };
+    applyBundleEnv(sendOnly);
+    expect(sendOnly).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,send" });
+    const none: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "false", IMAP_MCP_ALLOW_DELETE: "False" };
+    applyBundleEnv(none);
+    expect(none).toEqual({ IMAP_MCP_PERMISSIONS: "read,write" });
+    const del: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_DELETE: "1" };
+    applyBundleEnv(del);
+    expect(del).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,delete" });
+    const both: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "TRUE", IMAP_MCP_ALLOW_DELETE: "1" };
+    applyBundleEnv(both);
+    expect(both).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,send,delete" });
+  });
+
+  it("treats an unexpanded switch as off", () => {
+    const env: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "${user_config.allow_send}" };
+    applyBundleEnv(env);
+    expect(env).toEqual({ IMAP_MCP_PERMISSIONS: "read,write" });
+  });
+
+  it("refuses a switch value that is neither on nor off", () => {
+    expect(() => applyBundleEnv({ IMAP_MCP_ALLOW_SEND: "maybe" })).toThrow(
+      /"Claude may send email" must be on or off — not "maybe"/,
+    );
+    expect(() => applyBundleEnv({ IMAP_MCP_ALLOW_DELETE: "yes" })).toThrow(
+      /"Claude may move email to Trash" must be on or off — not "yes"/,
+    );
+  });
+
+  it("lets explicit permissions win over the switches", () => {
+    const env: NodeJS.ProcessEnv = { IMAP_MCP_PERMISSIONS: "read", IMAP_MCP_ALLOW_SEND: "true" };
+    applyBundleEnv(env);
+    expect(env).toEqual({ IMAP_MCP_PERMISSIONS: "read" });
+  });
+
+  it.each([
+    ["imap.example.com:143", "imap.example.com", "143"],
+    ["[2001:db8::1]:993", "2001:db8::1", "993"],
+    ["2001:db8::1", "2001:db8::1", undefined],
+    ["[2001:db8::1]", "2001:db8::1", undefined],
+    [" imap.example.com ", "imap.example.com", undefined],
+    ["imap.example.com", "imap.example.com", undefined],
+  ])("splits server:port in %j", (value, host, port) => {
+    const env: NodeJS.ProcessEnv = { IMAP_MCP_IMAP_HOST: value };
+    applyBundleEnv(env);
+    expect(env.IMAP_MCP_IMAP_HOST).toBe(host);
+    expect(env.IMAP_MCP_IMAP_PORT).toBe(port);
+  });
+
+  it("splits the SMTP server too", () => {
+    const env: NodeJS.ProcessEnv = { IMAP_MCP_SMTP_HOST: "smtp.example.com:587" };
+    applyBundleEnv(env);
+    expect(env).toEqual({ IMAP_MCP_SMTP_HOST: "smtp.example.com", IMAP_MCP_SMTP_PORT: "587" });
+  });
+
+  it("accepts a port that matches the port field and refuses one that differs", () => {
+    const same: NodeJS.ProcessEnv = { IMAP_MCP_IMAP_HOST: "a.example:143", IMAP_MCP_IMAP_PORT: "143" };
+    applyBundleEnv(same);
+    expect(same).toEqual({ IMAP_MCP_IMAP_HOST: "a.example", IMAP_MCP_IMAP_PORT: "143" });
+    expect(() => applyBundleEnv({ IMAP_MCP_IMAP_HOST: "a.example:143", IMAP_MCP_IMAP_PORT: "995" })).toThrow(
+      /143.*995|995.*143/,
+    );
+    // "0" means automatic and is dropped before the comparison
+    const auto: NodeJS.ProcessEnv = { IMAP_MCP_IMAP_HOST: "a.example:143", IMAP_MCP_IMAP_PORT: "0" };
+    applyBundleEnv(auto);
+    expect(auto).toEqual({ IMAP_MCP_IMAP_HOST: "a.example", IMAP_MCP_IMAP_PORT: "143" });
+  });
+
+  it("refuses a broken server:port", () => {
+    for (const value of ["host:", ":993", "host:99999", "host:abc", "host:0", "[::1]:", "[::1", "[]:993", "a:b:c", "imaps://imap.example.com:993", "[imap.example.com]:993"]) {
+      expect(() => applyBundleEnv({ IMAP_MCP_IMAP_HOST: value }), value).toThrow(
+        /"Advanced: incoming server \(IMAP\)" must be a server name/,
+      );
+    }
+    expect(() => applyBundleEnv({ IMAP_MCP_SMTP_HOST: "host:" })).toThrow(
+      /"Advanced: outgoing server \(SMTP\)" must be a server name, optionally with :port \(1–65535\) — not "host:"/,
+    );
   });
 
   it("cleans the attachment folder list", () => {
@@ -104,7 +189,7 @@ describe("applyBundleEnv", () => {
   it("asks for the password only when a form left it empty for password sign-in", () => {
     expect(() =>
       applyBundleEnv({ IMAP_MCP_EMAIL: "max@firma.example", IMAP_MCP_PASSWORD: "${user_config.password}" }),
-    ).toThrow(/Enter the password \(or app password\) for max@firma.example, or choose "microsoft" or "google"/);
+    ).toThrow(/^Enter the password \(or app password\) for max@firma.example in the settings\. .*command-line version \(inbox-warden setup\)\./);
     // Microsoft 365 / Google sign-in needs no password
     expect(() =>
       applyBundleEnv({ IMAP_MCP_EMAIL: "office@firma.at", IMAP_MCP_PASSWORD: "", IMAP_MCP_AUTH: "microsoft" }),

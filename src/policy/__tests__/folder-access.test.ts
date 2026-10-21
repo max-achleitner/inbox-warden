@@ -129,7 +129,7 @@ describe("folder access", () => {
       it.each(requested)("refuses %s and says that nothing was changed", async (name) => {
         const err = await resolvePolicyFolder(nda, lockedClient, name).catch((e: unknown) => e);
         expect(err).toBeInstanceOf(PolicyDeniedError);
-        expect((err as Error).message).toMatch(/blocked by your administrator's policy\. Nothing was changed\./);
+        expect((err as Error).message).toMatch(/^The folder "[^"]+" is locked in this mailbox's settings\. Nothing was changed\.$/);
       });
 
       it("lists neither the folder nor its subfolders", async () => {

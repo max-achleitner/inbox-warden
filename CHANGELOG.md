@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Security
+- A damaged configuration file is no longer quoted in error messages; before, a fragment of it (possibly a password) could appear in the log.
 - Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
 - A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
 - Folder rules now also hide Gmail's All Mail, Starred and Important (any folder the server lists as `\All`, `\Flagged` or `\Important`) as soon as they hide any folder. Before, `search_emails` and `read_email` could read the mail of a denied label through All Mail.
@@ -23,6 +24,7 @@ All notable changes to this project are documented here. The format follows
 - Gmail: a message that carries a locked label is hidden in every folder it shows up in (Inbox, Sent, other labels) and in every tool. It is not listed, counted, read, changed or replied to, and asking for its UID gets the same answer as a message that does not exist. Before, mail filed under a locked label stayed readable through any visible label it also carried. On such an account `get_email_count` counts by reading labels (up to 20,000 messages per call), and searches check the newest 20,000 matches.
 
 ### Added
+- The extension has an icon (envelope with a shield).
 - Filter `{"all": true}` selects every email in a folder; it cannot be combined with other filters.
 - Folder locks for the Claude Desktop extension and the Claude Code plugin: the setting "Folders Claude must not see" (`IMAP_MCP_DENY_FOLDERS`, comma-separated, wildcards such as `_NDA_*`). Before, only a hand-edited `config.json` could lock folders.
 - `inbox-warden accounts edit <id> --lock-folder <name>` and `--unlock-folder <name>`. `accounts list` and `setup` show the locked folders of each mailbox.
@@ -30,6 +32,10 @@ All notable changes to this project are documented here. The format follows
 - User guide: "Lock folders away from Claude", with server rules for Microsoft 365, Gmail and Sieve that file mail into a locked folder before it reaches the Inbox.
 
 ### Changed
+- The install form of the extension and plugin is shorter and its titles explain themselves: email address and password, your name, two switches ("Claude may send email", "Claude may move email to Trash", both off), locked folders, attachment and download folders, and an "Advanced" group for servers, login name and the online server lookup. Microsoft 365 / Google Workspace sign-in is only available in the command-line version. Ports go into the server fields as `server:port`. The language of quote lines and forward headers in drafts follows the system. Sending always asks first.
+- User guides describe the install as it really works (drag into Settings → Extensions, Configure, new chat).
+- Upgrade note: after updating from 0.6, switch "Claude may send email" or "Claude may move email to Trash" on again if you had allowed it; Microsoft 365 and Google Workspace users of the extension move to the command-line version. If you had entered an IMAP or SMTP port, add it to the server field as `server:port` (for example `imap.example.com:143`).
+- When the settings are incomplete or invalid, the extension still starts and Claude explains what to correct (command-line users are pointed to `inbox-warden setup` and `inbox-warden doctor`), instead of Claude Desktop only showing "Cannot connect to the extension server".
 - Requires Node.js 20.19.0 or newer (was 20.18.0), as `html-to-text` 10 does; Node.js 20 reached end-of-life in April 2026. The Claude Desktop extension refuses older runtimes with a clear message. Claude Desktop itself ships Node.js 24.
 - `organize_by_filter` and `delete_email` refuse a filter without any criterion (`{}`, or an empty `header`) instead of previewing the whole folder; the whole folder takes `{"all": true}`.
 - Upgrading a 0.1/0.2 configuration (`credentials.json`) switches sending and deleting off for the migrated mailbox; reading and organising stay as they were. Turn them on again with `inbox-warden accounts edit main --allow send` or `--allow delete`.
@@ -38,7 +44,12 @@ All notable changes to this project are documented here. The format follows
 - Claude never deletes mail permanently. `delete_email` only moves mail into the Trash: it refuses emails that are already in the Trash or a folder below it, and accounts without a Trash folder. Emptying the Trash is done in your own mail program.
 - `send_draft` removes the sent draft only when the Sent folder holds a copy of the email. Otherwise (`sentCopy: "never"`, or storing the copy failed) the draft goes to the Trash instead of being erased; without a Trash folder it stays in Drafts.
 - Existing deny patterns now hide more (subfolders, the same name at any depth), and folder-lock refusals say that nothing was changed.
+- Refusals for locked folders, blocked recipient domains, bulk limits and blocked attachment types say that the mailbox's settings cause them, instead of naming an administrator.
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
+
+### Fixed
+- The Claude Desktop extension can be installed again: the signed 0.6.0 bundle was rejected by Claude Desktop ("Invalid comment length"). From 0.7.0 on the bundle is not signed; checksums and the build attestation prove its origin.
+- With "don't look up servers online" switched on, Gmail, GMX, iCloud and the other built-in providers are still recognised; before, the extension did not start at all for them.
 
 ## [0.6.0] - 2026-10-18
 

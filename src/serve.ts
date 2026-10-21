@@ -5,6 +5,8 @@ import { createAppContext } from "./context.js";
 import { setupAudit } from "./audit/setup.js";
 import { createRuntimeSecretStore } from "./secrets/container.js";
 import { createServer } from "./server.js";
+import { serveSetupProblem } from "./setup-problem.js";
+import { errorMessage } from "./errors.js";
 import { VERSION } from "./version.js";
 import * as log from "./logging/logger.js";
 
@@ -18,12 +20,20 @@ export async function serve(args: string[] = []): Promise<void> {
   }
   log.initLogger();
 
-  const secrets = createRuntimeSecretStore(process.env);
-  // Bundle users only enter address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 disables it).
-  const env = process.env.IMAP_MCP_NO_AUTOCONFIG === "1" ? process.env : await withDetectedEndpoints(process.env);
-  const config = await loadConfig(env, { secrets });
-  const app = createAppContext(config, secrets);
-  setupAudit(app); // fails closed: a server that cannot write its audit trail does not start
+  let config: Awaited<ReturnType<typeof loadConfig>>;
+  let app: ReturnType<typeof createAppContext>;
+  try {
+    const secrets = createRuntimeSecretStore(process.env);
+    // Bundle users only enter address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 limits it to the built-in provider table).
+    const env = await withDetectedEndpoints(process.env);
+    config = await loadConfig(env, { secrets });
+    app = createAppContext(config, secrets);
+    setupAudit(app); // fails closed: a server that cannot write its audit trail does not start
+  } catch (err) {
+    // Fail closed, but let Claude explain it: the setup-problem server has no mail tool.
+    serveSetupProblem(errorMessage(err), process.env);
+    return;
+  }
 
   log.info("server.starting", {
     version: VERSION,

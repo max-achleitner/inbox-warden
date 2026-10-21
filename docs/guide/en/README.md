@@ -19,19 +19,30 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
 
 1. Download `inbox-warden-<version>.mcpb` from the
    [releases page](https://github.com/max-achleitner/inbox-warden/releases/latest).
-2. Double-click the file. Claude Desktop opens an install dialog. Click **Install**.
-3. Fill in the form:
+2. Open Claude Desktop, click your profile (bottom left) and choose **Settings → Extensions**. Drag the file into
+   the field there. Do not double-click it. Claude Desktop shows an install dialog. Click **Install**.
+3. Fill in the form. Only the email address and the password are required:
    - **Email address**.
-   - **Sign-in method:** `password` for most providers; `microsoft` for Microsoft 365, `google` for Google Workspace
-     (see [below](#microsoft-365-and-google-workspace)).
-   - **Password** (an app password for Gmail, Yahoo and iCloud — see below); leave it empty for `microsoft` and `google`.
-   - **Your name** — how recipients see you, e.g. "Maximilian Achleitner".
-   - Leave the server fields empty; the servers are detected from your address.
-   - **Folders Claude may attach files from** and **Folder for saved attachments** (optional): Claude attaches files
-     only from these folders and saves attachments only into that folder. Leave empty = no file access.
-   - **Folders Claude must not see** (optional), e.g. for mail under a non-disclosure agreement: see
+   - **Password (Gmail: app password)** — for Gmail, Yahoo and iCloud an app password (see below).
+   - **Your name (optional)** — how recipients see you, e.g. "Maximilian Achleitner".
+   - **Claude may send email** (switch, off): turn it on if Claude may send. Claude then asks you before every
+     email.
+   - **Claude may move email to Trash** (switch, off): turn it on if Claude may delete mail. Nothing is deleted
+     permanently.
+   - **Locked folders (comma-separated)**, e.g. for mail under a non-disclosure agreement: see
      [Lock folders away from Claude](#lock-folders-away-from-claude).
+   - **Attachment folders (optional)** and **Download folder (optional)**: Claude attaches files only from these
+     folders and saves attachments only into the download folder. Leave empty = no file access.
+   - The **Advanced** fields are normally left empty; the servers are detected from your address:
+     **Advanced: incoming server (IMAP)** and **Advanced: outgoing server (SMTP)** for your own mail server
+     (write `server:port`; without a port 993 and 465 are used), **Advanced: login name, if different**, and the
+     switch **Advanced: don't look up servers online**. With that switch on, Gmail, GMX, iCloud and the other
+     built-in providers still work; any other address then needs both server fields.
 4. Save, enable the extension, open a new chat and ask: *"What's new in my inbox?"*
+
+Reading and organising mail is always on, and sending always asks you first. The language of the quote line and
+forward header in drafts follows your operating system. Microsoft 365 and Google Workspace sign-in is not part of this form: see
+[below](#microsoft-365-and-google-workspace).
 
 Claude Desktop stores your password encrypted in the macOS Keychain or the Windows Credential Manager.
 
@@ -41,7 +52,7 @@ Gmail, Yahoo and iCloud only let other programs in with an **app password**, not
 
 - **Gmail:** turn on 2-Step Verification, then create an app password named "Inbox Warden" at
   https://myaccount.google.com/apppasswords. Work accounts (Google Workspace) may have this disabled by the
-  administrator — then use Google sign-in (next section).
+  administrator — then use the command-line version with Google sign-in (next section).
 - **iCloud:** https://account.apple.com → Sign-In and Security → App-Specific Passwords.
 - **Yahoo:** Account settings → Account security → Generate app password.
 - **GMX and Web.de:** allow "POP3/IMAP access" in the webmail settings; with two-factor sign-in, create an
@@ -53,14 +64,23 @@ Details for every provider: [provider notes](../providers.md).
 
 *Microsoft 365 support is a preview: it has not yet been tested against a real Microsoft 365 tenant.*
 
-Microsoft 365 no longer accepts passwords from mail programs; you sign in in your browser. This works directly in Claude Desktop:
+Microsoft 365 no longer accepts passwords from mail programs; you sign in in your browser. The Claude Desktop
+extension does not offer this sign-in. Use the command-line version (needs Node.js 20.19 or newer):
 
-1. In the form, set **Sign-in method** to `microsoft`, leave the password empty and enter the **OAuth client ID**
-   your administrator gave you (and the **tenant**, if they mention one). Inbox Warden does not ship its own
-   Microsoft app yet; your administrator registers one once ([provider notes](../providers.md)).
-2. Open a new chat and write: *"Please sign me in to my mailbox."*
-   Claude opens the Microsoft sign-in page in your browser.
-3. Sign in and accept. Then tell Claude: *"I have signed in."* — Claude completes the sign-in.
+1. Install it and start the wizard:
+
+   ```bash
+   npm install -g inbox-warden
+   inbox-warden setup
+   ```
+
+2. Choose Microsoft 365 (or Google Workspace) and enter the **OAuth client ID** your administrator gave you (and the
+   **tenant**, if they mention one). Inbox Warden does not ship its own Microsoft app yet; your administrator
+   registers one once ([provider notes](../providers.md)). The wizard opens the sign-in page in your browser.
+3. Sign in and accept. Then add the server to Claude Desktop as described in the next section.
+
+If a sign-in expires, run `inbox-warden accounts login <id>`, or ask Claude in a chat: *"Please sign me in to my
+mailbox."*
 
 The sign-in is kept in your operating system's keychain; after a restart you do not need to sign in again unless
 your organisation revokes it.
@@ -69,9 +89,8 @@ your organisation revokes it.
 "Authenticated SMTP" must be enabled for your mailbox so that Claude can send drafts. The exact steps are in the
 [provider notes](../providers.md).
 
-**Google Workspace:** set **Sign-in method** to `google` and enter the **OAuth client ID** and **OAuth client
-secret** your administrator created for your organisation, then ask *"Please sign me in"* as above. Personal Gmail
-accounts use an app password instead.
+**Google Workspace:** the wizard asks for the **OAuth client ID** and **OAuth client secret** your administrator
+created for your organisation. Personal Gmail accounts use an app password instead.
 
 ## Several mailboxes, your own mail server
 
@@ -100,7 +119,8 @@ operating system's keychain. Then add this in Claude Desktop under Settings → 
 | `send` | send email and drafts | off |
 | `delete` | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program | off |
 
-In the form, enter the permissions separated by commas, e.g. `read,write` (recommended) or `read,write,send`.
+In the Claude Desktop extension, `read` and `write` are always on. The two switches **Claude may send email**
+and **Claude may move email to Trash** (both off) add `send` and `delete`.
 
 With the command-line version, change permissions later with `inbox-warden accounts edit <id> --allow send` or
 `--deny delete`. The same command changes the default mailbox (`--default`), the limit for bulk actions
@@ -108,9 +128,13 @@ With the command-line version, change permissions later with `inbox-warden accou
 folders (`--lock-folder`, see [below](#lock-folders-away-from-claude)).
 A running server picks up the change after a restart.
 
-**Sending:** when `send` is allowed, "Sending" decides how: `confirm` — Claude asks before every email
-(recommended); `direct` — no extra question; `drafts-only` — never send. Claude Desktop also asks before every
-send unless you switched that off with "Always allow". We recommend **not** using "Always allow" for sending and deleting.
+**Applying changes:** Claude Desktop — save the settings, then open a new chat. Claude Code — `/mcp` → select the
+server → **Reconnect**. Command-line version — restart the server.
+
+**Sending:** the extension always asks you before every email. The modes `confirm` (asks before every email, the
+default), `direct` (no extra question) and `drafts-only` (never send) exist only in the command-line version's
+configuration. Claude Desktop also asks before every send unless you switched that off with "Always allow". We
+recommend **not** using "Always allow" for sending and deleting.
 
 ## Lock folders away from Claude
 
@@ -121,10 +145,10 @@ that you lock a folder: Claude does not see it or its subfolders, and every atte
 
 1. Create a folder in your mail program, e.g. `_NDA_Inbox` — simplest at the top level, next to the Inbox.
 2. Enter the folder, depending on how you installed Inbox Warden:
-   - **Claude Desktop extension:** open **Settings → Extensions → Inbox Warden**, enter the folder in the field
-     **Folders Claude must not see** and save. If the field is missing, update the extension to the latest
-     version.
-   - **Claude Code plugin:** `/plugin` → **inbox-warden** → **Configure**, same field.
+   - **Claude Desktop extension:** click your profile (bottom left), then **Settings → Extensions → Inbox Warden
+     → Configure**. Enter the folder in the field **Locked folders (comma-separated)** and save. If the field is
+     missing, update the extension to the latest version.
+   - **Claude Code plugin:** `/plugin` → **Installed** → **Inbox Warden** → **Configure**, same field.
    - **Command-line version:**
 
      ```bash
@@ -135,12 +159,13 @@ that you lock a folder: Claude does not see it or its subfolders, and every atte
      For several folders, repeat `--lock-folder`. `--unlock-folder _NDA_Inbox` removes a lock again.
      `inbox-warden doctor` warns when a lock matches no folder — usually a typo, and the folder you meant would
      stay visible.
-3. Restart — the lock applies only after that: quit Claude Desktop completely and open it again; in Claude Code
-   `/mcp` → select the server → **Reconnect**.
+3. Apply the change — the lock holds only after that: in Claude Desktop, open a new chat (saving restarts the
+   extension); in Claude Code `/mcp` → select the server → **Reconnect**; on the command line, restart the server.
 4. Check in a new chat: *"Which folders can you see?"* — the locked folder must not be listed.
 
 **How to write the folders:** the name alone is enough, wherever the folder is: `_NDA_Inbox` also locks
-`Projects/_NDA_Inbox`. A path with `/` locks only that exact place. Subfolders are always locked too. `_NDA_*`
+`Projects/_NDA_Inbox`. Upper and lower case do not matter: `_NDA_Inbox` also locks `_NDA_INBOX`. A path with `/`
+locks only that exact place. Subfolders are always locked too. `_NDA_*`
 locks every folder whose name starts with `_NDA_`, including ones you create later; on the command line, put such
 names in quotation marks: `--lock-folder "_NDA_*"`. In the field, separate several folders with commas, without
 quotation marks: `_NDA_Inbox, _NDA_Project_North`. If a folder name itself contains a comma, write `?` in its
@@ -190,10 +215,11 @@ So have such mail sorted on arrival, by a rule that runs **on the server**. Exam
   **Move to** `_NDA_Inbox`, tick **Stop processing more rules**, save. These rules run on the server. A rule from
   desktop Outlook that the rules list marks "(client only)" runs only while Outlook is open on that computer —
   until then the mail sits in the Inbox.
-- **Gmail, Google Workspace:** in Gmail in the browser, click **Show search options** in the search box, enter
-  `@client-x.example` under **From** → **Create filter** → tick **Skip the Inbox (Archive it)** and **Apply the
+- **Gmail, Google Workspace:** in Gmail in the browser, click the sliders icon at the right end of the search box
+  (**Show search options**), enter `@client-x.example` under **From** → **Create filter** → tick **Skip the Inbox (Archive it)** and **Apply the
   label:** `_NDA_Inbox` (**New label…** if needed) → **Create filter**. **Also apply filter to matching
-  conversations** sorts existing mail as well.
+  conversations** sorts existing mail as well. Alternative path: Settings → **Filters and Blocked Addresses** →
+  **Create a new filter**.
 - **Your own server:** a Sieve rule, in Roundcube or SOGo under **Filters** or as a script:
 
   ```sieve
@@ -257,15 +283,16 @@ In Claude Desktop, logs are under **Settings → Extensions → Inbox Warden** o
 
 | Message | Cause and fix |
 |---|---|
-| "Authentication failed" | Wrong password or an app password is required (see above). Microsoft 365: choose sign-in method `microsoft`. |
-| "Enter the password (or app password) …" | Enter the password, or choose `microsoft` or `google` as sign-in method. |
-| "Not signed in yet — ask me to run sign_in" | Tell Claude: *"Please sign me in."* Your browser opens. |
-| "No Microsoft application (client) ID is configured …" | Enter the OAuth client ID from your administrator in the form. |
+| "Authentication failed" | Wrong password or an app password is required (see above). Microsoft 365: use the command-line version (`inbox-warden setup`). |
+| "Inbox Warden is not set up correctly …" | Claude names the problem. Open Settings → Extensions → Inbox Warden → **Configure** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), correct the named field, save, then open a new chat. |
+| "Cannot connect to the extension server" | Most often **Advanced: don't look up servers online** is on with an address Inbox Warden does not know: turn it off, or fill in both server fields. 0.7.0 explains the cause in the chat. |
+| "Not signed in yet — ask me to run sign_in" | Command-line version only: tell Claude *"Please sign me in."* or run `inbox-warden accounts login <id>`. Your browser opens. |
+| "No Microsoft application (client) ID is configured …" | Command-line version: enter the OAuth client ID from your administrator in `inbox-warden setup`. |
 | "Microsoft 365 has SMTP sending disabled for this mailbox …" | Your administrator must enable Authenticated SMTP ([provider notes](../providers.md)). |
 | "needs Node.js 20 or newer" | Update Claude Desktop. |
-| "Server does not support STARTTLS" | Your server offers no encryption on that port. Use port 993 (IMAP) / 465 (SMTP) or ask your provider. Unencrypted connections are deliberately impossible. |
-| "Permissions may only contain …" | Use only `read`, `write`, `send`, `delete` in "What Claude may do". |
-| "Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks" | Enter the folders in "Folders Claude must not see" without quotation marks, separated by commas. |
+| "Server does not support STARTTLS" | Your server offers no encryption on that port. Use port 993 (IMAP) / 465 (SMTP), written in the server field as `server:port` (e.g. `imap.example.com:993`), or ask your provider. Unencrypted connections are deliberately impossible. |
+| "Locked folders (IMAP_MCP_DENY_FOLDERS): … contains quotation marks" | Enter the folders in **Locked folders (comma-separated)** without quotation marks, separated by commas. |
+| `The folder "<path>" is locked in this mailbox's settings. Nothing was changed.` | The folder is locked on purpose. To unlock it, remove it from **Locked folders (comma-separated)** and start a new chat. |
 | "Folder … does not exist. Did you mean …?" | Use the suggested folder name, or ask Claude for the folder list. |
 | "This mail server does not support the keyword …" | Custom keywords do not work on e.g. Microsoft 365. Use a flag or a folder instead. |
 | Sent mail missing from "Sent" | Run `inbox-warden doctor`; the `sentCopy` setting is explained in the [provider notes](../providers.md). |

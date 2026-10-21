@@ -27,6 +27,16 @@ describe("loadConfig", () => {
     env = { IMAP_MCP_HOME: dir };
   });
 
+  it("does not quote a corrupt config file in the error", async () => {
+    const file = path.join(dir, "config.json");
+    fs.writeFileSync(file, '{"password": hunter2secret}');
+    const err = await loadConfig(env, { secrets: new MemorySecrets() }).catch((e) => e as Error);
+    expect(err).toBeInstanceOf(ConfigError);
+    expect((err as Error).message).toContain(file);
+    expect((err as Error).message).toContain("not valid JSON");
+    expect((err as Error).message).not.toContain("hunter2");
+  });
+
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -134,6 +144,25 @@ describe("loadConfig", () => {
       await expect(loadConfig(env, { secrets })).rejects.toThrow(/keychain locked/);
       expect(fs.readFileSync(path.join(dir, "credentials.json"), "utf8")).toBe(original);
     });
+  });
+
+  it("explains a missing incoming server in the form's words", () => {
+    let message = "";
+    try {
+      configFromEnv({ IMAP_MCP_EMAIL: "a@example.invalid", IMAP_MCP_PASSWORD: "x" });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/No incoming mail server \(IMAP\) is known for a@example\.invalid/);
+    expect(message).toMatch(/Advanced: incoming server \(IMAP\)/);
+    expect(message).toMatch(/don't look up servers online/);
+    expect(message).toMatch(/IMAP_MCP_IMAP_HOST/);
+  });
+
+  it("uses the system language when none is set", () => {
+    const base = { IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" };
+    expect(configFromEnv({ ...base, LANG: "de_AT.UTF-8" }).accounts[0].locale).toBe("de");
+    expect(configFromEnv({ ...base, LANG: "de_AT.UTF-8", IMAP_MCP_LOCALE: "en" }).accounts[0].locale).toBe("en");
   });
 
   it("loads an existing v2 file unchanged", async () => {

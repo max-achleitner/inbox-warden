@@ -14,6 +14,7 @@ import {
 import * as log from "../logging/logger.js";
 import { authFromEnv } from "./env-auth.js";
 import { SERVER_NAME } from "../version.js";
+import { detectLocale } from "../cli/messages.js";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -78,7 +79,7 @@ export function filesFromEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
 }
 
 /**
- * IMAP_MCP_DENY_FOLDERS (the extension's "Folders Claude must not see"): comma-separated folder
+ * IMAP_MCP_DENY_FOLDERS (the extension's "Locked folders (comma-separated)"): comma-separated folder
  * patterns that become policy.folders.deny. Checked against the policy schema here, so a mistake
  * names the variable instead of a config path. A folder name with a comma cannot be written here
  * ("?" in its place works, or --lock-folder / config.json).
@@ -108,7 +109,11 @@ export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
 export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
   const email = nonEmpty(env.IMAP_MCP_EMAIL)!;
   const imapHost = nonEmpty(env.IMAP_MCP_IMAP_HOST);
-  if (!imapHost) throw new ConfigError("IMAP_MCP_IMAP_HOST is required when configuring through environment variables.");
+  if (!imapHost) {
+    throw new ConfigError(
+      `No incoming mail server (IMAP) is known for ${email}. Enter it under "Advanced: incoming server (IMAP)", or switch off "Advanced: don't look up servers online" so it can be detected. (IMAP_MCP_IMAP_HOST is not set.)`,
+    );
+  }
   const smtpHost = nonEmpty(env.IMAP_MCP_SMTP_HOST);
   const username = nonEmpty(env.IMAP_MCP_USERNAME);
   const name = nonEmpty(env.IMAP_MCP_DISPLAY_NAME);
@@ -132,7 +137,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
           identities: name ? [{ email, name }] : [],
           permissions: parsePermissions(nonEmpty(env.IMAP_MCP_PERMISSIONS)),
           ...(nonEmpty(env.IMAP_MCP_SENT_COPY) ? { sentCopy: nonEmpty(env.IMAP_MCP_SENT_COPY) } : {}),
-          ...(nonEmpty(env.IMAP_MCP_LOCALE) ? { locale: nonEmpty(env.IMAP_MCP_LOCALE) } : {}),
+          locale: nonEmpty(env.IMAP_MCP_LOCALE) ?? detectLocale(env),
           ...(Object.keys(policy).length > 0 ? { policy } : {}),
         },
       ],
@@ -193,6 +198,11 @@ function readJson(file: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      // JSON.parse quotes part of the file in its message; a corrupt config may hold a password, so keep only the location.
+      const where = /line \d+ column \d+|position \d+/.exec(err.message)?.[0];
+      throw new ConfigError(`Could not read ${file}: it is not valid JSON${where ? ` (${where})` : ""}.`);
+    }
     throw new ConfigError(`Could not read ${file}: ${(err as Error).message}`);
   }
 }

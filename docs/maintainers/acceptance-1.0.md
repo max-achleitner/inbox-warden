@@ -14,18 +14,13 @@ Drafts with quote and signature, (3) "move the three oldest newsletters to Archi
 moving, (4) with send enabled: send the draft — copy appears exactly once in Sent, (5) `inbox-warden audit verify` passes.
 
 ## Claude Desktop extension
-- [ ] Windows: double-click install of the signed `.mcpb`; a first-time user completes "what's new in my inbox"
+- [ ] Windows: drag-and-drop install of the release `.mcpb` (Settings → Extensions); a first-time user completes "what's new in my inbox"
       and "draft a reply" without help (observe, do not assist)
 - [ ] macOS: same
-- [ ] Organisation policy `isDesktopExtensionSignatureRequired` enabled: the signed bundle installs; an unsigned
-      build (`npm run build:mcpb` without signing) is refused
-      (record what Desktop shows: `mcpb verify` 2.1.2 cannot confirm any signature, so Desktop's own check
-      is the only evidence; `node scripts/verify-mcpb.mjs` must pass on the same file)
 - [ ] Optional fields left empty: everything works (Review Focus 1)
-- [ ] Microsoft 365 in the extension: sign-in method `microsoft`, no password, no servers; "please sign me in" opens the browser,
-      the second `sign_in` finishes, mail is listed; after restarting Claude Desktop no new sign-in is needed
-      (refresh token in the OS keychain, bundle has no native modules)
-- [ ] Form validation: sign-in method `password` with an empty password shows "Enter the password (or app password) …" in the log
+- [ ] Microsoft 365 / Google Workspace via the command-line version (`inbox-warden setup`, then `accounts login`): the extension form has no
+      sign-in method; "please sign me in" (`sign_in` tool) works in the command-line server
+- [ ] Form validation: an empty password (or a wrong entry such as a bad port) makes Claude explain the problem via the setup-problem answer ("Inbox Warden is not set up correctly …"), not a bare "Cannot connect"
 
 ## Claude Code plugin
 - [ ] `claude plugin marketplace add max-achleitner/inbox-warden` + `claude plugin install inbox-warden@achleitner`,
