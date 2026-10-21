@@ -164,7 +164,7 @@ describe("applyBundleEnv", () => {
   });
 
   it("refuses a broken server:port", () => {
-    for (const value of ["host:", ":993", "host:99999", "host:abc", "host:0", "[::1]:", "[::1", "[]:993"]) {
+    for (const value of ["host:", ":993", "host:99999", "host:abc", "host:0", "[::1]:", "[::1", "[]:993", "a:b:c", "imaps://imap.example.com:993", "[imap.example.com]:993"]) {
       expect(() => applyBundleEnv({ IMAP_MCP_IMAP_HOST: value }), value).toThrow(
         /"Advanced: incoming server \(IMAP\)" must be a server name/,
       );
@@ -189,7 +189,7 @@ describe("applyBundleEnv", () => {
   it("asks for the password only when a form left it empty for password sign-in", () => {
     expect(() =>
       applyBundleEnv({ IMAP_MCP_EMAIL: "max@firma.example", IMAP_MCP_PASSWORD: "${user_config.password}" }),
-    ).toThrow(/Enter the password \(or app password\) for max@firma.example in the settings\./);
+    ).toThrow(/^Enter the password \(or app password\) for max@firma.example in the settings\. .*command-line version \(inbox-warden setup\)\./);
     // Microsoft 365 / Google sign-in needs no password
     expect(() =>
       applyBundleEnv({ IMAP_MCP_EMAIL: "office@firma.at", IMAP_MCP_PASSWORD: "", IMAP_MCP_AUTH: "microsoft" }),

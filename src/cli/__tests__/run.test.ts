@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { MemorySecretStore } from "../../secrets/memory-store.js";
-import { runCli, type CliDeps } from "../run.js";
+import { runCli, loadEffectiveConfig, type CliDeps } from "../run.js";
 
 describe("runCli", () => {
   let home: string;
@@ -86,5 +86,14 @@ describe("runCli", () => {
     expect(await runCli(["frobnicate"], { ...deps, locale: "de" })).toBe(2);
     expect(lines[0]).toBe("Unbekannter Befehl: frobnicate");
     expect(lines[1]).toMatch(/^Verwendung:/);
+  });
+
+  it("keeps the built-in provider table for doctor and login when lookups are off", async () => {
+    fs.rmSync(path.join(home, "config.json"));
+    const config = await loadEffectiveConfig(
+      { IMAP_MCP_HOME: home, IMAP_MCP_EMAIL: "a@gmail.com", IMAP_MCP_PASSWORD: "x", IMAP_MCP_NO_AUTOCONFIG: "1" },
+      new MemorySecretStore(),
+    );
+    expect(config.accounts[0]!.imap.host).toBe("imap.gmail.com");
   });
 });

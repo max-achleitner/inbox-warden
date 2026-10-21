@@ -31,7 +31,7 @@ export async function serve(args: string[] = []): Promise<void> {
     setupAudit(app); // fails closed: a server that cannot write its audit trail does not start
   } catch (err) {
     // Fail closed, but let Claude explain it: the setup-problem server has no mail tool.
-    serveSetupProblem(errorMessage(err));
+    serveSetupProblem(errorMessage(err), process.env);
     return;
   }
 

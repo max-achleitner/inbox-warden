@@ -46,8 +46,8 @@ async function loadFileConfig(env: NodeJS.ProcessEnv, secrets: SecretStore): Pro
 }
 
 /** The configuration the server would use (env-only or file), hosts autodetected like the server does. */
-async function loadEffectiveConfig(env: NodeJS.ProcessEnv, secrets: SecretStore): Promise<AppConfig> {
-  return loadConfig(autoconfigEnabled(env) ? await withDetectedEndpoints(env) : env, { secrets });
+export async function loadEffectiveConfig(env: NodeJS.ProcessEnv, secrets: SecretStore): Promise<AppConfig> {
+  return loadConfig(await withDetectedEndpoints(env), { secrets });
 }
 
 export async function setupCommand(deps: CliDeps): Promise<number> {

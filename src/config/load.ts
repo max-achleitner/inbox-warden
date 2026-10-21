@@ -79,7 +79,7 @@ export function filesFromEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
 }
 
 /**
- * IMAP_MCP_DENY_FOLDERS (the extension's "Folders Claude must not see"): comma-separated folder
+ * IMAP_MCP_DENY_FOLDERS (the extension's "Locked folders (comma-separated)"): comma-separated folder
  * patterns that become policy.folders.deny. Checked against the policy schema here, so a mistake
  * names the variable instead of a config path. A folder name with a comma cannot be written here
  * ("?" in its place works, or --lock-folder / config.json).

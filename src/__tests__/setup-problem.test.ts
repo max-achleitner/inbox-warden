@@ -8,8 +8,8 @@ afterEach(async () => {
   while (closers.length > 0) await closers.pop()!();
 });
 
-async function connect(problem: string) {
-  const server = createSetupProblemServer(problem);
+async function connect(problem: string, env: NodeJS.ProcessEnv = { IMAP_MCP_EMAIL: "a@gmail.com" }) {
+  const server = createSetupProblemServer(problem, env);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -37,7 +37,23 @@ describe("setup-problem server", () => {
       expect(text).toContain("IMAP port must be a number.");
       expect(text).toContain("Nothing was read, changed or sent.");
       expect(text).toContain("Settings → Extensions → Inbox Warden → Configure");
+      expect(text).toContain("/mcp");
+      expect(text).toContain("Reconnect");
     }
+  });
+
+  it("points a command-line user to inbox-warden setup, not to the extension dialog", async () => {
+    const client = await connect("Cannot read the configuration file.", { IMAP_MCP_CONFIG: "/x/config.json" });
+    const res = await client.callTool({ name: "health_check", arguments: {} });
+    const text = (res.content as Array<{ text: string }>)[0]!.text;
+    expect(text).toContain("Nothing was read, changed or sent.");
+    expect(text).toContain("inbox-warden setup");
+    expect(text).toContain("inbox-warden doctor");
+    expect(text).not.toContain("Extensions");
+    expect(text).not.toContain("Configure");
+    const noForm = await connect("Cannot read the configuration file.", {});
+    const text2 = ((await noForm.callTool({ name: "list_accounts", arguments: {} })).content as Array<{ text: string }>)[0]!.text;
+    expect(text2).toContain("inbox-warden setup");
   });
 
   it("never repeats a secret", () => {

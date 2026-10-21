@@ -56,7 +56,7 @@ async function execute(resolve: () => ParsedCommand): Promise<void> {
       } catch (err) {
         log.initLogger();
         const { serveSetupProblem } = await import("../setup-problem.js");
-        serveSetupProblem(errorMessage(err));
+        serveSetupProblem(errorMessage(err), process.env);
         return;
       }
     } else {
@@ -66,8 +66,7 @@ async function execute(resolve: () => ParsedCommand): Promise<void> {
     // `serve` keeps running on stdin; never force an exit code for it.
     if (parsed.command !== "serve") process.exitCode = code;
   } catch (err) {
-    process.stderr.write(`${SERVER_NAME}: ${errorMessage(err)}
-`);
+    process.stderr.write(`${SERVER_NAME}: ${errorMessage(err)}\n`);
     process.exitCode = 1;
   }
 }

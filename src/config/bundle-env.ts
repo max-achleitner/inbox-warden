@@ -11,6 +11,8 @@
  * Trash) become IMAP_MCP_PERMISSIONS, "name:port" in a server field is split into host and port,
  * and the other switch becomes IMAP_MCP_NO_AUTOCONFIG.
  */
+import { isIPv6 } from "node:net";
+import { SERVER_NAME } from "../version.js";
 import * as path from "node:path";
 
 export class BundleConfigError extends Error {
@@ -131,7 +133,7 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
   const hasPassword = ["IMAP_MCP_PASSWORD", "IMAP_MCP_PASSWORD_FILE", "IMAP_PASSWORD"].some((key) => env[key] !== undefined);
   if (envOnly && passwordSignIn && passwordFieldLeftEmpty && !hasPassword) {
     throw new BundleConfigError(
-      `Enter the password (or app password) for ${env.IMAP_MCP_EMAIL} in the settings.`,
+      `Enter the password (or app password) for ${env.IMAP_MCP_EMAIL} in the settings. Microsoft 365 or Google Workspace sign-in: use the command-line version (${SERVER_NAME} setup).`,
     );
   }
 }
@@ -157,10 +159,12 @@ function splitHostPort(value: string, label: string): { host: string; port?: str
     if (!match) throw broken();
     host = match[1];
     port = match[2];
+    if (!isIPv6(host)) throw broken();
   } else if (value.split(":").length === 2) {
     [host, port] = value.split(":");
   } else {
     host = value;
+    if (value.includes(":") && !isIPv6(value)) throw broken();
   }
   if (host === "") throw broken();
   if (port === undefined) return { host };
