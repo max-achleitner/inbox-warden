@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Security
+- `read_email` and `get_thread` give Claude only the text a reader sees: elements hidden with inline styles or simple style rules (`display:none`, white on white, 1px fonts, off-screen, …), invisible characters and Unicode tag characters are removed, and `hiddenContentRemoved` says how much. When the plain-text part says more than the visible HTML, Claude gets the HTML text (`textPartDiffers`). `includeHtml` returns the cleaned HTML. The plain-text quote in reply drafts and inline forwards carries the visible text too.
 - A damaged configuration file is no longer quoted in error messages; before, a fragment of it (possibly a password) could appear in the log.
 - Attaching a local file checks the opened file again: if a folder on the path was swapped for a link to somewhere outside `files.attachmentDirs` after the path check, the attachment is refused instead of sending the other file. Linux compares the path the kernel reports for the open file; macOS and Windows compare the resolved path and the file identity (see the threat model for the remaining race).
 - A file that grows or shrinks after its size was checked against the 25 MB limit is refused instead of being read whole.
@@ -48,6 +49,7 @@ All notable changes to this project are documented here. The format follows
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
 
 ### Fixed
+- `read_email` no longer fails on HTML nested thousands of levels deep.
 - `create_draft` no longer points to `send_draft` when no mailbox may send; that tool does not exist then.
 - `health_check` counts every prompt-injection scan (`security.totalScans`, `totalDetections`), also those of search results, threads, attachments and previews. Before, only `read_email` counted. The counters are per process; `security.since` gives the start time.
 - `search_emails` and `read_email` agree on what an attachment is. `read_email` now also gives `hasAttachment` and marks images embedded in the email (logos) with `embedded: true`; it still lists every part with its index. Before, `search_emails` said `hasAttachment: false` while `read_email` listed the logos as attachments.

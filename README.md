@@ -107,6 +107,7 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
   ([how](docs/guide/en/README.md#lock-folders-away-from-claude)).
 - **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
   action fails and says so — it never falls back to "all mail".
+- **Claude reads what you see.** Text an email hides in its HTML (invisible elements, white on white, tiny fonts) and invisible characters are removed before Claude reads the message.
 - **Tamper-evident audit log** of every change and every sent message (no message contents).
 - **Encrypted connections only** (TLS 1.2+, no plaintext fallback); self-signed servers are pinned by fingerprint.
 - **Prompt-injection screening is an extra signal, not a guarantee.** Email content is checked for known

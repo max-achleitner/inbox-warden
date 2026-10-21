@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
@@ -58,7 +58,7 @@ export function register(server: McpServer, app: AppContext) {
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
-      const original = await simpleParser(raw);
+      const original = await parseMail(raw);
 
       const intro = withSignature({ text: body }, identity, signature).text;
       let text: string;

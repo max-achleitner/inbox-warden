@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { ImapFlow, SearchObject } from "imapflow";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser, type ParsedMail } from "mailparser";
+import type { ParsedMail } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
 import { listFolderInfo, pickSpecialFolder, type FolderInfo } from "../imap/folders.js";
@@ -10,7 +11,8 @@ import { foldersRestricted } from "../policy/folder-rules.js";
 import type { RiskLevel } from "../policy/engine.js";
 import { highestRisk } from "../policy/observer.js";
 import { downloadMessage, strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
-import { flattenAddresses } from "../mail/reply.js";
+import { flattenAddresses, type Mailbox } from "../mail/reply.js";
+import { visibleString } from "../mail/visible-text.js";
 import { fullText, stripQuotedHistory, truncate } from "../mail/text.js";
 import { threadIds, threadQuery } from "../mail/thread.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -25,6 +27,10 @@ interface Located {
   uid: number;
   messageId?: string;
   date: number;
+}
+
+function visibleMailboxes(field: Parameters<typeof flattenAddresses>[0]): Mailbox[] {
+  return flattenAddresses(field).map((a) => ({ ...a, name: visibleString(a.name) }));
 }
 
 function allMailFolder(folders: FolderInfo[]): string | null {
@@ -85,7 +91,7 @@ export function register(server: McpServer, app: AppContext) {
       let gmailThreadId: string | undefined;
       const lock = await client.getMailboxLock(source);
       try {
-        original = await simpleParser(await downloadMessage(client, uid, source, scope));
+        original = await parseMail(await downloadMessage(client, uid, source, scope));
         if (client.capabilities.has("X-GM-EXT-1")) {
           const msg = await client.fetchOne(String(uid), { uid: true, threadId: true }, { uid: true });
           gmailThreadId = msg ? msg.threadId : undefined;
@@ -138,17 +144,21 @@ export function register(server: McpServer, app: AppContext) {
         } else {
           const l = await client.getMailboxLock(entry.folder);
           try {
-            parsed = await simpleParser(await downloadMessage(client, entry.uid, entry.folder, scope));
+            parsed = await parseMail(await downloadMessage(client, entry.uid, entry.folder, scope));
           } finally {
             try { l.release(); } catch { /* connection may already be dead */ }
           }
         }
-        const own = stripQuotedHistory(fullText(parsed).text);
+        const full = fullText(parsed);
+        const own = stripQuotedHistory(full.text);
         const body = truncate(own.text, maxCharsPerMessage);
+        const subject = visibleString(parsed.subject);
+        const from = visibleMailboxes(parsed.from);
+        const to = visibleMailboxes(parsed.to);
         const scan = scanForInjection({
-          subject: parsed.subject,
+          subject,
           body: own.text,
-          addressNames: [...flattenAddresses(parsed.from), ...flattenAddresses(parsed.to)].map((a) => a.name),
+          addressNames: [...from, ...to].map((a) => a.name),
         });
         risks.push(scan.riskLevel);
         messages.push({
@@ -156,10 +166,12 @@ export function register(server: McpServer, app: AppContext) {
           uid: entry.uid,
           messageId: parsed.messageId,
           date: parsed.date?.toISOString(),
-          from: flattenAddresses(parsed.from),
-          to: flattenAddresses(parsed.to),
-          subject: parsed.subject,
+          from,
+          to,
+          subject,
           text: body.text,
+          ...(full.hidden ? { hiddenContentRemoved: full.hidden } : {}),
+          ...(full.textPartDiffers ? { textPartDiffers: true } : {}),
           ...(body.truncated ? { truncated: true } : {}),
           ...(own.stripped ? { quotedHistoryRemoved: true } : {}),
           ...(scan.hasInjection ? { _injectionScan: scan } : {}),

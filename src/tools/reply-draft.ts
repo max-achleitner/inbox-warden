@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
@@ -49,7 +49,7 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(path);
       let original;
       try {
-        original = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
+        original = await parseMail(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { errorMessage } from "../errors.js";
 import * as log from "../logging/logger.js";
@@ -69,7 +69,7 @@ export function register(server: McpServer, app: AppContext) {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
 
-      const parsed = await simpleParser(draftRaw);
+      const parsed = await parseMail(draftRaw);
       // mailparser keeps the last of two From headers while many mail programs show the first
       if (parsed.headerLines.filter((h) => h.key === "from").length > 1 || flattenAddresses(parsed.from).length > 1) {
         return errorResult(

@@ -33,6 +33,10 @@ describe("policy coverage of tool sources", () => {
     expect(toolSources().filter(({ source }) => /\bresolveFolder\(|\bmatchFolder\(/.test(source)).map(({ file }) => file)).toEqual([]);
   });
 
+  it("no tool parses mail without parseMail", () => {
+    expect(toolSources().filter(({ source }) => /\bsimpleParser\(/.test(source)).map(({ file }) => file)).toEqual([]);
+  });
+
   it("every tool that enumerates folders applies the folder policy", () => {
     expect(offenders(/\blistTree\(|\blistFolderInfo\(/, /\bvisibleFolders\(|\bfolderAllowed\(|\bresolvePolicyFolder\(/)).toEqual([]);
   });

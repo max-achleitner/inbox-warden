@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
 import { listFolderInfo } from "../imap/folders.js";
@@ -38,7 +38,7 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(path);
       let parsed;
       try {
-        parsed = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
+        parsed = await parseMail(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }

@@ -1,5 +1,5 @@
 import type { AddressObject, EmailAddress } from "mailparser";
-import { convert } from "html-to-text";
+import { fullText } from "./text.js";
 
 export interface Mailbox {
   name: string;
@@ -86,9 +86,7 @@ function attribution(original: OriginalMessage, language: QuoteLanguage, timeZon
 }
 
 function originalText(original: OriginalMessage): string {
-  if (original.text) return original.text;
-  if (original.html) return convert(original.html, { wordwrap: 100, selectors: [{ selector: "img", format: "skip" }] });
-  return "";
+  return fullText(original).text;
 }
 
 /** Plain-text quote block: attribution line followed by "> "-prefixed original text. */
