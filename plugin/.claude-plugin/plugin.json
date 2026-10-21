@@ -2,7 +2,7 @@
   "name": "inbox-warden",
   "displayName": "Inbox Warden",
   "version": "0.6.0",
-  "description": "Give Claude safe access to one mailbox (Gmail, Microsoft 365, GMX, IONOS, iCloud, own server) plus skills for inbox triage, reply drafting and clean-up.",
+  "description": "Let Claude search, read, sort and draft your email: Gmail, GMX, Web.de, IONOS, iCloud or your own mail server, plus skills for inbox triage, reply drafting and clean-up.",
   "author": {
     "name": "Max Achleitner",
     "url": "https://github.com/max-achleitner"

@@ -60,6 +60,7 @@ if (native.length > 0) {
 }
 
 // 4. Documents shipped inside the bundle
+copyFileSync(join(root, "mcpb", "icon.png"), join(stage, "icon.png"));
 for (const file of ["LICENSE", "PRIVACY.md", "README.md"]) copyFileSync(join(root, file), join(stage, file));
 
 // 5. Manifest: version from package.json, tool list from the staged server itself

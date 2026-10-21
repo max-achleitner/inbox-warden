@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 - Gmail: a message that carries a locked label is hidden in every folder it shows up in (Inbox, Sent, other labels) and in every tool. It is not listed, counted, read, changed or replied to, and asking for its UID gets the same answer as a message that does not exist. Before, mail filed under a locked label stayed readable through any visible label it also carried. On such an account `get_email_count` counts by reading labels (up to 20,000 messages per call), and searches check the newest 20,000 matches.
 
 ### Added
+- The extension has an icon (envelope with a shield).
 - Filter `{"all": true}` selects every email in a folder; it cannot be combined with other filters.
 - Folder locks for the Claude Desktop extension and the Claude Code plugin: the setting "Folders Claude must not see" (`IMAP_MCP_DENY_FOLDERS`, comma-separated, wildcards such as `_NDA_*`). Before, only a hand-edited `config.json` could lock folders.
 - `inbox-warden accounts edit <id> --lock-folder <name>` and `--unlock-folder <name>`. `accounts list` and `setup` show the locked folders of each mailbox.
@@ -30,6 +31,8 @@ All notable changes to this project are documented here. The format follows
 - User guide: "Lock folders away from Claude", with server rules for Microsoft 365, Gmail and Sieve that file mail into a locked folder before it reaches the Inbox.
 
 ### Changed
+- The install form of the extension and plugin is shorter and its titles explain themselves: email address and password, your name, two switches ("Claude may send email", "Claude may move email to Trash", both off), locked folders, attachment and download folders, and an "Advanced" group for servers, login name and the online server lookup. Microsoft 365 / Google Workspace sign-in is only available in the command-line version. Ports go into the server fields as `server:port`. The language follows the system. Sending always asks first.
+- Upgrade note: after updating from 0.6, switch "Claude may send email" or "Claude may move email to Trash" on again if you had allowed it; Microsoft 365 and Google Workspace users of the extension move to the command-line version.
 - When the settings are incomplete or invalid, the extension still starts and Claude explains what to correct, instead of Claude Desktop only showing "Cannot connect to the extension server".
 - Requires Node.js 20.19.0 or newer (was 20.18.0), as `html-to-text` 10 does; Node.js 20 reached end-of-life in April 2026. The Claude Desktop extension refuses older runtimes with a clear message. Claude Desktop itself ships Node.js 24.
 - `organize_by_filter` and `delete_email` refuse a filter without any criterion (`{}`, or an empty `header`) instead of previewing the whole folder; the whole folder takes `{"all": true}`.

@@ -9,6 +9,8 @@ import { inspectServer, offlineEnv } from "./lib/inspect-server.mjs";
 
 const stage = resolve(process.argv[2] ?? "build/mcpb");
 const manifest = JSON.parse(readFileSync(join(stage, "manifest.json"), "utf8"));
+const { allow_send, allow_delete } = manifest.user_config;
+const defaultPermissions = ["read", "write", ...(allow_send.default ? ["send"] : []), ...(allow_delete.default ? ["delete"] : [])].join(",");
 const failures = [];
 const check = (ok, message) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${message}`);
@@ -25,7 +27,7 @@ const home = mkdtempSync(join(tmpdir(), "mcpb-smoke-"));
 try {
   const { tools, serverVersion } = await inspectServer({
     entry: join(stage, "server", "preflight.cjs"),
-    env: offlineEnv(home, manifest.user_config.permissions.default),
+    env: offlineEnv(home, defaultPermissions),
   });
   const names = tools.map((tool) => tool.name);
   for (const expected of ["search_emails", "read_email", "create_draft", "reply_draft", "sign_in", "health_check"]) {
@@ -42,7 +44,7 @@ try {
   }
 
   // A setup problem (no hosts, autodetection off, unreachable domain) starts the setup-problem server.
-  const broken = offlineEnv(home, manifest.user_config.permissions.default);
+  const broken = offlineEnv(home, defaultPermissions);
   delete broken.IMAP_MCP_IMAP_HOST;
   delete broken.IMAP_MCP_SMTP_HOST;
   broken.IMAP_MCP_EMAIL = "build@example.invalid";
