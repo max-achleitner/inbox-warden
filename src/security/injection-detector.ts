@@ -295,6 +295,9 @@ function scanEncodingEvasion(
   }
 }
 
+/** Findings in hidden text never quote it. */
+const HIDDEN_SNIPPET = "(hidden text — not shown)";
+
 // ─── Main scan function ──────────────────────────────────────────────────────
 
 export interface ScanInput {
@@ -344,6 +347,11 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
     scanUnicodeObfuscation(text, location, findings);
     scanInvisibleText(text, location, findings);
     scanEncodingEvasion(text, location, findings);
+
+    // Hidden text is scanning-only: a finding never quotes it
+    if (location === "hidden") {
+      for (const f of findings) if (f.location === "hidden") f.snippet = HIDDEN_SNIPPET;
+    }
 
     // Early exit: if we already have a critical finding, skip remaining fields
     const currentLevel = computeRiskLevel(findings);
