@@ -40,6 +40,17 @@ try {
   if (serverVersion) {
     check(serverVersion.name === manifest.name && serverVersion.version === manifest.version, `server reports ${manifest.name} ${manifest.version}`);
   }
+
+  // A setup problem (no hosts, autodetection off, unreachable domain) starts the setup-problem server.
+  const broken = offlineEnv(home, manifest.user_config.permissions.default);
+  delete broken.IMAP_MCP_IMAP_HOST;
+  delete broken.IMAP_MCP_SMTP_HOST;
+  broken.IMAP_MCP_EMAIL = "build@example.invalid";
+  const problem = await inspectServer({ entry: join(stage, "server", "preflight.cjs"), env: broken });
+  check(
+    JSON.stringify(problem.tools.map((tool) => tool.name).sort()) === JSON.stringify(["health_check", "list_accounts"]),
+    "a setup problem starts the setup-problem server",
+  );
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

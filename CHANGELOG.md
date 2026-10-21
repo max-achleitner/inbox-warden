@@ -30,6 +30,7 @@ All notable changes to this project are documented here. The format follows
 - User guide: "Lock folders away from Claude", with server rules for Microsoft 365, Gmail and Sieve that file mail into a locked folder before it reaches the Inbox.
 
 ### Changed
+- When the settings are incomplete or invalid, the extension still starts and Claude explains what to correct, instead of Claude Desktop only showing "Cannot connect to the extension server".
 - Requires Node.js 20.19.0 or newer (was 20.18.0), as `html-to-text` 10 does; Node.js 20 reached end-of-life in April 2026. The Claude Desktop extension refuses older runtimes with a clear message. Claude Desktop itself ships Node.js 24.
 - `organize_by_filter` and `delete_email` refuse a filter without any criterion (`{}`, or an empty `header`) instead of previewing the whole folder; the whole folder takes `{"all": true}`.
 - Upgrading a 0.1/0.2 configuration (`credentials.json`) switches sending and deleting off for the migrated mailbox; reading and organising stay as they were. Turn them on again with `inbox-warden accounts edit main --allow send` or `--allow delete`.
