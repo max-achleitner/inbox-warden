@@ -1,5 +1,5 @@
 import { parseDocument, DomUtils } from "htmlparser2";
-import { isComment, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
+import { isComment, isDirective, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 
 /**
@@ -75,19 +75,17 @@ export function mergeRemoved(...parts: Array<HiddenContentRemoved | undefined>):
 // Alternatives in order: Scotland-style flag tag sequence (kept), ZWJ inside an emoji sequence (kept), tag characters,
 // other invisible format characters.
 const INVISIBLE =
-  /(\u{1F3F4}[\u{E0061}-\u{E007A}]{2,6}\u{E007F})|((?<=\p{Extended_Pictographic}️?)‍(?=\p{Extended_Pictographic}))|([\u{E0000}-\u{E007F}])|([­͏؜ᅟᅠ឴឵᠋-᠏​-‏‪-‮⁠-⁤⁦-⁯ㅤ﻿ﾠ￹-￻\u{1D173}-\u{1D17A}\u{E0100}-\u{E01EF}])/gu;
+  /(\u{1F3F4}[\u{E0061}-\u{E007A}]{2,6}\u{E007F})|((?<=\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?)\u200D(?=\p{Extended_Pictographic}))|([\u{E0000}-\u{E007F}])|([\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\u{1D173}-\u{1D17A}\u{E0100}-\u{E01EF}])/gu;
 /** Format characters that occur in ordinary text (soft hyphen, direction marks) and are removed without a report. */
 const COMMON_FORMAT = new Set([0x00ad, 0x200e, 0x200f, 0x061c]);
 
 export function stripInvisible(input: string): Visible {
   const text0 = input.replace(PREHEADER_PADDING_GLOBAL, " ");
   let payload = "";
-  let tagSeen = false;
   let invisible = 0;
   const text = text0.replace(INVISIBLE, (m, flag, zwj, tag, fmt) => {
     if (flag || zwj) return m;
     if (tag) {
-      tagSeen = true;
       const code = m.codePointAt(0)!;
       if (code >= 0xe0020 && code <= 0xe007e) payload += String.fromCharCode(code - 0xe0000);
       return "";
@@ -96,10 +94,10 @@ export function stripInvisible(input: string): Visible {
     return "";
   });
   const kinds: HiddenKind[] = [];
-  if (tagSeen) kinds.push("tag-characters");
+  const chars = payload.replace(/\s/g, "").length;
+  if (chars > 0) kinds.push("tag-characters");
   if (invisible >= INVISIBLE_REPORT_MIN) kinds.push("invisible-characters");
   const result: Visible = { text, hiddenText: payload };
-  const chars = payload.replace(/\s/g, "").length;
   if (chars > 0 || kinds.length > 0) result.removed = { chars, kinds };
   return result;
 }
@@ -201,36 +199,63 @@ function splitOutside(s: string, sep: string): string[] {
   return out;
 }
 
-function parseDecls(css: string): Decls {
-  const decls: Decls = new Map();
-  for (const part of splitOutside(css, ";")) {
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+
+/** Declarations of one block: lower-cased values plus the names that carry `!important`. */
+interface Parsed {
+  values: Decls;
+  important: Set<string>;
+}
+
+const emptyParsed = (): Parsed => ({ values: new Map(), important: new Set() });
+
+function parseDecls(css: string): Parsed {
+  const parsed = emptyParsed();
+  for (const part of splitOutside(css.replace(CSS_COMMENT, ""), ";")) {
     const colon = part.indexOf(":");
     if (colon < 1) continue;
     const name = part.slice(0, colon).trim().toLowerCase();
-    const value = part
-      .slice(colon + 1)
-      .replace(/\s*!important\s*$/i, "")
-      .trim()
-      .toLowerCase();
-    if (name && value) decls.set(name, value);
+    let value = part.slice(colon + 1).trim().toLowerCase();
+    const important = /\s*!\s*important$/.test(value);
+    if (important) value = value.replace(/\s*!\s*important$/, "").trim();
+    if (!name || !value) continue;
+    parsed.values.set(name, value);
+    if (important) parsed.important.add(name);
+    else parsed.important.delete(name);
   }
-  return decls;
+  return parsed;
 }
 
-interface ClassRule {
+/** Overlays `source` onto `target`: a later declaration wins unless the earlier one is `!important` and it is not. */
+function overlay(target: Parsed, source: Parsed): void {
+  for (const [name, value] of source.values) {
+    const important = source.important.has(name);
+    if (target.important.has(name) && !important) continue;
+    target.values.set(name, value);
+    if (important) target.important.add(name);
+    else target.important.delete(name);
+  }
+}
+
+interface CssRule {
   order: number;
+  specificity: number;
   tag?: string;
-  decls: Decls;
+  decls: Parsed;
 }
 
-const CLASS_SELECTOR = /^([a-z][a-z0-9]*)?\.([-\w]+)$/i;
+// tag, .class, #id, tag.class, tag#id
+const SIMPLE_SELECTOR = /^([a-z][a-z0-9]*)?(?:([.#])([-\w]+))?$/i;
+const MEDIA_ALL = /^@media\s+(?:all|screen|only\s+screen)$/i;
 
-/** Simple `.class` / `tag.class` rules from the top level of every <style>; @-blocks (media queries) are skipped. */
-function parseClassRules(cssTexts: string[]): Map<string, ClassRule[]> {
-  const rules = new Map<string, ClassRule[]>();
+/**
+ * Simple selector rules from every <style>, indexed by `tag`, `.class` or `#id`. @media all/screen/only screen count as
+ * top level; every other @-block is skipped.
+ */
+function parseRules(cssTexts: string[]): Map<string, CssRule[]> {
+  const rules = new Map<string, CssRule[]>();
   let order = 0;
-  for (const raw of cssTexts) {
-    const css = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+  const scan = (css: string, allowMedia: boolean): void => {
     let depth = 0;
     let prelude = "";
     let bodyStart = 0;
@@ -242,23 +267,29 @@ function parseClassRules(cssTexts: string[]): Map<string, ClassRule[]> {
       } else if (c === "}") {
         if (depth === 0) continue;
         depth--;
-        if (depth === 0) {
-          const selectors = prelude.slice(prelude.lastIndexOf(";") + 1).trim();
-          prelude = "";
-          if (selectors.startsWith("@")) continue;
-          const decls = parseDecls(css.slice(bodyStart, i));
-          for (const selector of selectors.split(",")) {
-            const m = CLASS_SELECTOR.exec(selector.trim());
-            if (!m) continue;
-            const key = m[2]!.toLowerCase();
-            const list = rules.get(key) ?? [];
-            list.push({ order: order++, tag: m[1]?.toLowerCase(), decls });
-            rules.set(key, list);
-          }
+        if (depth > 0) continue;
+        const selectors = prelude.slice(prelude.lastIndexOf(";") + 1).trim();
+        prelude = "";
+        const body = css.slice(bodyStart, i);
+        if (selectors.startsWith("@")) {
+          if (allowMedia && MEDIA_ALL.test(selectors)) scan(body, false);
+          continue;
+        }
+        const decls = parseDecls(body);
+        for (const selector of selectors.split(",")) {
+          const m = SIMPLE_SELECTOR.exec(selector.trim());
+          if (!m || (!m[1] && !m[2])) continue;
+          const tag = m[1]?.toLowerCase();
+          const key = m[2] ? `${m[2]}${m[3]!.toLowerCase()}` : tag!;
+          const specificity = (tag ? 1 : 0) + (m[2] === "." ? 10 : m[2] === "#" ? 100 : 0);
+          const list = rules.get(key) ?? [];
+          list.push({ order: order++, specificity, tag: m[2] ? tag : undefined, decls });
+          rules.set(key, list);
         }
       } else if (depth === 0) prelude += c;
     }
-  }
+  };
+  for (const raw of cssTexts) scan(raw.replace(CSS_COMMENT, ""), true);
   return rules;
 }
 
@@ -296,6 +327,7 @@ function fontSizePx(value: string, parent: number): number {
   if (keyword !== undefined) return keyword;
   if (value === "smaller") return parent / 1.2;
   if (value === "larger") return parent * 1.2;
+  if (/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(value)) return parseFloat(value) === 0 ? 0 : parent; // unitless is invalid CSS
   return toPx(value, parent) ?? parent;
 }
 
@@ -308,7 +340,6 @@ interface State {
   color: Rgba | "unknown" | undefined;
   /** undefined = not declared (white page), "unknown" = image or not understood */
   background: Rgba | "unknown" | undefined;
-  styledPath: boolean;
 }
 
 interface Frame {
@@ -356,27 +387,31 @@ function cssTexts(root: ParentNode): string[] {
 export function visibleHtml(html: string): VisibleHtml {
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
-  const hasStyle = styles.some((s) => s.replace(/\/\*[\s\S]*?\*\//g, "").trim() !== "");
-  const classRules = parseClassRules(styles);
+  const hasStyle = styles.some((s) => s.replace(CSS_COMMENT, "").trim() !== "");
+  const cssRules = parseRules(styles);
 
   const hidden: string[] = [];
   const removals: HiddenContentRemoved[] = [];
-  const remove = (kind: HiddenKind, text: string) => {
+  const remove = (kind: HiddenKind, raw: string) => {
+    const { text, hiddenText } = stripInvisible(raw);
     const chars = text.replace(/\s/g, "").length;
     if (text.trim()) hidden.push(text);
+    if (hiddenText) hidden.push(hiddenText);
     if (chars > 0) removals.push({ chars, kinds: [kind] });
   };
 
-  const classDecls = (el: Element): Decls => {
-    const merged: Decls = new Map();
-    const classes = (el.attribs.class ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-    const applicable: ClassRule[] = [];
-    for (const cls of classes) {
-      for (const rule of classRules.get(cls) ?? []) if (!rule.tag || rule.tag === el.name) applicable.push(rule);
+  const declsOf = (el: Element): Decls => {
+    const keys = [el.name, ...(el.attribs.class ?? "").toLowerCase().split(/\s+/).filter(Boolean).map((c) => "." + c)];
+    if (el.attribs.id) keys.push("#" + el.attribs.id.toLowerCase());
+    const applicable: CssRule[] = [];
+    for (const key of keys) {
+      for (const rule of cssRules.get(key) ?? []) if (!rule.tag || rule.tag === el.name) applicable.push(rule);
     }
-    applicable.sort((a, b) => a.order - b.order);
-    for (const rule of applicable) for (const [k, v] of rule.decls) merged.set(k, v);
-    return merged;
+    applicable.sort((x, y) => x.specificity - y.specificity || x.order - y.order);
+    const merged = emptyParsed();
+    for (const rule of applicable) overlay(merged, rule.decls);
+    overlay(merged, parseDecls(el.attribs.style ?? ""));
+    return merged.values;
   };
 
   const lengthPx = (d: Decls, prop: string): number | undefined => {
@@ -411,13 +446,18 @@ export function visibleHtml(html: string): VisibleHtml {
     const size = d.get("font-size");
     if (size !== undefined) s.fontPx = fontSizePx(size, parent.fontPx);
 
-    const colorValue = d.get("color") ?? (el.name === "font" ? el.attribs.color?.toLowerCase() : undefined);
+    const legacy = (raw: string | undefined) => {
+      const v = raw?.trim().toLowerCase();
+      return v !== undefined && /^[0-9a-f]{6}$/.test(v) ? "#" + v : v;
+    };
+    const colorValue =
+      d.get("color") ?? legacy(el.name === "font" ? el.attribs.color : el.name === "body" ? el.attribs.text : undefined);
     if (colorValue !== undefined) s.color = parseColor(colorValue) ?? "unknown";
+    else if (el.name === "a") s.color = "unknown"; // links are blue by default
 
     let image = el.attribs.background !== undefined && el.attribs.background !== "";
     if (el.attribs.bgcolor) {
-      const raw = el.attribs.bgcolor.trim();
-      const c = parseColor(/^[0-9a-f]{6}$/i.test(raw) ? `#${raw}` : raw);
+      const c = parseColor(legacy(el.attribs.bgcolor)!);
       if (c === undefined) s.background = "unknown";
       else if (c.a > 0) s.background = c;
     }
@@ -431,13 +471,13 @@ export function visibleHtml(html: string): VisibleHtml {
         .map((t) => t.trim())
         .find((t) => t && parseColor(t) !== undefined);
     }
+    if (bgValue === undefined && bgShort !== undefined && bgShort !== "none") image = true; // gradient, var(), ...
     if (bgValue !== undefined) {
       const c = parseColor(bgValue);
       if (c === undefined) s.background = "unknown";
       else if (c.a > 0) s.background = c;
     }
     if (image) s.background = "unknown";
-    s.styledPath = parent.styledPath || el.attribs.class !== undefined || el.attribs.id !== undefined;
     return s;
   };
 
@@ -446,14 +486,14 @@ export function visibleHtml(html: string): VisibleHtml {
     if (s.fontPx <= HIDDEN_FONT_MAX_PX) return "tiny-font";
     if (s.color !== undefined && s.color !== "unknown" && s.color.a <= HIDDEN_OPACITY_MAX) return "invisible-color";
     if (s.color === "unknown" || s.background === "unknown") return undefined;
-    if ((s.color === undefined || s.background === undefined) && s.styledPath && hasStyle) return undefined;
+    if ((s.color === undefined || s.background === undefined) && hasStyle) return undefined;
     const fg = s.color ?? { r: 0, g: 0, b: 0, a: 1 };
     const bg = s.background ?? { r: 255, g: 255, b: 255, a: 1 };
     const near = (x: number, y: number) => Math.abs(x - y) <= COLOR_DISTANCE_MAX;
     return near(fg.r, bg.r) && near(fg.g, bg.g) && near(fg.b, bg.b) ? "invisible-color" : undefined;
   };
 
-  const initial: State = { visibilityHidden: false, fontPx: 16, color: undefined, background: undefined, styledPath: false };
+  const initial: State = { visibilityHidden: false, fontPx: 16, color: undefined, background: undefined };
   const stack: Frame[] = [{ src: [...doc.children], i: 0, state: initial, depth: 0, kept: [], owner: doc }];
 
   while (stack.length > 0) {
@@ -482,6 +522,10 @@ export function visibleHtml(html: string): VisibleHtml {
       else frame.kept.push(node);
       continue;
     }
+    if (isDirective(node)) {
+      if (node.data.trim()) hidden.push(node.data);
+      continue;
+    }
     if (!isTag(node)) {
       if ("children" in node) {
         // CDATA and similar containers: unwrap
@@ -490,9 +534,14 @@ export function visibleHtml(html: string): VisibleHtml {
       continue;
     }
 
+    if (node.name === "noscript") {
+      const inner = stripInvisible(subtreeText(node));
+      if (inner.text.trim()) hidden.push(inner.text);
+      if (inner.hiddenText) hidden.push(inner.hiddenText);
+      continue;
+    }
     if (REMOVED_SILENTLY.has(node.name)) continue;
-    const decls = classDecls(node);
-    for (const [k, v] of parseDecls(node.attribs.style ?? "")) decls.set(k, v);
+    const decls = declsOf(node);
     const reason = elementReason(node, decls);
     if (reason) {
       remove(reason, subtreeText(node));
