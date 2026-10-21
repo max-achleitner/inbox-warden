@@ -14,6 +14,7 @@ import {
 import * as log from "../logging/logger.js";
 import { authFromEnv } from "./env-auth.js";
 import { SERVER_NAME } from "../version.js";
+import { detectLocale } from "../cli/messages.js";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -136,7 +137,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AppConfig {
           identities: name ? [{ email, name }] : [],
           permissions: parsePermissions(nonEmpty(env.IMAP_MCP_PERMISSIONS)),
           ...(nonEmpty(env.IMAP_MCP_SENT_COPY) ? { sentCopy: nonEmpty(env.IMAP_MCP_SENT_COPY) } : {}),
-          ...(nonEmpty(env.IMAP_MCP_LOCALE) ? { locale: nonEmpty(env.IMAP_MCP_LOCALE) } : {}),
+          locale: nonEmpty(env.IMAP_MCP_LOCALE) ?? detectLocale(env),
           ...(Object.keys(policy).length > 0 ? { policy } : {}),
         },
       ],

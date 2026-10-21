@@ -159,6 +159,12 @@ describe("loadConfig", () => {
     expect(message).toMatch(/IMAP_MCP_IMAP_HOST/);
   });
 
+  it("uses the system language when none is set", () => {
+    const base = { IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" };
+    expect(configFromEnv({ ...base, LANG: "de_AT.UTF-8" }).accounts[0].locale).toBe("de");
+    expect(configFromEnv({ ...base, LANG: "de_AT.UTF-8", IMAP_MCP_LOCALE: "en" }).accounts[0].locale).toBe("en");
+  });
+
   it("loads an existing v2 file unchanged", async () => {
     const config = configFromEnv({ IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com" });
     await saveConfig(config, env);
