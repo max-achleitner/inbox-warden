@@ -2,18 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
+import { scanStats } from "../security/injection-detector.js";
 import { VERSION } from "../version.js";
 
 const serverStartTime = new Date();
-
-// Track security scan stats globally
-let totalScans = 0;
-let totalDetections = 0;
-
-export function recordScan(hasInjection: boolean): void {
-  totalScans++;
-  if (hasInjection) totalDetections++;
-}
 
 export function register(server: McpServer, app: AppContext) {
   defineTool(
@@ -23,7 +15,7 @@ export function register(server: McpServer, app: AppContext) {
       name: "health_check",
       title: "Server health",
       description:
-        "Check the health of the MCP server: connection state per mail account, SMTP configuration (smtp.configured) and whether sending is allowed (smtp.sendAllowed), and security scan statistics",
+        "Check the health of the MCP server: connection state per mail account, SMTP configuration (smtp.configured) and whether sending is allowed (smtp.sendAllowed), and security scan statistics (security.totalScans/totalDetections count since the server started, see security.since)",
       tier: "always",
       input: {},
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -67,7 +59,8 @@ export function register(server: McpServer, app: AppContext) {
       return jsonResult({
         status: overall,
         accounts,
-        security: { injectionDetection: true, totalScans, totalDetections },
+        // Counted per process: they start at 0 when the server starts (`since`)
+        security: { injectionDetection: true, ...scanStats(), since: serverStartTime.toISOString() },
         server: {
           uptime: Math.floor((Date.now() - serverStartTime.getTime()) / 1000),
           version: VERSION,

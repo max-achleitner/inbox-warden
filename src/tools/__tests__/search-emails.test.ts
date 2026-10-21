@@ -99,4 +99,24 @@ describe("search_emails", () => {
     expect(spam).toBeDefined();
     expect(spam.date).toBeUndefined();
   });
+
+  it("orders newest first by date received and pages over that order", async () => {
+    const t = createTestApp();
+    const raw = await buildRaw({ from: "a@example.com", to: "me@example.com", subject: "x" });
+    t.imap().addFolder("Moved");
+    // A moved message gets a high UID but keeps its old date
+    t.imap().addMessage("Moved", raw, { internalDate: new Date("2024-01-01T09:00:00Z") }); // uid 1
+    t.imap().addMessage("Moved", raw, { internalDate: new Date("2021-01-01T09:00:00Z") }); // uid 2
+    t.imap().addMessage("Moved", raw, { internalDate: new Date("2022-01-01T09:00:00Z") }); // uid 3
+    const hh = await t.connect(searchEmails.register);
+    try {
+      const page1 = await hh.call("search_emails", { folder: "Moved", maxResults: 2 });
+      expect(page1.json.sortedBy).toBe("date");
+      expect(page1.json.messages.map((m: any) => m.uid)).toEqual([1, 3]);
+      const page2 = await hh.call("search_emails", { folder: "Moved", maxResults: 2, offset: 2 });
+      expect(page2.json.messages.map((m: any) => m.uid)).toEqual([2]);
+    } finally {
+      await hh.close();
+    }
+  });
 });
