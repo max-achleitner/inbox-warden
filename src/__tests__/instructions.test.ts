@@ -25,6 +25,14 @@ describe("instructions and descriptions", () => {
     await client.close();
   });
 
+  it("tells the model to react to high and critical injection levels only", async () => {
+    const client = await connect();
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions).toContain("riskLevel of high or critical");
+    expect(instructions).not.toContain("medium or higher");
+    await client.close();
+  });
+
   it("marks content-returning tools as untrusted and send tools as explicit-only", async () => {
     const client = await connect();
     const tools = (await client.listTools()).tools;

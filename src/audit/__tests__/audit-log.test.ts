@@ -114,6 +114,14 @@ describe("AuditLog", () => {
     expect(readRecords(dir).map((r) => r.tool)).toEqual(["read_email", "search_emails"]);
   });
 
+  it("records read calls for injection only from medium on", async () => {
+    const audit = new AuditLog(options());
+    await audit.onToolCall(event({ tool: "read_email", tier: "read", details: { injectionRisk: "low" } }));
+    expect(readRecords(dir)).toHaveLength(0);
+    await audit.onToolCall(event({ tool: "read_email", tier: "read", details: { injectionRisk: "medium" } }));
+    expect(readRecords(dir)).toHaveLength(1);
+  });
+
   it("minimal level drops subjects and reduces recipients to count + domains; content never stored", async () => {
     const audit = new AuditLog({ ...options(), level: "minimal" });
     await audit.onToolCall(

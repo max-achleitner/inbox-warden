@@ -21,7 +21,7 @@ Recommended settings for companies. Start with the baseline, then pick a profile
           "maxRecipients": 10,
           "maxPerHour": 10,
           "maxPerDay": 50,
-          "confirmAfterInjectionRisk": "medium"
+          "confirmAfterInjectionRisk": "high"
         },
         "bulk": { "maxMessages": 200, "maxDelete": 50 },
         "folders": { "deny": ["**/HR/**", "**/Personal/**", "**/Geschäftsführung/**"] },
@@ -78,6 +78,8 @@ As soon as `policy.folders` hides any folder, folders that show the mail of all 
 
 - Full-disk encryption, screen lock, current OS updates.
 - Only one person uses the OS account that runs the server.
+- In conversations that read mail, do not let Claude use web fetch, a browser or other internet tools without asking you: a manipulated email could make Claude send data through them, and Inbox Warden never sees that.
+- Keep `files.downloadDir` outside folders that coding agents work in; a saved attachment is content from a stranger.
 - Keep `IMAP_MCP_PROTOCOL_LOG` unset; enable it only for troubleshooting and delete the log afterwards (it can contain message data).
 - Bundle and env-only installations: fill in the IMAP/SMTP server fields or set `IMAP_MCP_NO_AUTOCONFIG=1`; otherwise the server looks up the email domain at every start (DNS MX, `autoconfig.<domain>`, `autoconfig.thunderbird.net`).
 

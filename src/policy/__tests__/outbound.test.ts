@@ -63,6 +63,32 @@ describe("guardOutbound", () => {
     await expect(guardOutbound(t.inv, request)).rejects.toThrow(/cannot show a confirmation dialog/);
   });
 
+  it("in confirm mode an injection finding only adds a warning line", async () => {
+    const elicits = setup({}, { elicitation: { form: {} } });
+    const observe = (t: ReturnType<typeof setup>) =>
+      new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+        tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk: "high" },
+      });
+    observe(elicits);
+    const pending = await guardOutbound(elicits.inv, request);
+    expect(pending.proceed).toBe(false);
+    if (!pending.proceed) {
+      expect(JSON.stringify(pending.result)).toContain("Warning: an email read in this session looked like a manipulation attempt (risk: high)");
+    }
+    const plain = setup();
+    observe(plain);
+    expect(await guardOutbound(plain.inv, request)).toMatchObject({ proceed: true, confirmation: "client-approval" });
+    expect(plain.recorded.injectionEscalation).toBe("high");
+  });
+
+  it("a medium finding does not escalate with the default threshold", async () => {
+    const t = setup({ send: { mode: "direct" } });
+    new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+      tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk: "medium" },
+    });
+    expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required" });
+  });
+
   it("enforces recipient rules before anything else", async () => {
     const t = setup({ send: { blockedRecipientDomains: ["example.com"] } });
     await expect(guardOutbound(t.inv, request)).rejects.toBeInstanceOf(PolicyDeniedError);

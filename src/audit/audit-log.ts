@@ -188,7 +188,7 @@ export class AuditLog implements ToolObserver {
     if (event.tier === "write" || event.tier === "send" || event.tier === "delete") return true;
     if (event.outcome === "denied") return true;
     const risk = event.details.injectionRisk;
-    if (typeof risk === "string" && risk !== "none") return true;
+    if (risk === "medium" || risk === "high" || risk === "critical") return true;
     return this.includeReads;
   }
 

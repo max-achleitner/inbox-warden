@@ -119,7 +119,9 @@ export async function guardOutbound(
   });
 
   const escalation = policy.injectionEscalation();
-  if (policy.sendMode === "direct" && escalation === null) {
+  // In confirm mode a finding only adds a warning to the dialog; in direct mode it forces one.
+  const forced = policy.sendMode === "direct" && escalation !== null;
+  if (policy.sendMode === "direct" && !forced) {
     inv.record({ confirmation: "not-required" });
     return { proceed: true, confirmation: "not-required", recipients, newRecipients };
   }
@@ -127,18 +129,18 @@ export async function guardOutbound(
   const outcome = requireConfirmation(inv, {
     message: confirmationMessage(request, recipients, newRecipients, escalation),
     digest: request.digest,
-    required: escalation !== null || policy.policy.send.requireElicitation,
+    required: forced || policy.policy.send.requireElicitation,
   });
   switch (outcome.status) {
     case "pending":
       return { proceed: false, result: outcome.result };
     case "refused":
-      throw new PolicyDeniedError(outcome.reason, escalation ? "send.injectionEscalation" : "send.confirmation");
+      throw new PolicyDeniedError(outcome.reason, forced ? "send.injectionEscalation" : "send.confirmation");
     case "confirmed":
       inv.record({ confirmation: "elicitation", ...(escalation ? { injectionEscalation: escalation } : {}) });
       return { proceed: true, confirmation: "elicitation", recipients, newRecipients };
     case "client-approval":
-      inv.record({ confirmation: "client-approval" });
+      inv.record({ confirmation: "client-approval", ...(escalation ? { injectionEscalation: escalation } : {}) });
       return { proceed: true, confirmation: "client-approval", recipients, newRecipients };
   }
 }

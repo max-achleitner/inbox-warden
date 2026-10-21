@@ -82,7 +82,7 @@ export function register(server: McpServer, app: AppContext) {
         attachmentNames: attachmentNames.map((n) => n.text).filter(Boolean),
         addressNames: addressNames.map((n) => n.text),
       });
-      if (_injectionScan.hasInjection) {
+      if (_injectionScan.hasInjection && _injectionScan.riskLevel !== "low") {
         log.warn("injection.detected", {
           account: inv.account.id,
           uid,

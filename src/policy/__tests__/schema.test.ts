@@ -12,7 +12,7 @@ describe("PolicySchema", () => {
         maxPerHour: 20,
         maxPerDay: 100,
         flagNewRecipients: true,
-        confirmAfterInjectionRisk: "medium",
+        confirmAfterInjectionRisk: "high",
         requireElicitation: false,
       },
       bulk: { maxMessages: 500, maxDelete: 100 },
@@ -20,6 +20,10 @@ describe("PolicySchema", () => {
       protectedFolders: true,
       attachments: { maxDownloadBytes: 26214400, blockExecutables: true },
     });
+  });
+
+  it("defaults confirmAfterInjectionRisk to high", () => {
+    expect(PolicySchema.parse({}).send.confirmAfterInjectionRisk).toBe("high");
   });
 
   it("normalises recipient domains", () => {
