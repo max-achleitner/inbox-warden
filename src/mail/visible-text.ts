@@ -550,7 +550,7 @@ export function visibleHtml(html: string): VisibleHtml {
       }
       delete el.attribs[name];
       const cleanName = note(stripInvisible(name)).trim();
-      if (cleanName && !(cleanName in el.attribs)) el.attribs[cleanName] = clean;
+      if (cleanName && !Object.hasOwn(el.attribs, cleanName)) el.attribs[cleanName] = clean;
     }
   };
 

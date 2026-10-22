@@ -291,6 +291,9 @@ describe("final review fixes", () => {
         removed: { chars: 5, kinds: ["tag-characters"] },
       }));
 
+    it("keeps a cleaned attribute whose name an object already knows", () =>
+      expect(visibleHtml('<p con\u{200B}structor="1">x</p>').html).toBe('<p constructor="1">x</p>'));
+
     it("judges hiding on the raw attributes", () =>
       expect(plain(visibleHtml('<div hid\u{200B}den>sichtbar</div>').html)).toBe("sichtbar"));
 
