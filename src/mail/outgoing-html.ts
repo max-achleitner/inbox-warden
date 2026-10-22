@@ -27,6 +27,8 @@ const REMOVED_ELEMENTS = new Set([
   "video", "audio", "source", "track", "portal",
   // raw-text containers: their content is parsed differently by a renderer than by us
   "noscript", "xmp", "noembed", "noframes", "plaintext",
+  // SVG animations can set an href to a remote URL
+  "animate", "set", "animatetransform", "animatemotion",
 ]);
 /** SVG elements that load a resource through href / xlink:href. */
 const SVG_HREF_ELEMENTS = new Set(["image", "use", "feimage", "mpath", "tref", "pattern", "lineargradient", "radialgradient", "filter"]);
@@ -223,6 +225,10 @@ function peakNesting(html: string): number {
   return peak;
 }
 
+/** The serializer runs without its own encoding: text escapes & < >, attributes also ", everything else stays UTF-8. */
+const encodeText = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const encodeAttribute = (v: string) => encodeText(v).replace(/"/g, "&quot;");
+
 function textOf(el: Element): string {
   let s = "";
   for (const child of el.children) if (child.type === "text") s += (child as Text).data;
@@ -244,6 +250,11 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
 
   while (stack.length > 0) {
     const { node, depth } = stack.pop()!;
+    if (node.type === "text") {
+      const parent = node.parent as Element | null;
+      if (!parent || (parent.name !== "style" && parent.name !== "script")) (node as Text).data = encodeText((node as Text).data);
+      continue;
+    }
     if (!isTag(node)) {
       // comments (conditional ones are read by Outlook, VML can fetch images), CDATA and directives other than the doctype
       const droppable = node.type === "comment" || node.type === "cdata" || (node.type === "directive" && !/^!doctype/i.test((node as { name?: string }).name ?? ""));
@@ -278,7 +289,7 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
     }
     if (name === "img" && attrs.src !== undefined && isRemote(attrs.src)) {
       const alt = attrs.alt?.trim();
-      if (alt) DomUtils.replaceElement(node, new Text(alt));
+      if (alt) DomUtils.replaceElement(node, new Text(encodeText(alt)));
       else DomUtils.removeElement(node);
       removedCount++;
       continue;
@@ -304,14 +315,6 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       }
     }
 
-    if (name === "style") {
-      const cleaned = cleanCss(textOf(node));
-      removedCount += cleaned.removed;
-      for (const child of [...node.children]) DomUtils.removeElement(child);
-      if (cleaned.css !== "") DomUtils.appendChild(node, new Text(cleaned.css));
-      continue;
-    }
-
     const targets: Array<string | undefined> = [];
     if (name === "a" || name === "area") targets.push(attrs.href);
     if (name === "form") targets.push(attrs.action);
@@ -325,12 +328,22 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       }
     }
 
+    for (const key of Object.keys(attrs)) attrs[key] = encodeAttribute(attrs[key]);
+
+    if (name === "style") {
+      const cleaned = cleanCss(textOf(node));
+      removedCount += cleaned.removed;
+      for (const child of [...node.children]) DomUtils.removeElement(child);
+      if (cleaned.css !== "") DomUtils.appendChild(node, new Text(cleaned.css));
+      continue;
+    }
+
     const children = (node as ParentNode).children;
     for (let i = children.length - 1; i >= 0; i--) stack.push({ node: children[i], depth: depth + 1 });
   }
 
   return {
-    html: DomUtils.getOuterHTML(doc, { encodeEntities: true }),
+    html: DomUtils.getOuterHTML(doc, { encodeEntities: false }),
     remoteContentRemoved: removedCount,
     linkTargets,
     linkTargetsOmitted: omitted,

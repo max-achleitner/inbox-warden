@@ -66,6 +66,29 @@ describe("withoutRemoteContent", () => {
     expect(r.html).not.toMatch(/h\.example|<!--/);
     expect(r.remoteContentRemoved).toBe(1);
   });
+  it("keeps quotes, apostrophes and non-ASCII text as they are", () => {
+    const html = "<p>it's \"q\" ä 漢字 😀 &amp; &lt;b&gt;</p>";
+    expect(withoutRemoteContent(html).html).toBe(html);
+  });
+  it("escapes markup in attributes without &apos;", () => {
+    const r = withoutRemoteContent("<p title=\"a<b>'c&quot;\">x</p>");
+    expect(r.html).toContain("&lt;");
+    expect(r.html).toContain("&gt;");
+    expect(r.html).toContain("&quot;");
+    expect(r.html).not.toContain("&apos;");
+    expect(r.html).not.toMatch(/title="[^"]*[<>]/);
+  });
+  it("lists link targets as they are written, not escaped", () => {
+    const r = withoutRemoteContent('<a href="https://shop.example/a?x=1&amp;y=2">a</a>');
+    expect(r.linkTargets).toEqual(["https://shop.example/a?x=1&y=2"]);
+    expect(r.html).toContain("x=1&amp;y=2");
+  });
+  it("keeps alt text escaped and removes SVG animations", () => {
+    const r = withoutRemoteContent('<img src="https://h.example/x" alt="a<b>&amp;"><svg><a><animate attributeName="href" to="https://h.example/y"/></a></svg>');
+    expect(r.html).toContain("a&lt;b&gt;&amp;");
+    expect(r.html).not.toContain("h.example");
+    expect(r.remoteContentRemoved).toBe(2);
+  });
   it("removes noscript and similar raw-text containers and escapes markup in attributes", () => {
     const r = withoutRemoteContent('<noscript><p title="</noscript><img src=//h.example/x>"></noscript><xmp>x</xmp><p title="a<b>c">t</p>');
     expect(r.html).not.toMatch(/h\.example|noscript|xmp/);
