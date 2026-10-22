@@ -13,7 +13,7 @@ Client (claude.ai, Claude Code, Agent SDK) → HTTPS (Caddy, TLS 1.2+) → Inbox
 | Bearer | Claude Code, Agent SDK, routines | 256-bit random tokens; only SHA-256 stored; constant-time check; per-token mailbox mapping; revocation by config change |
 | OAuth | People via claude.ai | Organisation IdP (Entra ID / Keycloak); JWT signature via JWKS, issuer, audience, expiry, scope checks; RFC 9728 metadata; per-user/group mailbox mapping; unmatched users → 403 |
 
-Within a mailbox, the account's permission tiers (read/write/send/delete) and the Plan 5 policy (send mode, recipient rules, rate limits, folder scope, bulk caps) apply unchanged. The caller identity is written to the audit log for every tool call.
+Within a mailbox, the account's permission tiers (read/write/send/delete) and the Plan 5 policy (send mode, recipient rules, rate limits, folder scope, bulk caps) apply unchanged. The caller identity is written to the audit log for every tool call. The recipient provenance store behind `recipientWarnings` exists once per server process and is shared by all principals: addresses in mail one caller read can raise warnings in another caller's drafts, and one caller's flood of addresses puts every caller's drafts into the `mail-content-not-tracked` state for 24 hours.
 
 ## Network and runtime hardening
 

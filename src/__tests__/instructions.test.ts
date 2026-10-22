@@ -25,9 +25,15 @@ describe("instructions and descriptions", () => {
     await client.close();
   });
 
-  it("tells the model to report recipientWarnings", async () => {
+  it("tells the model to report recipientWarnings and replyToNote, in words that fit every reason", async () => {
     const client = await connect();
-    expect(client.getInstructions() ?? "").toContain("recipientWarnings");
+    const instructions = client.getInstructions() ?? "";
+    const line = instructions.split("\n").find((l) => l.includes("recipientWarnings")) ?? "";
+    expect(line).toContain("replyToNote");
+    expect(line).toContain("could not confirm");
+    expect(line).toContain("too much mail to keep track of");
+    expect(line).toContain("before they send");
+    expect(line).not.toContain("appears only inside a received email");
     await client.close();
   });
 
