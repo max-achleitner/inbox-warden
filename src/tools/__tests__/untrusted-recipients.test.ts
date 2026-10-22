@@ -244,6 +244,17 @@ describe("untrusted recipients when sending", () => {
     await h.close();
   });
 
+  it("a declined dialog keeps the plain decline result", async () => {
+    const { t, h } = await connectWith({ elicitation: () => ({ action: "decline" }) });
+    const res = await h.call("send_email", { to: EVIL, subject: "Rechnung", body: "Hallo" });
+    expect(res.isError).toBe(true);
+    expect(h.elicitations).toHaveLength(1);
+    expect(res.text).toMatch(/declined or cancelled/);
+    expect(res.text).not.toContain("confirmation is required because");
+    expect(t.capture().sent).toHaveLength(0);
+    await h.close();
+  });
+
   it("a Bcc-only untrusted recipient also needs the dialog", async () => {
     const { t, h } = await connectWith(accept);
     const res = await h.call("send_email", { to: "news@shop.example", bcc: EVIL, subject: "Rechnung", body: "Hallo" });

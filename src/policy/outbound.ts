@@ -4,7 +4,7 @@ import type { ToolInvocation } from "../tools/shared/define-tool.js";
 import { findSpecialFolder } from "../imap/folders.js";
 import { strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
 import { PolicyDeniedError, type PolicyEngine, type RiskLevel } from "./engine.js";
-import { requireConfirmation } from "./confirm.js";
+import { CONFIRM_KEY, requireConfirmation } from "./confirm.js";
 import type { ProvenanceChannel, RecipientWarningReason } from "./provenance.js";
 import * as log from "../logging/logger.js";
 
@@ -201,7 +201,9 @@ export async function guardOutbound(
     case "pending":
       return { proceed: false, result: outcome.result };
     case "refused":
-      if (warnings.length > 0) {
+      // only when no dialog could be shown; an answered (declined, mismatched) dialog keeps its own result
+      const answered = inv.sdk.mcpReq.inputResponses !== undefined && CONFIRM_KEY in inv.sdk.mcpReq.inputResponses;
+      if (warnings.length > 0 && !answered) {
         throw new PolicyDeniedError(
           `${outcome.reason} The confirmation is required because these recipients appear only inside a received email: ${warnings.map((w) => w.address).join(", ")}.`,
           "send.untrustedRecipients",
