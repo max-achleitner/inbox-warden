@@ -1,6 +1,6 @@
 import { compile, type FormatCallback } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
-import { mergeRemoved, stripInvisible, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
+import { mergeRemoved, stripInvisible, uncheckedHtml, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
 
 export interface TextSource {
   text?: string;
@@ -132,13 +132,14 @@ export function textPartDiffers(plain: string, visibleHtmlText: string): boolean
  * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
  * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
  * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
- * HTML too costly to parse is never shown (`htmlTooComplex`): then only the text part is.
+ * HTML too costly to parse is never shown (`htmlTooComplex`): then only the text part is. `parseHtml: false` takes that
+ * way without looking at the HTML (for a caller's time budget).
  */
-export function fullText(parsed: TextSource): FullText {
+export function fullText(parsed: TextSource, options: { parseHtml?: boolean } = {}): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
   const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
   const plainText = plain ? clean(plain.text) : "";
-  const vh = parsed.html ? visibleHtml(parsed.html) : undefined;
+  const vh = parsed.html ? (options.parseHtml === false ? uncheckedHtml(parsed.html) : visibleHtml(parsed.html)) : undefined;
   if (vh?.tooComplex) {
     // Fail closed: the unchecked HTML shows nothing, the text part is all a reader can be shown
     return {

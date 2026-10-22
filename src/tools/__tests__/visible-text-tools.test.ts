@@ -6,6 +6,7 @@ import { simpleParser } from "mailparser";
 import { createTestApp } from "../../__tests__/helpers/test-app.js";
 import { buildRaw } from "../../__tests__/helpers/messages.js";
 import { mailFixture } from "../../__tests__/helpers/mail-fixtures.js";
+import { nestedNewsletter } from "../../__tests__/helpers/newsletter.js";
 import * as readEmail from "../read-email.js";
 import * as getThread from "../get-thread.js";
 import * as replyDraft from "../reply-draft.js";
@@ -215,6 +216,39 @@ describe("HTML too complex to check for hidden text", () => {
     expect(JSON.stringify(res.json)).not.toMatch(/Sichtbar|wire the money/);
     await h.close();
   });
+
+  it("get_thread checks at most 10 MB of HTML per call; later messages show their text part", async () => {
+    const t = createTestApp();
+    for (let i = 1; i <= 4; i++) {
+      t.imap().addMessage(
+        "INBOX",
+        await buildRaw({
+          from: "Shop <news@shop.example>",
+          to: "max@firma.example",
+          subject: `Angebote ${i}`,
+          text: `Teil ${i}`,
+          html: nestedNewsletter({ bytes: 4 * 1024 * 1024, tableDepth: 20 }),
+          messageId: `<n${i}@shop.example>`,
+          ...(i > 1 ? { inReplyTo: `<n${i - 1}@shop.example>`, references: Array.from({ length: i - 1 }, (_, k) => `<n${k + 1}@shop.example>`) } : {}),
+          date: new Date(`2026-01-1${i}T09:00:00Z`),
+        }),
+      );
+    }
+    const h = await t.connect(getThread.register);
+    const start = performance.now();
+    const res = await h.call("get_thread", { uid: 1 });
+    const ms = performance.now() - start;
+    expect(res.isError).toBe(false);
+    const messages = res.json.messages as Array<Record<string, unknown>>;
+    expect(messages.map((m) => m.subject)).toEqual(["Angebote 1", "Angebote 2", "Angebote 3", "Angebote 4"]);
+    for (const m of messages.slice(0, 2)) {
+      expect(m).not.toHaveProperty("htmlTooComplex");
+      expect(m.text).toContain("Produkt 0");
+    }
+    for (const [k, m] of messages.slice(2).entries()) expect(m).toMatchObject({ text: `Teil ${k + 3}`, htmlTooComplex: true, note: NOTE });
+    expect(ms).toBeLessThan(20_000);
+    await h.close();
+  }, 60_000);
 
   it("download_attachment returns no text for such an HTML file", async () => {
     const { h } = await withMail(

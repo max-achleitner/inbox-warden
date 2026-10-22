@@ -590,8 +590,8 @@ function scanText(html: string): string {
   return [text.text, text.hiddenText].filter(Boolean).join("\n");
 }
 
-/** Not parsed and not shown: all of its text goes to the scanner. */
-function tooComplex(html: string): VisibleHtml {
+/** HTML that is not checked (too complex, too large, over a budget): not parsed, not shown; all of its text is scanned. */
+export function uncheckedHtml(html: string): VisibleHtml {
   return { html: "", hiddenText: scanText(html), tooComplex: true };
 }
 
@@ -632,11 +632,11 @@ function cutFrameContent(html: string): { html: string; cut: string[] } {
 }
 
 export function visibleHtml(input: string): VisibleHtml {
-  if (input.length > MAX_HTML_BYTES) return tooComplex(input);
+  if (input.length > MAX_HTML_BYTES) return uncheckedHtml(input);
   const frames = cutFrameContent(input);
   const html = frames.html;
   // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
-  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return tooComplex(input);
+  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return uncheckedHtml(input);
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
   // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
@@ -857,7 +857,7 @@ export function visibleHtml(input: string): VisibleHtml {
   // <xmp> unescaped, so after "<xmp/>" a decoded "</xmp>" ends it early and the rest becomes elements. The copy must
   // pass the same gate.
   const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
-  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return tooComplex(input);
+  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return uncheckedHtml(input);
   removals.push(markup.removed);
   const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {
