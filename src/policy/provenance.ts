@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, createSecretKey, randomBytes } from "node:crypto";
 import { domainSuffixes, normalizeDomain, relatedDomains } from "./recipients.js";
 
 /** "mail-content-not-tracked": the store overflowed (see ProvenanceStore), so any recipient that is no correspondent may come from mail content. */
@@ -203,7 +203,11 @@ type HashSet = Map<string, number>;
  * hashes only (HMAC-SHA256 with a random key per process): nothing here can be turned back into an address.
  */
 export class ProvenanceStore implements ProvenanceChannel {
-  readonly #key = randomBytes(32);
+  /**
+   * A KeyObject, not the bytes: for a Buffer key, createHmac on Node 24.21 tests whether it is a KeyObject or a
+   * CryptoKey by throwing and catching two errors per call, which makes every hash about 6 times slower.
+   */
+  readonly #key = createSecretKey(randomBytes(32));
   readonly #now: () => number;
   readonly #ttlMs: number;
   readonly #maxEntries: number;

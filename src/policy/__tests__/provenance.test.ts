@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { inspect } from "node:util";
-import { FREEMAIL_DOMAINS, PROVENANCE_MAX_PER_CALL, PROVENANCE_TTL_MS, ProvenanceStore, headerSeen, normalizeAddress } from "../provenance.js";
+import {
+  FREEMAIL_DOMAINS, PROVENANCE_MAX_ENTRIES, PROVENANCE_MAX_PER_CALL, PROVENANCE_TTL_MS, ProvenanceStore, headerSeen, normalizeAddress,
+} from "../provenance.js";
 
 describe("ProvenanceStore", () => {
   it("flags an address named only in mail text", () => {
@@ -175,11 +177,20 @@ describe("ProvenanceStore cost on large mail", () => {
   ])("4 MB of %s", (_n, unit) => {
     expect(timed(() => new ProvenanceStore().noteSeen({ texts: [fill(unit)] }))).toBeLessThan(1500);
   });
-  it("many calls that each fill the set stay cheap", () => {
-    const p = new ProvenanceStore({ maxEntries: 1000 });
-    let text = "";
-    for (let i = 0; i < 4000; i++) text += "u" + i + "@h" + i + ".example ";
-    expect(timed(() => { for (let k = 0; k < 20; k++) p.noteSeen({ texts: [text.replace(/example/g, "e" + k)] }); })).toBeLessThan(5000);
+  it("calls against a full store cost about as much as the calls that filled it", () => {
+    // At the real cap: an eviction that starts a new Map iterator over the deleted slots for every dropped entry (the
+    // replaced one-by-one eviction) makes the evicting calls 3 to 7 times slower than the filling ones; at a cap of 1,000
+    // it adds only a few percent. Medians, so that one garbage collection or a busy machine does not decide the ratio.
+    // The total (about 1 s alone, 2.6 s in a parallel run) only guards against a large slowdown of every call.
+    const p = new ProvenanceStore();
+    let unit = "";
+    for (let i = 0; i < PROVENANCE_MAX_PER_CALL; i++) unit += "u" + i + "@h" + i + ".example ";
+    const fillCalls = Math.floor(PROVENANCE_MAX_ENTRIES / PROVENANCE_MAX_PER_CALL);
+    const texts = Array.from({ length: fillCalls + 16 }, (_, k) => unit.replace(/example/g, "e" + k));
+    const perCall = texts.map((text) => timed(() => p.noteSeen({ texts: [text] })));
+    const median = (ms: number[]) => [...ms].sort((a, b) => a - b)[Math.floor(ms.length / 2)];
+    expect(median(perCall.slice(fillCalls)) / median(perCall.slice(0, fillCalls))).toBeLessThan(2.5);
+    expect(perCall.reduce((a, b) => a + b)).toBeLessThan(8000);
   });
 });
 
