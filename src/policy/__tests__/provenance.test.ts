@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { inspect } from "node:util";
-import { FREEMAIL_DOMAINS, PROVENANCE_TTL_MS, ProvenanceStore, headerSeen, normalizeAddress } from "../provenance.js";
+import { FREEMAIL_DOMAINS, PROVENANCE_MAX_PER_CALL, PROVENANCE_TTL_MS, ProvenanceStore, headerSeen, normalizeAddress } from "../provenance.js";
 
 describe("ProvenanceStore", () => {
   it("flags an address named only in mail text", () => {
@@ -55,21 +55,82 @@ describe("ProvenanceStore", () => {
     now = PROVENANCE_TTL_MS + 1;
     expect(p.contentOnly(["billing@evil.example"])).toEqual([]);
   });
-  it("drops the oldest entries above the cap", () => {
+  it("drops the oldest entries above the cap, and says that it forgot", () => {
     const p = new ProvenanceStore({ maxEntries: 2 });
     p.noteSeen({ texts: ["a@a.example"] }, { texts: ["b@b.example"] }, { texts: ["c@c.example"] });
-    expect(p.contentOnly(["a@a.example", "c@c.example"]).map((w) => w.address)).toEqual(["c@c.example"]);
+    expect(p.contentOnly(["c@c.example"]).map((w) => w.reason)).toEqual(["only-in-mail-content"]);
+    // "a" is gone, but the store knows it dropped content: unknown recipients are not silently trusted
+    expect(p.contentOnly(["a@a.example"]).map((w) => w.reason)).toEqual(["mail-content-not-tracked"]);
+    expect(p.contentOnly(["anna@kunde.example"]).map((w) => w.reason)).toEqual(["mail-content-not-tracked"]);
   });
-  it("keeps no address or domain in clear text", () => {
+  it("keeps earlier evidence when one mail floods the store", () => {
     const p = new ProvenanceStore();
-    p.noteSeen({ texts: ["billing@evil.example https://pay.evil.example"], correspondents: ["anna@kunde.example"] });
-    expect(inspect(p, { depth: 10, showHidden: true })).not.toMatch(/evil\.example|kunde\.example/);
+    p.noteSeen({ texts: ["Bitte an evil@evil.example"] });
+    let flood = "";
+    for (let i = 0; i < 60_000; i++) flood += "u" + i + "@h" + i + ".example ";
+    p.noteSeen({ texts: [flood] });
+    expect(p.contentOnly(["evil@evil.example"])).toEqual([{ address: "evil@evil.example", reason: "only-in-mail-content" }]);
   });
-  it("handles megabytes of text without blowing up", () => {
+  it("marks the store as overflowed when one call names more than the per-call cap, for one TTL", () => {
+    let now = 1000;
+    const p = new ProvenanceStore({ now: () => now });
+    p.noteSeen({ correspondents: ["anna@kunde.example"] });
+    let flood = "";
+    for (let i = 0; i <= PROVENANCE_MAX_PER_CALL; i++) flood += "u" + i + "@h" + i + ".example ";
+    p.noteSeen({ texts: [flood] });
+    expect(p.contentOnly(["never@seen.example"])).toEqual([{ address: "never@seen.example", reason: "mail-content-not-tracked" }]);
+    expect(p.contentOnly(["anna@kunde.example"])).toEqual([]);
+    now += PROVENANCE_TTL_MS - 1;
+    p.noteSeen({ texts: ["x"] }); // pruning must not end the overflow early
+    expect(p.contentOnly(["never@seen.example"])).toHaveLength(1);
+    now += 2;
+    expect(p.contentOnly(["never@seen.example"])).toEqual([]);
+  });
+  it("keeps only keyed hashes", () => {
     const p = new ProvenanceStore();
-    const start = Date.now();
-    p.noteSeen({ texts: ["@".repeat(2_000_000), "a".repeat(2_000_000), "http://".repeat(300_000), "x@".repeat(500_000)] });
-    expect(Date.now() - start).toBeLessThan(5000);
+    p.noteSeen({ texts: ["billing@evil.example https://pay.evil.example"], correspondents: ["anna@kunde.example"], named: ["z@zahlung.example"] });
+    const { keys, values } = p.snapshotForTests();
+    expect(keys.length).toBeGreaterThan(5);
+    for (const key of keys) expect(key).toMatch(/^[0-9a-f]{64}$/);
+    for (const value of values) expect(typeof value).toBe("number");
+    expect(JSON.stringify([keys, values])).not.toMatch(/evil|kunde|zahlung|example/);
+    expect(inspect(p, { depth: 10, showHidden: true })).not.toMatch(/evil.example|kunde.example/);
+  });
+  it("uses different keys per store", () => {
+    const one = new ProvenanceStore();
+    const two = new ProvenanceStore();
+    one.noteSeen({ texts: ["a@b.example"] });
+    two.noteSeen({ texts: ["a@b.example"] });
+    expect(one.snapshotForTests().keys[0]).not.toBe(two.snapshotForTests().keys[0]);
+  });
+});
+
+describe("ProvenanceStore cost on large mail", () => {
+  const timed = (fn: () => void) => {
+    const start = performance.now();
+    fn();
+    return performance.now() - start;
+  };
+  it("100,000 unique addresses in one text", () => {
+    let text = "";
+    for (let i = 0; i < 100_000; i++) text += "u" + i + "@h" + i + ".example ";
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: [text] }))).toBeLessThan(1500);
+  });
+  it("about 4 MB of unique address and link pairs", () => {
+    let text = "";
+    for (let i = 0; text.length < 4_000_000; i++) text += "user" + i + "@host" + i + ".example https://h" + i + ".example/p ";
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: [text] }))).toBeLessThan(1500);
+  });
+  it("2 MB of prose and of at-signs", () => {
+    const prose = "Hallo Herr Mueller, bitte melden Sie sich unter https://shop.example/x oder a@b.example. ".repeat(24_000);
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: [prose] }))).toBeLessThan(1500);
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: ["x@".repeat(1_000_000), "@".repeat(2_000_000)] }))).toBeLessThan(1500);
+  });
+  it("many calls that each fill the set stay cheap", () => {
+    const p = new ProvenanceStore({ maxEntries: 1000 });
+    let text = "";
+    for (let i = 0; i < 4000; i++) text += "u" + i + "@h" + i + ".example ";
+    expect(timed(() => { for (let k = 0; k < 20; k++) p.noteSeen({ texts: [text.replace(/example/g, "e" + k)] }); })).toBeLessThan(5000);
   });
 });
 

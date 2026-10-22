@@ -1,7 +1,8 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { domainSuffixes, normalizeDomain, relatedDomains } from "./recipients.js";
 
-export type RecipientWarningReason = "only-in-mail-content" | "domain-only-in-mail-content";
+/** "mail-content-not-tracked": the store overflowed (see ProvenanceStore), so any recipient that is no correspondent may come from mail content. */
+export type RecipientWarningReason = "only-in-mail-content" | "domain-only-in-mail-content" | "mail-content-not-tracked";
 
 export interface SeenMail {
   /** Returned text, subjects, display names, file names: addresses and link hosts in them count as mail content. */
@@ -31,6 +32,8 @@ export interface AddressLike {
 export const PROVENANCE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Per set. */
 export const PROVENANCE_MAX_ENTRIES = 50_000;
+/** Unique addresses (and link hosts) one noteSeen call stores per kind; more makes the store overflow. */
+export const PROVENANCE_MAX_PER_CALL = 5_000;
 
 /** Domains many unrelated people share: a link or address on them says nothing about other addresses there. */
 export const FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
@@ -80,22 +83,23 @@ function isDomainChar(text: string, i: number): boolean {
   return c === 46 || c === 45 || isWord(c, text[i]);
 }
 
-/** Addresses in free text, in one pass with bounded work per "@" (mail text can be megabytes). */
-function addressesIn(text: string): string[] {
-  const found: string[] = [];
+/**
+ * Candidate addresses in free text, in one pass with bounded work per "@" (mail text can be megabytes).
+ * `emit` returns false to stop scanning.
+ */
+function addressesIn(text: string, emit: (candidate: string) => boolean): void {
   let at = text.indexOf("@");
   while (at !== -1) {
     let start = at;
     while (start > 0 && at - start < MAX_LOCAL && isLocalChar(text, start - 1)) start--;
     let end = at + 1;
     while (end < text.length && end - at <= MAX_DOMAIN && isDomainChar(text, end)) end++;
-    if (start < at && end > at + 1) {
-      const address = normalizeAddress(text.slice(start, end).replace(/^[.'\-]+/, ""));
-      if (address) found.push(address);
+    // a domain needs a dot: cheap rejection of "x@x@x@…" before any normalising
+    if (start < at && end > at + 1 && text.slice(at + 1, end).includes(".")) {
+      if (!emit(text.slice(start, end).replace(/^[.'-]+/, ""))) return;
     }
     at = text.indexOf("@", at + 1);
   }
-  return found;
 }
 
 const HOST_END = /[\s\/?#<>"'\\)\]]/;
@@ -107,9 +111,8 @@ function hostFrom(run: string): string | null {
 }
 
 /** Hosts of http(s):// and www. links in free text. */
-function linkHostsIn(text: string): string[] {
+function linkHostsIn(text: string, emit: (host: string) => boolean): void {
   const lower = text.toLowerCase();
-  const hosts: string[] = [];
   for (const marker of ["http://", "https://", "www."]) {
     let from = lower.indexOf(marker);
     while (from !== -1) {
@@ -117,11 +120,10 @@ function linkHostsIn(text: string): string[] {
       let end = start;
       while (end < lower.length && end - start < MAX_HOST_RUN && !HOST_END.test(lower[end])) end++;
       const host = hostFrom(lower.slice(start, end));
-      if (host) hosts.push(host);
+      if (host && !emit(host)) return;
       from = lower.indexOf(marker, from + marker.length);
     }
   }
-  return hosts;
 }
 
 /** The headers of one message, split into who the mail came from and what it merely names. */
@@ -154,6 +156,7 @@ export class ProvenanceStore implements ProvenanceChannel {
   readonly #correspondentDomains: HashSet = new Map();
   readonly #contentAddresses: HashSet = new Map();
   readonly #contentDomains: HashSet = new Map();
+  #overflowUntil = 0;
 
   constructor(options: { now?: () => number; ttlMs?: number; maxEntries?: number } = {}) {
     this.#now = options.now ?? Date.now;
@@ -164,21 +167,57 @@ export class ProvenanceStore implements ProvenanceChannel {
   noteSeen(...seen: SeenMail[]): void {
     const now = this.#now();
     for (const set of this.#sets()) this.#prune(set, now);
+
+    // Unique candidates per kind, capped per call: a flood fills the cap, it never pushes older evidence out.
+    let over = false;
+    const correspondents = new Set<string>();
+    const named = new Set<string>();
+    const hosts = new Set<string>();
+    const take = (sink: Set<string>, value: string): boolean => {
+      if (sink.has(value)) return true;
+      if (sink.size >= PROVENANCE_MAX_PER_CALL) {
+        over = true;
+        return false;
+      }
+      sink.add(value);
+      return true;
+    };
+    const rawSeen = new Set<string>();
+    let addressesFull = false;
+    let hostsFull = false;
     for (const s of seen) {
       for (const raw of s.correspondents ?? []) {
         const address = normalizeAddress(raw);
-        if (address) this.#addAddress(address, this.#correspondentAddresses, this.#correspondentDomains, now);
+        if (address) take(correspondents, address);
       }
       for (const raw of s.named ?? []) {
         const address = normalizeAddress(raw);
-        if (address) this.#addAddress(address, this.#contentAddresses, this.#contentDomains, now);
+        if (address) take(named, address);
       }
       for (const text of s.texts ?? []) {
         if (!text) continue;
-        for (const address of addressesIn(text)) this.#addAddress(address, this.#contentAddresses, this.#contentDomains, now);
-        for (const host of linkHostsIn(text)) for (const d of domainSuffixes(host)) this.#add(this.#contentDomains, d, now);
+        if (!addressesFull) {
+          addressesIn(text, (raw) => {
+            if (rawSeen.has(raw)) return true;
+            const address = normalizeAddress(raw);
+            if (!address) return true;
+            if (rawSeen.size >= 4 * PROVENANCE_MAX_PER_CALL) {
+              over = true;
+              addressesFull = true;
+              return false;
+            }
+            rawSeen.add(raw);
+            return take(named, address) || ((addressesFull = true), false);
+          });
+        }
+        if (!hostsFull) linkHostsIn(text, (host) => take(hosts, host) || ((hostsFull = true), false));
       }
     }
+
+    for (const address of correspondents) this.#addAddress(address, this.#correspondentAddresses, this.#correspondentDomains, now, false);
+    for (const address of named) this.#addAddress(address, this.#contentAddresses, this.#contentDomains, now, true);
+    for (const host of hosts) for (const d of domainSuffixes(host)) this.#add(this.#contentDomains, d, now, true);
+    if (over) this.#overflowUntil = now + this.#ttlMs;
   }
 
   contentOnly(recipients: string[]): ContentOnlyRecipient[] {
@@ -203,6 +242,15 @@ export class ProvenanceStore implements ProvenanceChannel {
         out.push({ address, reason: "domain-only-in-mail-content" });
       }
     }
+    // Overflow: some mail content was not remembered, so anyone who is not a known correspondent may come from it
+    if (now < this.#overflowUntil) {
+      const warned = new Set(out.map((w) => w.address));
+      for (const address of done) {
+        if (!warned.has(address) && !this.#has(this.#correspondentAddresses, address, now)) {
+          out.push({ address, reason: "mail-content-not-tracked" });
+        }
+      }
+    }
     return out;
   }
 
@@ -214,16 +262,29 @@ export class ProvenanceStore implements ProvenanceChannel {
     return createHmac("sha256", this.#key).update(value).digest("hex");
   }
 
-  #addAddress(address: string, addresses: HashSet, domains: HashSet, now: number): void {
-    this.#add(addresses, address, now);
-    for (const d of domainSuffixes(address.slice(address.lastIndexOf("@") + 1))) this.#add(domains, d, now);
+  #addAddress(address: string, addresses: HashSet, domains: HashSet, now: number, content: boolean): void {
+    this.#add(addresses, address, now, content);
+    for (const d of domainSuffixes(address.slice(address.lastIndexOf("@") + 1))) this.#add(domains, d, now, content);
   }
 
-  #add(set: HashSet, value: string, now: number): void {
+  #add(set: HashSet, value: string, now: number, content: boolean): void {
     const key = this.#hash(value);
     set.delete(key); // a new sighting moves the entry to the back
     set.set(key, now);
-    while (set.size > this.#maxEntries) set.delete(set.keys().next().value as string);
+    if (set.size <= this.#maxEntries) return;
+    // Drop a batch at once (down to 90 %), in one linear pass, so a full set costs O(1) per entry on average
+    let drop = set.size - Math.max(1, Math.floor(this.#maxEntries * 0.9));
+    for (const oldest of set.keys()) {
+      if (drop-- <= 0) break;
+      set.delete(oldest);
+    }
+    if (content) this.#overflowUntil = now + this.#ttlMs;
+  }
+
+  /** For tests: what the store holds. Keys are hashes; timestamps are the only values. */
+  snapshotForTests(): { keys: string[]; values: number[] } {
+    const entries = this.#sets().flatMap((set) => [...set]);
+    return { keys: entries.map(([k]) => k), values: entries.map(([, v]) => v) };
   }
 
   #has(set: HashSet, value: string, now: number): boolean {
