@@ -81,6 +81,55 @@ describe("guardOutbound", () => {
     expect(plain.recorded.injectionEscalation).toBe("high");
   });
 
+  describe("refusal rules and escalation outcomes", () => {
+    const observe = (t: ReturnType<typeof setup>, injectionRisk: "high" | "critical") =>
+      new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+        tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk },
+      });
+    const rejection = async (promise: Promise<unknown>) => {
+      try {
+        await promise;
+      } catch (err) {
+        return err;
+      }
+      throw new Error("expected a refusal");
+    };
+
+    it("direct mode with a high finding and no dialog is refused with send.injectionEscalation", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      observe(t, "high");
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.injectionEscalation");
+    });
+
+    it("confirm mode with requireElicitation and no dialog is refused with send.confirmation", async () => {
+      const t = setup({ send: { requireElicitation: true } });
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.confirmation");
+    });
+
+    it("confirm mode with a finding and unknown client capabilities is refused", async () => {
+      const t = setup();
+      t.inv.clientCapabilities = () => undefined as never;
+      observe(t, "high");
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.confirmation");
+    });
+
+    it("a critical finding in confirm mode with a dialog is pending and carries the warning line", async () => {
+      const t = setup({}, { elicitation: { form: {} } });
+      observe(t, "critical");
+      const decision = await guardOutbound(t.inv, request);
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        expect(JSON.stringify(decision.result)).toContain("looked like a manipulation attempt (risk: critical)");
+      }
+    });
+  });
+
   it("a medium finding does not escalate with the default threshold", async () => {
     const t = setup({ send: { mode: "direct" } });
     new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({

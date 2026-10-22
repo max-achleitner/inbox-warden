@@ -46,6 +46,7 @@ Jede schreibende, sendende oder löschende Aktion wird in einem **manipulationss
 - Wer Sende-Bestätigungen ungelesen erteilt, hebt die Schutzwirkung auf – daher „nur Entwürfe“ als Standard.
 - Die Erkennung manipulierter E-Mails ist heuristisch.
 - Versteckter Text wird anhand von Inline-Stilen und einfachen Stilregeln erkannt; aufwendige Stilregeln (z. B. für den Dunkelmodus) werden nicht ausgewertet, Stilvorlagen über 64 KiB gar nicht.
+- Die Vorschau in Suchergebnissen zeigt den Anfang des Nur-Text-Teils, wenn es einen gibt. Ein Absender kann dort Text unterbringen, den HTML-Mailprogramme nicht anzeigen. `read_email` wendet die vollständige Prüfung an.
 - Schadsoftware mit den Rechten der angemeldeten Person kann das Postfach auch ohne KI nutzen.
 
 Details: `threat-model.md`, `data-flow.md`, `hardening-guide.md` (englisch). Sicherheitslücken bitte gemäß `SECURITY.md` melden.

@@ -61,6 +61,7 @@ The fixtures live in `src/__tests__/fixtures/mail/`; each is tested through the 
 
 - **CSS is only partly evaluated.** Media queries, complex selectors, external style sheets, backgrounds set by class rules and text inside images are not evaluated. Content that a dark-mode or mobile rule shows but the inline style hides is removed although some readers see it.
 - **Bidi.** Bidi controls are removed; the visual reordering they cause is not reproduced.
+- **Search previews read the plain-text part (D7).** A sender can put text there that HTML mail programs don't show; `read_email` applies the full check.
 - **The scanner is a heuristic.** English and German patterns only; reworded or other-language instructions pass. It is a signal for the user, the model and the audit log; no protection depends on it alone, and the only control it drives is the escalation in `direct` mode.
 - **Provenance is session memory.** It is lost on restart and not shared between processes (Claude Desktop and Claude Code). Addresses that reach the model from elsewhere (web, chat, other tools) are not tracked. An attacker who writes from the address they want replies at is a correspondent and is not flagged. Domains are compared without a public-suffix list.
 - **Until point 1 ships,** a send in `confirm` mode from a client without dialogs falls back to the client's own approval, unless `requireElicitation` is on, a recipient is untrusted, or (in `direct` mode) an injection escalation is active.
