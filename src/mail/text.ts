@@ -41,14 +41,24 @@ export const HTML_NOT_CHECKED_NOTES: Readonly<Record<HtmlNotChecked, string>> = 
   "too-complex":
     "This email's HTML is nested too deeply to check for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.",
   "contains-frames":
-    "This email's HTML contains frames, whose content mail programs do not show, so it is not shown; Claude sees only its plain-text part, if it has one.",
+    "This email's HTML contains frames, whose content mail programs do not show, so it is not shown; Claude sees only its plain-text part, if it has one. Its plain-text part was not compared with the HTML.",
   "thread-budget":
     "This thread has more HTML than one call checks, so this message's HTML is not shown; Claude sees only its plain-text part, if it has one. Read it with read_email.",
 };
 
-/** `htmlNotChecked` and its note, for a tool result. */
-export function htmlNotCheckedFields(full: FullText): { htmlNotChecked?: HtmlNotChecked; note?: string } {
-  return full.htmlNotChecked ? { htmlNotChecked: full.htmlNotChecked, note: HTML_NOT_CHECKED_NOTES[full.htmlNotChecked] } : {};
+/** The notes for an HTML attachment, which has no plain-text part (and is never read under a thread's budget). */
+export const ATTACHMENT_NOT_CHECKED_NOTES: Readonly<Record<Exclude<HtmlNotChecked, "thread-budget">, string>> = {
+  "too-large": "This HTML attachment is too large to check for hidden text, so its text is not shown.",
+  "too-complex": "This HTML attachment is nested too deeply to check for hidden text, so its text is not shown.",
+  "contains-frames": "This HTML attachment contains frames, whose content browsers do not show, so its text is not shown.",
+};
+
+/** `htmlNotChecked` and its note, for a tool result about an email or an HTML attachment. */
+export function htmlNotCheckedFields(full: FullText, of: "email" | "attachment" = "email"): { htmlNotChecked?: HtmlNotChecked; note?: string } {
+  const reason = full.htmlNotChecked;
+  if (!reason) return {};
+  const note = of === "attachment" && reason !== "thread-budget" ? ATTACHMENT_NOT_CHECKED_NOTES[reason] : HTML_NOT_CHECKED_NOTES[reason];
+  return { htmlNotChecked: reason, note };
 }
 
 /**

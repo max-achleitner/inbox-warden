@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Parser } from "htmlparser2";
-import { htmlParseCost, MAX_PARSE_WORK, type HtmlParseCost } from "../html-cost.js";
+import { htmlParseCost, MAX_PARSE_WORK, rawTextElement, type HtmlParseCost, type TreeWatch } from "../html-cost.js";
 import { nestedNewsletter } from "../../__tests__/helpers/newsletter.js";
 
 /**
@@ -193,4 +193,110 @@ describe("htmlParseCost", () => {
     htmlParseCost("<script>" + "</scrip".repeat(500_000));
     expect(performance.now() - start).toBeLessThan(1_000);
   });
+});
+
+/**
+ * htmlparser2's stack as events: "+name" for every element it pushes (with the attributes of its start tag, values as
+ * written), "-" for every element it takes off. Attributes are left out where htmlparser2 reports none (a start tag
+ * cut off by the end of the input).
+ */
+function parserEvents(html: string): Array<{ event: string; attributes?: string }> {
+  const events: Array<{ event: string; attributes?: string }> = [];
+  let pushed = false;
+  let pending = -1;
+  const parser = new Parser(
+    {
+      // called right after the push of a non-void element; a void element is never pushed
+      onopentagname() {
+        pending = pushed ? events.length - 1 : -1;
+        pushed = false;
+      },
+      onopentag(_name, attribs) {
+        if (pending >= 0) events[pending]!.attributes = JSON.stringify(Object.entries(attribs));
+        pending = -1;
+      },
+    },
+    { decodeEntities: false },
+  );
+  const { stack } = parser as unknown as { stack: string[] };
+  stack.unshift = function (this: string[], ...items: string[]) {
+    events.push({ event: "+" + items[0] });
+    pushed = true;
+    return Array.prototype.unshift.apply(this, items);
+  };
+  stack.shift = function (this: string[]) {
+    events.push({ event: "-" });
+    return Array.prototype.shift.call(this);
+  };
+  parser.end(html);
+  return events;
+}
+
+/** The same events as the estimator's TreeWatch reports them (htmlparser2 keeps the first of repeated attributes). */
+function watchedEvents(html: string): Array<{ event: string; attributes?: string }> {
+  const events: Array<{ event: string; attributes?: string }> = [];
+  const watch: TreeWatch = {
+    open(name, attributes) {
+      const first = new Map<string, string>();
+      for (const [key, value] of attributes()) if (!first.has(key)) first.set(key, value);
+      events.push({ event: "+" + name, attributes: JSON.stringify([...first]) });
+      return true;
+    },
+    pop() {
+      events.push({ event: "-" });
+    },
+  };
+  htmlParseCost(html, Infinity, watch);
+  return events;
+}
+
+const LIST_PIECES = [
+  "<ol type=I start=5>", '<li value="3">', "<ol START='9' type=a>", "<li value=1 value=2>", "<ol type>", "<ol start=&#53;>",
+  "<ol =x>", '<ol type="i"start="2">', "<li value = 7 / >", "<ol start=1/>", "</ol>", "</li>",
+];
+
+describe("TreeWatch", () => {
+  it("reports the elements htmlparser2 pushes and pops, and their attributes, exactly", () => {
+    const pieces = [...PIECES, ...LIST_PIECES];
+    const next = random(20261023);
+    for (let doc = 0; doc < 3_000; doc++) {
+      let html = "";
+      const count = Math.floor(next() * 120);
+      for (let k = 0; k < count; k++) html += pieces[Math.floor(next() * pieces.length)];
+      const expected = parserEvents(html);
+      const actual = watchedEvents(html);
+      expect(actual.map((e) => e.event), JSON.stringify(html)).toEqual(expected.map((e) => e.event));
+      for (const [k, e] of expected.entries()) {
+        if (e.attributes !== undefined) expect(actual[k]!.attributes, JSON.stringify(html)).toBe(e.attributes);
+      }
+    }
+  });
+
+  it("opens and closes the empty paragraph htmlparser2 answers a stray </p> with", () => {
+    expect(watchedEvents("<div></p>").map((e) => e.event)).toEqual(["+div", "+p", "-"]);
+  });
+
+  it("stops the pass when open returns false", () => {
+    let opened = 0;
+    const cost = htmlParseCost("<div>".repeat(1_000), Infinity, { open: () => ++opened < 10, pop: () => {} });
+    expect(opened).toBe(10);
+    expect(cost.depth).toBe(10);
+  });
+});
+
+describe("rawTextElement", () => {
+  it.each([
+    ["script", "script"],
+    ["style", "style"],
+    ["title", "title"],
+    ["textarea", "textarea"],
+    ["xmp", "xmp"],
+    // htmlparser2 checks the first letter loosely: these read raw text up to another element's end tag
+    ["tmp", "xmp"],
+    ["xitle", "title"],
+    ["xextarea", "textarea"],
+  ])("<%s> starts raw text up to </%s>", (name, end) => expect(rawTextElement(name)).toBe(end));
+
+  it.each(["div", "pre", "plaintext", "noscript", "xm", "scripts", "textpath", "s", ""])("<%s> does not", (name) =>
+    expect(rawTextElement(name)).toBeUndefined());
 });

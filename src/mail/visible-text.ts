@@ -1,8 +1,8 @@
 import { parseDocument, DomUtils } from "htmlparser2";
-import { isComment, isDirective, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
+import { isComment, isDirective, isTag, isText, Text, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 import { decodeHTML } from "entities";
-import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
+import { htmlParseCost, MAX_PARSE_WORK, rawTextElement, type TreeWatch } from "./html-cost.js";
 
 /**
  * What a human sees in a mail: HTML without hidden elements, text without invisible characters.
@@ -67,8 +67,9 @@ const MAX_HTML_DEPTH = 500;
 /** html-to-text walks the cleaned HTML recursively and runs out of stack near 2,500 levels. */
 const MAX_REPARSE_DEPTH = 2 * MAX_HTML_DEPTH;
 /**
- * Longer HTML (string length of the decoded part) is not checked: checking takes time linear in it, about 1.5 s per
- * 2 MB of small elements. Gmail clips HTML at about 100 KB, so real mail rarely comes near.
+ * Longer HTML (string length of the decoded part) is not checked: checking and converting it takes time linear in it,
+ * up to about 3 s per 2 MB of small elements (Node 24, 2026 laptop). Gmail clips HTML at about 100 KB, so real mail
+ * rarely comes near.
  */
 export const MAX_HTML_BYTES = 2 * 1024 * 1024;
 /**
@@ -518,10 +519,17 @@ interface Frame {
   /** Kept nodes; the array of the enclosing frame when this frame unwraps an over-deep element. */
   kept: ChildNode[];
   owner?: ParentNode;
-  /** Text kept here goes into a `<plaintext>`, which the serializer writes unescaped: it is escaped beforehand. */
+  /** Text kept here goes into a `<plaintext>` or `<xmp>`, which the serializer writes unescaped: it is escaped beforehand. */
   escapeText?: boolean;
+  /**
+   * Inside an `<xmp>` or `<textarea>`, which htmlparser2 reads as raw text up to its end tag: elements are unwrapped, as
+   * an attribute value holding that end tag (the serializer does not escape "<" there) would end it early.
+   */
+  rawText?: boolean;
   /** Kept ancestors of each kind html-to-text works on per level. */
   nesting: Nesting;
+  /** Added to `kept` when the frame is done: the target of an unwrapped link. */
+  after?: ChildNode;
 }
 
 /**
@@ -542,21 +550,76 @@ const NESTED_KIND = new Map<string, Nested>([
 
 const LIST_TYPES = new Set(["1", "a", "A", "i", "I"]);
 const ORDINAL = /^-?\d{1,6}$/;
+const LIST_ATTRIBUTES = ["start", "value", "type"];
+/** Whether html-to-text can number a list from this `start`, `value` or `type` of an `ol` or `li`. */
+const listAttributeFits = (name: string, value: string): boolean =>
+  name === "type" ? LIST_TYPES.has(value) : ORDINAL.test(value) && Math.abs(Number(value)) <= 100_000;
 /** html-to-text numbers ordered lists from these attributes; values it cannot use are dropped (some made it throw). */
 function cleanListAttributes(el: Element): void {
-  for (const name of ["start", "value"]) {
+  for (const name of LIST_ATTRIBUTES) {
     const value = el.attribs[name];
-    if (value !== undefined && !(ORDINAL.test(value) && Math.abs(Number(value)) <= 100_000)) delete el.attribs[name];
+    if (value !== undefined && !listAttributeFits(name, value)) delete el.attribs[name];
   }
-  if (el.attribs.type !== undefined && !LIST_TYPES.has(el.attribs.type)) delete el.attribs.type;
 }
 
 /** html-to-text writes roman numbers only up to 3999 (from 10,000 on it throws): other lists are numbered in digits. */
+const ROMAN_MAX = 3999;
+const isRoman = (type: string | undefined) => type === "i" || type === "I";
 function romanFits(ol: Element): boolean {
   const start = ol.attribs.start === undefined ? 1 : Number(ol.attribs.start);
   let items = 0;
   for (const child of ol.children) if (isTag(child) && child.name === "li") items++;
-  return start >= 1 && start + items - 1 <= 3999;
+  return start >= 1 && start + items - 1 <= ROMAN_MAX;
+}
+
+/**
+ * Whether html-to-text may get `markup`, the cleaned copy. Its parse need not build the tree the walk cleaned: an empty
+ * `desc` or `foreignObject` is written `<desc/>`, which htmlparser2 leaves open, so later siblings nest in it; an item
+ * unwrapped into an item becomes the list's next item. So the copy is checked on the tree htmlparser2 builds from it
+ * (with htmlParseCost's copy of its tree building): affordable, at most MAX_REPARSE_DEPTH deep, no deeper nesting than
+ * NESTED_MAX, and list numbering html-to-text can write (roman numbers up to 3999). Anything else fails closed.
+ */
+export function reparseFits(markup: string): boolean {
+  let fits = true;
+  const open: Record<Nested, number> = { anchor: 0, heading: 0, quote: 0, list: 0 };
+  // per open element, innermost last: its kind, and for a roman list its numbers
+  const kinds: Array<Nested | undefined> = [];
+  const romans: Array<{ low: number; high: number; items: number } | undefined> = [];
+  const watch: TreeWatch = {
+    open(name, attributes) {
+      const kind = NESTED_KIND.get(name);
+      if (kind !== undefined && ++open[kind] > NESTED_MAX[kind]) fits = false;
+      let roman: (typeof romans)[number];
+      if (name === "ol" || name === "li") {
+        const list = attributes().filter(([attribute]) => LIST_ATTRIBUTES.includes(attribute));
+        if (!list.every(([attribute, value]) => listAttributeFits(attribute, value))) fits = false;
+        if (name === "ol" && list.some(([attribute, value]) => attribute === "type" && isRoman(value))) {
+          // htmlparser2 keeps the first of repeated attributes; every one must fit
+          roman = { low: Infinity, high: -Infinity, items: 0 };
+          for (const [attribute, value] of list) {
+            if (attribute !== "start") continue;
+            roman.low = Math.min(roman.low, Number(value));
+            roman.high = Math.max(roman.high, Number(value));
+          }
+          if (roman.low === Infinity) roman.low = roman.high = 1;
+          if (roman.low < 1) fits = false;
+        }
+        // html-to-text numbers the items that are children of the list
+        const parent = romans[romans.length - 1];
+        if (name === "li" && parent && parent.high + ++parent.items - 1 > ROMAN_MAX) fits = false;
+      }
+      kinds.push(kind);
+      romans.push(roman);
+      return fits;
+    },
+    pop() {
+      const kind = kinds.pop();
+      romans.pop();
+      if (kind !== undefined) open[kind]--;
+    },
+  };
+  const cost = htmlParseCost(markup, MAX_PARSE_WORK, watch);
+  return fits && cost.work <= MAX_PARSE_WORK && cost.depth <= MAX_REPARSE_DEPTH;
 }
 
 const REMOVED_SILENTLY = new Set(["script", "template", "title", "style"]);
@@ -668,6 +731,13 @@ export function visibleHtml(html: string): VisibleHtml {
     if (v.hiddenText) hidden.push(v.hiddenText);
     if (v.removed) removals.push(v.removed);
     return v.text;
+  };
+  /** The target of an unwrapped link, as html-to-text prints one after the link's text; none for a "#…" anchor. */
+  const linkTarget = (a: Element, escape?: boolean): Text | undefined => {
+    const href = a.attribs.href?.replace(/^mailto:/, "");
+    if (!href || href.startsWith("#")) return undefined;
+    const text = ` [${note(visibleUrl(href))}]`;
+    return new Text(escape ? escapeMarkup(text) : text);
   };
 
   /** Tag characters leave every attribute; other invisible characters are encoded in URLs and removed elsewhere. */
@@ -797,6 +867,7 @@ export function visibleHtml(html: string): VisibleHtml {
     const frame = stack[stack.length - 1]!;
     if (frame.i >= frame.src.length) {
       stack.pop();
+      if (frame.after) frame.kept.push(frame.after);
       if (frame.owner) {
         frame.owner.children = frame.kept;
         for (const child of frame.kept) child.parent = frame.owner;
@@ -851,11 +922,25 @@ export function visibleHtml(html: string): VisibleHtml {
     const state = nextState(node, decls, frame.state);
     const depth = frame.depth + 1;
     const src = [...node.children];
-    const kind = NESTED_KIND.get(node.name);
-    if (depth > MAX_HTML_DEPTH || (kind !== undefined && frame.nesting[kind] >= NESTED_MAX[kind])) {
-      // Too deep for the serialiser and html-to-text, or for html-to-text's work on this kind of element: the
-      // children move up into the enclosing kept element.
-      stack.push({ src, i: 0, state, depth, kept: frame.kept, escapeText: frame.escapeText, nesting: frame.nesting });
+    let kind = NESTED_KIND.get(node.name);
+    if (kind === "heading" && frame.nesting.heading >= NESTED_MAX.heading) {
+      // A heading in a heading becomes a paragraph: unwrapped inline, its words would run into the text around it
+      node.name = "p";
+      kind = undefined;
+    }
+    // html-to-text's parser reads these as raw text up to the end tag of another element (`<tmp>` up to `</xmp`)
+    const raw = rawTextElement(node.name);
+    if (
+      depth > MAX_HTML_DEPTH ||
+      frame.rawText ||
+      (raw !== undefined && raw !== node.name) ||
+      (kind !== undefined && frame.nesting[kind] >= NESTED_MAX[kind])
+    ) {
+      // Too deep for the serialiser and html-to-text, inside raw text, or too much work for html-to-text on this kind
+      // of element: the children move up into the enclosing kept element. A link keeps its target as text.
+      const after = node.name === "a" ? linkTarget(node, frame.escapeText) : undefined;
+      const { kept, escapeText, rawText, nesting } = frame;
+      stack.push({ src, i: 0, state, depth, kept, escapeText, rawText, nesting, after });
     } else {
       // Judged on the raw attributes (as a reader's mail program sees them), cleaned only once kept
       cleanAttributes(node);
@@ -863,20 +948,19 @@ export function visibleHtml(html: string): VisibleHtml {
       if (node.name === "ol") orderedLists.push(node);
       frame.kept.push(node);
       const nesting = kind === undefined ? frame.nesting : { ...frame.nesting, [kind]: frame.nesting[kind] + 1 };
-      stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText: node.name === "plaintext", nesting });
+      const escapeText = node.name === "plaintext" || node.name === "xmp";
+      stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText, rawText: raw !== undefined, nesting });
     }
   }
   for (const ol of orderedLists) {
-    if ((ol.attribs.type === "i" || ol.attribs.type === "I") && !romanFits(ol)) delete ol.attribs.type;
+    if (isRoman(ol.attribs.type) && !romanFits(ol)) delete ol.attribs.type;
   }
 
   // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
   const markup = stripTagCharacters(DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }));
-  // html-to-text parses the cleaned copy again, which need not give the same tree: the serializer writes the text of
-  // <xmp> unescaped, so after "<xmp/>" a decoded "</xmp>" ends it early and the rest becomes elements. The copy must
-  // pass the same gate.
-  const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
-  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return uncheckedHtml(html, "too-complex");
+  // html-to-text parses the cleaned copy again, which need not give the same tree; whatever tree it gives must pass the
+  // same gate and the same caps.
+  if (!reparseFits(markup.text)) return uncheckedHtml(html, "too-complex");
   removals.push(markup.removed);
   const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {

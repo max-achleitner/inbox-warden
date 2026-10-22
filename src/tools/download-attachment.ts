@@ -91,7 +91,7 @@ export function register(server: McpServer, app: AppContext) {
         inv.provenance.noteSeen({ texts: [content, filename] });
         const scan = scanForInjection({ body: content, hidden: visible.hiddenText || undefined, attachmentNames: [filename] });
         inv.record({ injectionRisk: scan.riskLevel });
-        return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(html ? htmlNotCheckedFields(html) : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
+        return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(html ? htmlNotCheckedFields(html, "attachment") : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
       }
 
       inv.provenance.noteSeen({ texts: [filename] });

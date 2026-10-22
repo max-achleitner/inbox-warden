@@ -83,6 +83,19 @@ const isAlpha = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x
 const endsName = (c: number) => c === SLASH || c === GT || isWhitespace(c);
 
 /**
+ * Follows the tree htmlparser2 builds, for checks beyond its cost: `open` is called for every element htmlparser2 puts
+ * on its stack, with the attributes of the start tag on request (names lower-cased, values as written, every repeat
+ * included; htmlparser2 keeps the first), and stops the pass when it returns false; `pop` for every element it takes
+ * off (an end tag, an implied end, "/>" in svg and math).
+ */
+export interface TreeWatch {
+  open(name: string, attributes: () => Array<[name: string, value: string]>): boolean;
+  pop(): void;
+}
+
+const NO_ATTRIBUTES = (): Array<[string, string]> => [];
+
+/**
  * The end sequence (`</script` ...) of a raw-text element, when htmlparser2's tokenizer opens one for the start tag name
  * `html[start, end)`. It checks the first letter loosely (t or x for title, textarea and xmp) and the others with
  * `(c | 0x20)`, so `<tmp>` is read as raw text up to `</xmp`.
@@ -100,6 +113,14 @@ function rawTextSequence(html: string, start: number, end: number): string | und
     if ((html.charCodeAt(start + k - 2) | 0x20) !== sequence.charCodeAt(k)) return undefined;
   }
   return sequence;
+}
+
+/**
+ * The element (script, style, title, textarea or xmp) whose end tag ends the raw text that a start tag named `name`
+ * opens in htmlparser2, or undefined when it opens none. Loose spellings count: `<tmp>` reads raw text up to `</xmp`.
+ */
+export function rawTextElement(name: string): string | undefined {
+  return rawTextSequence(name, 0, name.length)?.slice(2);
 }
 
 /**
@@ -196,10 +217,81 @@ function startTagEnd(html: string, from: number): { gt: number; selfClosing: boo
 }
 
 /**
- * One linear pass over `html` that counts what htmlparser2's tree building will cost (see the module comment). With a
- * `limit` it stops as soon as `work` exceeds it (the result then only says that it did).
+ * The attributes of the start tag whose name ends at `from`, read with the states of `startTagEnd` up to its ">" (or the
+ * end of the input): names lower-cased, values as written, in order and with repeats.
  */
-export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
+function startTagAttributes(html: string, from: number): Array<[string, string]> {
+  const attributes: Array<[string, string]> = [];
+  let state = Attr.BeforeName;
+  let start = 0;
+  let name = "";
+  for (let i = from; i < html.length; i++) {
+    const c = html.charCodeAt(i);
+    switch (state) {
+      case Attr.BeforeName:
+        if (c === GT) return attributes;
+        if (c === SLASH) state = Attr.SelfClosing;
+        else if (!isWhitespace(c)) {
+          state = Attr.Name;
+          start = i;
+        }
+        break;
+      case Attr.SelfClosing:
+        if (c === GT) return attributes;
+        if (!isWhitespace(c)) {
+          state = Attr.BeforeName;
+          i--;
+        }
+        break;
+      case Attr.Name:
+        if (c === EQUALS || endsName(c)) {
+          name = html.slice(start, i).toLowerCase();
+          state = Attr.AfterName;
+          i--;
+        }
+        break;
+      case Attr.AfterName:
+        if (c === EQUALS) state = Attr.BeforeValue;
+        else if (c === SLASH || c === GT) {
+          attributes.push([name, ""]);
+          state = Attr.BeforeName;
+          i--;
+        } else if (!isWhitespace(c)) {
+          attributes.push([name, ""]);
+          state = Attr.Name;
+          start = i;
+        }
+        break;
+      case Attr.BeforeValue:
+        if (c === DQUOTE || c === SQUOTE) {
+          const close = html.indexOf(c === DQUOTE ? '"' : "'", i + 1);
+          if (close < 0) return attributes;
+          attributes.push([name, html.slice(i + 1, close)]);
+          i = close;
+          state = Attr.BeforeName;
+        } else if (!isWhitespace(c)) {
+          state = Attr.Unquoted;
+          start = i;
+          i--;
+        }
+        break;
+      case Attr.Unquoted:
+        if (c === GT || isWhitespace(c)) {
+          attributes.push([name, html.slice(start, i)]);
+          state = Attr.BeforeName;
+          i--;
+        }
+        break;
+    }
+  }
+  return attributes;
+}
+
+/**
+ * One linear pass over `html` that counts what htmlparser2's tree building will cost (see the module comment). With a
+ * `limit` it stops as soon as `work` exceeds it (the result then only says that it did); a `watch` follows the tree.
+ */
+export function htmlParseCost(html: string, limit = Infinity, watch?: TreeWatch): HtmlParseCost {
   const n = html.length;
   // innermost element last (htmlparser2 keeps it first, which is what makes it slow)
   const stack: string[] = [];
@@ -209,6 +301,7 @@ export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
   const foreign: boolean[] = [false];
   let work = 0;
   let depth = 0;
+  let stopped = false;
 
   const pop = (): string => {
     const name = stack.pop()!;
@@ -216,9 +309,11 @@ export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
     if (count === 0) openCount.delete(name);
     else openCount.set(name, count);
     openOfLength.set(name.length, openOfLength.get(name.length)! - 1);
+    watch?.pop();
     return name;
   };
-  const open = (name: string): void => {
+  /** Opens the element whose start tag name ends at `nameEnd`. */
+  const open = (name: string, nameEnd: number): void => {
     const closes = IMPLIES_CLOSE.get(name);
     if (closes) while (stack.length > 0 && closes.has(stack[stack.length - 1]!)) pop();
     if (VOID_ELEMENTS.has(name)) return;
@@ -231,6 +326,7 @@ export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
       work += foreign.length;
       foreign.push(FOREIGN_ELEMENTS.has(name));
     }
+    if (watch && !watch.open(name, () => startTagAttributes(html, nameEnd))) stopped = true;
   };
   const close = (name: string): void => {
     if (FOREIGN_ELEMENTS.has(name) || INTEGRATION_ELEMENTS.has(name)) foreign.pop();
@@ -249,12 +345,16 @@ export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
       if (name === "p") {
         work += stack.length;
         if (stack.length + 1 > depth) depth = stack.length + 1;
+        if (watch) {
+          if (!watch.open("p", NO_ATTRIBUTES)) stopped = true;
+          watch.pop();
+        }
       }
     }
   };
 
   let i = 0;
-  while (i < n && work <= limit) {
+  while (i < n && work <= limit && !stopped) {
     const lt = html.indexOf("<", i);
     if (lt < 0 || lt + 1 >= n) break;
     const c = html.charCodeAt(lt + 1);
@@ -264,7 +364,7 @@ export function htmlParseCost(html: string, limit = Infinity): HtmlParseCost {
       while (nameEnd < n && !endsName(html.charCodeAt(nameEnd))) nameEnd++;
       if (nameEnd >= n) break; // a tag name cut off by the end of the input is dropped
       const name = html.slice(lt + 1, nameEnd).toLowerCase();
-      open(name);
+      open(name, nameEnd);
       const end = startTagEnd(html, nameEnd);
       if (end === undefined) break;
       if (end.selfClosing) {
