@@ -1,5 +1,6 @@
 import { parseDocument, DomUtils } from "htmlparser2";
 import { Text, isTag, type ChildNode, type Element, type ParentNode } from "domhandler";
+import { visibleAddress } from "./visible-text.js";
 
 /**
  * HTML that Claude writes for a draft: no remote content. A remote image reports when a draft is opened and can
@@ -36,6 +37,8 @@ const INTEGRATION_ELEMENTS = new Set(["foreignobject", "desc", "title"]);
 /** Elements whose end tag htmlparser2 implies, so they do not nest. */
 const IMPLIED_END = new Set(["p", "li", "td", "th", "tr", "option", "dt", "dd"]);
 const URL_ATTRIBUTES = ["src", "background", "poster", "lowsrc", "dynsrc"];
+/** SVG presentation attributes whose value is CSS that can hold url(): cleaned like style, local url(#id) stays. */
+const SVG_URL_ATTRIBUTES = new Set(["fill", "stroke", "mask", "filter", "clip-path", "marker-start", "marker-mid", "marker-end", "cursor"]);
 /** Functions in CSS that can load a resource or run code; they are replaced as a whole. */
 const CSS_FUNCTIONS = ["image-set(", "image(", "cross-fade(", "element(", "expression("];
 
@@ -110,8 +113,9 @@ function skipGroup(css: string, open: number): number {
 /**
  * Replaces remote url(...), @import rules and loading functions; returns the new CSS and how many were replaced.
  * CSS with a backslash (escapes can spell "url") or beyond the size cap is dropped whole.
+ * `allowFragment` keeps url(#id), a reference into the same document.
  */
-export function cleanCss(css: string): { css: string; removed: number } {
+export function cleanCss(css: string, options: { allowFragment?: boolean } = {}): { css: string; removed: number } {
   if (css.length > CSS_MAX || css.includes("\\")) return { css: "", removed: css.trim() === "" ? 0 : 1 };
   let out = "";
   let removed = 0;
@@ -155,7 +159,7 @@ export function cleanCss(css: string): { css: string; removed: number } {
       let value: string;
       if (css.charCodeAt(k) === 34 || css.charCodeAt(k) === 39) value = css.slice(k + 1, skipString(css, k) - 1);
       else value = css.slice(k, css.charCodeAt(close - 1) === 41 ? close - 1 : close);
-      if (isRemote(value)) {
+      if (isRemote(value, options.allowFragment)) {
         flush(i);
         out += "none";
         last = i = close;
@@ -205,8 +209,12 @@ function peakNesting(html: string): number {
         depth = Math.max(0, depth - 1);
         if (name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name)) foreign.shift();
       } else {
-        if (gt < i) gt = html.indexOf(">", i);
-        const selfClosed = gt > 0 && html.charCodeAt(gt - 1) === 47;
+        if (gt < i) {
+          gt = html.indexOf(">", i);
+          // no ">" left: remember that, or every later "<" searches to the end again
+          if (gt < 0) gt = html.length;
+        }
+        const selfClosed = gt < html.length && gt > 0 && html.charCodeAt(gt - 1) === 47;
         const special = name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name);
         const inForeign = foreign[0] === true;
         if (VOID_ELEMENTS.has(name) || IMPLIED_END.has(name)) {
@@ -235,11 +243,68 @@ function textOf(el: Element): string {
   return s;
 }
 
+/**
+ * Inside svg and math a browser parses <style> as markup and decodes character references; htmlparser2 always
+ * reads it as raw text. Style text with "<" or "&" could therefore hide elements or spell url(), so it is dropped:
+ * CSS for an email needs neither.
+ */
+const STYLE_MARKUP = /[<&]/;
+
+function setChildren(parent: ParentNode, children: ChildNode[]): void {
+  for (let i = 0; i < children.length; i++) {
+    children[i].parent = parent;
+    children[i].prev = children[i - 1] ?? null;
+    children[i].next = children[i + 1] ?? null;
+  }
+  parent.children = children;
+}
+
+function detach(node: ChildNode): void {
+  node.parent = null;
+  node.prev = null;
+  node.next = null;
+}
+
+/**
+ * Removals and replacements, applied once per parent after the walk: removing siblings one by one
+ * (DomUtils.removeElement searches and splices the sibling array) is quadratic in their number.
+ */
+class ChildEdits {
+  readonly #byParent = new Map<ParentNode, Map<ChildNode, ChildNode | null>>();
+
+  constructor(private readonly root: ParentNode) {}
+
+  /** `by` null removes the node. */
+  replace(node: ChildNode, by: ChildNode | null): void {
+    const parent = node.parent ?? this.root;
+    let edits = this.#byParent.get(parent);
+    if (!edits) this.#byParent.set(parent, (edits = new Map()));
+    edits.set(node, by);
+  }
+
+  apply(): void {
+    for (const [parent, edits] of this.#byParent) {
+      const children: ChildNode[] = [];
+      for (const child of parent.children) {
+        const edit = edits.get(child);
+        if (edit === undefined) {
+          children.push(child);
+          continue;
+        }
+        detach(child);
+        if (edit) children.push(edit);
+      }
+      setChildren(parent, children);
+    }
+  }
+}
+
 export function withoutRemoteContent(html: string): OutgoingHtml {
   if (peakNesting(html) > NESTING_REFUSED) {
     throw new Error("The html is nested too deeply to be checked for remote content. Nothing was saved or sent.");
   }
   const doc = parseDocument(html);
+  const edits = new ChildEdits(doc);
   let removedCount = 0;
   const seen = new Set<string>();
   const linkTargets: string[] = [];
@@ -259,15 +324,15 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       // comments (conditional ones are read by Outlook, VML can fetch images), CDATA and directives other than the doctype
       const droppable = node.type === "comment" || node.type === "cdata" || (node.type === "directive" && !/^!doctype/i.test((node as { name?: string }).name ?? ""));
       if (droppable) {
-        if (node.type === "comment" && /^\s*\[if|\[endif\]/i.test((node as unknown as { data: string }).data)) removedCount++;
-        DomUtils.removeElement(node);
+        if (node.type === "comment" && /^\s*\[if\b|\[endif\]/i.test((node as unknown as { data: string }).data)) removedCount++;
+        edits.replace(node, null);
       }
       continue;
     }
     const name = node.name.toLowerCase();
     const attrs = node.attribs;
     const drop = () => {
-      DomUtils.removeElement(node);
+      edits.replace(node, null);
       removedCount++;
     };
 
@@ -289,8 +354,7 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
     }
     if (name === "img" && attrs.src !== undefined && isRemote(attrs.src)) {
       const alt = attrs.alt?.trim();
-      if (alt) DomUtils.replaceElement(node, new Text(encodeText(alt)));
-      else DomUtils.removeElement(node);
+      edits.replace(node, alt ? new Text(encodeText(alt)) : null);
       removedCount++;
       continue;
     }
@@ -303,8 +367,8 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       else if (URL_ATTRIBUTES.includes(k)) bad = isRemote(value);
       else if (k === "srcset") bad = value.trim() !== "" && !isSingleLocalCandidate(value);
       else if (k === "href" || k === "xlink:href" || k === "action" || k === "formaction") bad = isDangerousHref(value);
-      else if (k === "style") {
-        const cleaned = cleanCss(value);
+      else if (k === "style" || SVG_URL_ATTRIBUTES.has(k)) {
+        const cleaned = cleanCss(value, { allowFragment: k !== "style" });
         removedCount += cleaned.removed;
         if (cleaned.css === "") delete attrs[key];
         else attrs[key] = cleaned.css;
@@ -323,7 +387,8 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       const href = raw?.trim();
       if (href && !seen.has(href)) {
         seen.add(href);
-        if (linkTargets.length < LINK_TARGETS_MAX) linkTargets.push(href);
+        // for people to check: invisible characters percent-encoded, so a zero-width space cannot hide inside "paypal"
+        if (linkTargets.length < LINK_TARGETS_MAX) linkTargets.push(visibleAddress(href));
         else omitted++;
       }
     }
@@ -331,10 +396,16 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
     for (const key of Object.keys(attrs)) attrs[key] = encodeAttribute(attrs[key]);
 
     if (name === "style") {
-      const cleaned = cleanCss(textOf(node));
+      const css = textOf(node);
+      const cleaned = STYLE_MARKUP.test(css) ? { css: "", removed: 1 } : cleanCss(css);
       removedCount += cleaned.removed;
-      for (const child of [...node.children]) DomUtils.removeElement(child);
-      if (cleaned.css !== "") DomUtils.appendChild(node, new Text(cleaned.css));
+      // An empty <style> is written as "<style/>" inside svg; after an element such as <p> a browser has left svg,
+      // ignores the "/" and reads the rest of the document as CSS. So an empty style element goes as a whole.
+      if (cleaned.css === "") edits.replace(node, null);
+      else {
+        for (const child of node.children) detach(child);
+        setChildren(node, [new Text(cleaned.css)]);
+      }
       continue;
     }
 
@@ -342,6 +413,7 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
     for (let i = children.length - 1; i >= 0; i--) stack.push({ node: children[i], depth: depth + 1 });
   }
 
+  edits.apply();
   return {
     html: DomUtils.getOuterHTML(doc, { encodeEntities: false }),
     remoteContentRemoved: removedCount,

@@ -66,6 +66,11 @@ describe("withoutRemoteContent", () => {
     expect(r.html).not.toMatch(/h\.example|<!--/);
     expect(r.remoteContentRemoved).toBe(1);
   });
+  it("counts a conditional comment that opens without [endif]", () => {
+    const r = withoutRemoteContent("<!--[if !mso]><!--><p>x</p><!--<![endif]-->");
+    expect(r.html).toBe("<p>x</p>");
+    expect(r.remoteContentRemoved).toBe(2);
+  });
   it("keeps quotes, apostrophes and non-ASCII text as they are", () => {
     const html = "<p>it's \"q\" ä 漢字 😀 &amp; &lt;b&gt;</p>";
     expect(withoutRemoteContent(html).html).toBe(html);
@@ -125,5 +130,81 @@ describe("withoutRemoteContent", () => {
     const start = performance.now();
     withoutRemoteContent(html);
     expect(performance.now() - start).toBeLessThan(500);
+  });
+  it.each([
+    '<svg><style><img src="https://h.example/x?d=secret"></style></svg>',
+    "<math><style><img src=//h.example/x></style></math>",
+    '<math><mtext><table><mglyph><style><img src="https://h.example/x"></style></mglyph></table></mtext></math>',
+    '<svg><style>a{}</style><style><img src="https://h.example/x?d=secret"></style></svg>',
+    "<svg><style><![CDATA[</style><img src=//h.example/x>]]></style></svg>",
+  ])("drops style text with markup, which svg and math parse as elements: %s", (html) => {
+    const r = withoutRemoteContent(html);
+    expect(r.html).not.toContain("h.example");
+    expect(r.html).not.toMatch(/<img|<!\[CDATA/i);
+    expect(r.remoteContentRemoved).toBeGreaterThan(0);
+  });
+  it.each([
+    "<svg><style>a{background:u&#114;l(https://h.example/x)}</style></svg>",
+    '<svg><style>&#64;import "https://h.example/a.css";</style></svg>',
+  ])("drops style text with character references, which svg and math decode: %s", (html) => {
+    const r = withoutRemoteContent(html);
+    expect(r.html).not.toContain("h.example");
+    expect(r.remoteContentRemoved).toBe(1);
+  });
+  it.each([
+    "<a>x</a><svg><p><style><b></style></p></svg>{}*{background:url(https://h.example/x)}",
+    "<a>x</a><svg><p><style></style></p></svg>{}*{background:url(https://h.example/x)}",
+  ])("never writes a self-closed style, which a browser may leave open: %s", (html) => {
+    // after <p> a browser leaves svg and ignores "/>", so the rest of the document would become CSS
+    expect(withoutRemoteContent(html).html).not.toMatch(/<style/i);
+  });
+  it("keeps plain style sheets", () => {
+    const r = withoutRemoteContent("<style>p{color:red}</style><svg><style>.a{fill:blue}</style></svg>");
+    expect(r.remoteContentRemoved).toBe(0);
+    expect(r.html).toBe("<style>p{color:red}</style><svg><style>.a{fill:blue}</style></svg>");
+  });
+  it.each([
+    ["fill", '<svg><rect fill="url(https://h.example/p.svg#g)" width="9" height="9"/></svg>'],
+    ["mask", '<svg><rect mask="url(https://h.example/m.svg#m)"/></svg>'],
+    ["filter", '<svg><rect filter="url(//h.example/f.svg#f)"/></svg>'],
+    ["clip-path", "<svg><rect clip-path=\"url('https://h.example/c.svg#c')\"/></svg>"],
+    ["stroke", '<svg><path stroke="URL(https://h.example/s.svg#s)"/></svg>'],
+    ["marker-start", '<svg><path marker-start="url(https://h.example/k.svg#k)"/></svg>'],
+    ["marker-mid", '<svg><path marker-mid="url(https://h.example/k.svg#k)"/></svg>'],
+    ["marker-end", '<svg><path marker-end="url(https://h.example/k.svg#k)"/></svg>'],
+    ["cursor", '<svg><rect cursor="url(https://h.example/c.cur), auto"/></svg>'],
+  ])("removes a remote url() from the SVG %s attribute", (_name, html) => {
+    const r = withoutRemoteContent(html);
+    expect(r.html).not.toContain("h.example");
+    expect(r.remoteContentRemoved).toBe(1);
+  });
+  it("keeps local url(#id) references in SVG presentation attributes", () => {
+    const html = '<svg><rect fill="url(#g)" mask="url( #m )" stroke="red"/></svg>';
+    const r = withoutRemoteContent(html);
+    expect(r.remoteContentRemoved).toBe(0);
+    expect(r.html).toContain('fill="url(#g)"');
+    expect(r.html).toContain('mask="url( #m )"');
+    expect(r.html).toContain('stroke="red"');
+  });
+  it("lists link targets with invisible characters percent-encoded", () => {
+    const r = withoutRemoteContent('<a href="https://pay\u{200B}pal.example/login">PayPal</a>');
+    expect(r.linkTargets).toEqual(["https://pay%E2%80%8Bpal.example/login"]);
+  });
+  it.each([
+    ["300,000 unclosed tag starts", () => "<a".repeat(300_000)],
+    ["80,000 comments", () => "<!---->".repeat(80_000)],
+    ["80,000 remote images", () => "<img src=//e>".repeat(80_000)],
+    ["80,000 remote images with alt text", () => "<img src=//e alt=a>".repeat(80_000)],
+    ["80,000 scripts", () => "<script></script>".repeat(80_000)],
+    ["80,000 style sheets with markup", () => "<style><b></style>".repeat(80_000)],
+  ])("handles %s quickly", (_n, build) => {
+    const html = build();
+    const start = performance.now();
+    try {
+      withoutRemoteContent(html);
+    } catch {
+      // refusing is fine, as long as it is quick
+    }
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 });
