@@ -61,6 +61,35 @@ describe("withoutRemoteContent", () => {
     const r = withoutRemoteContent("<div>".repeat(600) + "deep" + "</div>".repeat(600));
     expect(r.remoteContentRemoved).toBe(1);
   });
+  it("drops comments, counting conditional ones", () => {
+    const r = withoutRemoteContent('<p>a</p><!--[if mso]><v:fill src="https://h.example/x"/><img src="https://h.example/x"><![endif]--><!-- note -->');
+    expect(r.html).not.toMatch(/h\.example|<!--/);
+    expect(r.remoteContentRemoved).toBe(1);
+  });
+  it("removes noscript and similar raw-text containers and escapes markup in attributes", () => {
+    const r = withoutRemoteContent('<noscript><p title="</noscript><img src=//h.example/x>"></noscript><xmp>x</xmp><p title="a<b>c">t</p>');
+    expect(r.html).not.toMatch(/h\.example|noscript|xmp/);
+    expect(r.remoteContentRemoved).toBe(2);
+    expect(r.html).not.toMatch(/title="[^"]*[<>]/);
+  });
+  it.each([
+    ["self-closing svg paths", "<svg>" + "<path/>".repeat(3100) + "</svg>"],
+    ["unclosed paragraphs", "<p>x".repeat(3100)],
+    ["unclosed list items", "<ul>" + "<li>x".repeat(3100) + "</ul>"],
+  ])("accepts a flat document of %s", (_n, html) => {
+    expect(() => withoutRemoteContent(html)).not.toThrow();
+  });
+  it.each(["<div>", "<div/>", "<span>"])("still refuses 200k nested %s quickly", (tag) => {
+    const start = performance.now();
+    expect(() => withoutRemoteContent(tag.repeat(200_000))).toThrow(/nested too deeply/);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+  it("removes SVG elements with a remote href, ping attributes, and lists form targets", () => {
+    const r = withoutRemoteContent('<svg><feImage href="https://evil.example/a"/><mpath xlink:href="//evil.example/b"/></svg><a href="/x" ping="https://evil.example/p">x</a><form action="https://shop.example/f"><button formaction="https://shop.example/g">go</button></form>');
+    expect(r.html).not.toContain("evil.example");
+    expect(r.remoteContentRemoved).toBe(3);
+    expect(r.linkTargets).toEqual(["/x", "https://shop.example/f", "https://shop.example/g"]);
+  });
   it("does not list links inside removed elements", () => {
     expect(withoutRemoteContent('<iframe><a href="https://x.example/">x</a></iframe>').linkTargets).toEqual([]);
   });

@@ -25,7 +25,14 @@ export interface OutgoingHtml {
 const REMOVED_ELEMENTS = new Set([
   "link", "script", "iframe", "frame", "frameset", "object", "embed", "applet", "base",
   "video", "audio", "source", "track", "portal",
+  // raw-text containers: their content is parsed differently by a renderer than by us
+  "noscript", "xmp", "noembed", "noframes", "plaintext",
 ]);
+/** SVG elements that load a resource through href / xlink:href. */
+const SVG_HREF_ELEMENTS = new Set(["image", "use", "feimage", "mpath", "tref", "pattern", "lineargradient", "radialgradient", "filter"]);
+const INTEGRATION_ELEMENTS = new Set(["foreignobject", "desc", "title"]);
+/** Elements whose end tag htmlparser2 implies, so they do not nest. */
+const IMPLIED_END = new Set(["p", "li", "td", "th", "tr", "option", "dt", "dd"]);
 const URL_ATTRIBUTES = ["src", "background", "poster", "lowsrc", "dynsrc"];
 /** Functions in CSS that can load a resource or run code; they are replaced as a whole. */
 const CSS_FUNCTIONS = ["image-set(", "image(", "cross-fade(", "element(", "expression("];
@@ -172,22 +179,45 @@ export function cleanCss(css: string): { css: string; removed: number } {
   return { css: out, removed };
 }
 
-/** Rough peak nesting of the markup in one linear pass (over-counts a little: comments, unclosed paragraphs). */
+/**
+ * Rough peak nesting of the markup in one linear pass, following htmlparser2's rules: "/>" closes only inside
+ * svg/math, some elements are closed implicitly. Comments over-count a little. Underestimates are harmless
+ * beyond time; the 500-level cut after parsing still applies.
+ */
 function peakNesting(html: string): number {
   let depth = 0;
   let peak = 0;
+  const foreign: boolean[] = [];
+  let gt = -1;
   let i = html.indexOf("<");
   while (i >= 0) {
     const c = html.charCodeAt(i + 1);
-    if (c === 47) depth = Math.max(0, depth - 1);
-    else if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) {
-      let j = i + 1;
-      while (j < html.length && j - i <= 12 && /[A-Za-z0-9]/.test(html[j])) j++;
-      if (!VOID_ELEMENTS.has(html.slice(i + 1, j).toLowerCase())) {
-        depth++;
-        if (depth > peak) peak = depth;
+    const closing = c === 47;
+    const start = closing ? i + 2 : i + 1;
+    const first = html.charCodeAt(start);
+    if ((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) {
+      let j = start;
+      while (j < html.length && j - start <= 14 && /[A-Za-z0-9]/.test(html[j])) j++;
+      const name = html.slice(start, j).toLowerCase();
+      if (closing) {
+        depth = Math.max(0, depth - 1);
+        if (name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name)) foreign.shift();
+      } else {
+        if (gt < i) gt = html.indexOf(">", i);
+        const selfClosed = gt > 0 && html.charCodeAt(gt - 1) === 47;
+        const special = name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name);
+        const inForeign = foreign[0] === true;
+        if (VOID_ELEMENTS.has(name) || IMPLIED_END.has(name)) {
+          // no nesting
+        } else if (selfClosed && (inForeign || special)) {
+          // closed at once (an svg element that closes itself pushes no context)
+        } else {
+          depth++;
+          if (depth > peak) peak = depth;
+          if (special) foreign.unshift(name === "svg" || name === "math");
+        }
       }
-    }
+    } else if (closing) depth = Math.max(0, depth - 1);
     i = html.indexOf("<", i + 1);
   }
   return peak;
@@ -214,7 +244,15 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
 
   while (stack.length > 0) {
     const { node, depth } = stack.pop()!;
-    if (!isTag(node)) continue;
+    if (!isTag(node)) {
+      // comments (conditional ones are read by Outlook, VML can fetch images), CDATA and directives other than the doctype
+      const droppable = node.type === "comment" || node.type === "cdata" || (node.type === "directive" && !/^!doctype/i.test((node as { name?: string }).name ?? ""));
+      if (droppable) {
+        if (node.type === "comment" && /^\s*\[if|\[endif\]/i.test((node as unknown as { data: string }).data)) removedCount++;
+        DomUtils.removeElement(node);
+      }
+      continue;
+    }
     const name = node.name.toLowerCase();
     const attrs = node.attribs;
     const drop = () => {
@@ -234,7 +272,7 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       drop();
       continue;
     }
-    if ((name === "image" || name === "use") && [attrs.href, attrs["xlink:href"]].some((v) => v !== undefined && isRemote(v, true))) {
+    if (SVG_HREF_ELEMENTS.has(name) && [attrs.href, attrs["xlink:href"]].some((v) => v !== undefined && isRemote(v, true))) {
       drop();
       continue;
     }
@@ -250,10 +288,10 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       const value = attrs[key];
       const k = key.toLowerCase();
       let bad = false;
-      if (k.startsWith("on")) bad = true;
+      if (k.startsWith("on") || k === "ping") bad = true;
       else if (URL_ATTRIBUTES.includes(k)) bad = isRemote(value);
       else if (k === "srcset") bad = value.trim() !== "" && !isSingleLocalCandidate(value);
-      else if (k === "href" || k === "xlink:href") bad = isDangerousHref(value);
+      else if (k === "href" || k === "xlink:href" || k === "action" || k === "formaction") bad = isDangerousHref(value);
       else if (k === "style") {
         const cleaned = cleanCss(value);
         removedCount += cleaned.removed;
@@ -274,8 +312,12 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       continue;
     }
 
-    if (name === "a" || name === "area") {
-      const href = attrs.href?.trim();
+    const targets: Array<string | undefined> = [];
+    if (name === "a" || name === "area") targets.push(attrs.href);
+    if (name === "form") targets.push(attrs.action);
+    targets.push(attrs.formaction);
+    for (const raw of targets) {
+      const href = raw?.trim();
       if (href && !seen.has(href)) {
         seen.add(href);
         if (linkTargets.length < LINK_TARGETS_MAX) linkTargets.push(href);
@@ -288,7 +330,7 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
   }
 
   return {
-    html: DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }),
+    html: DomUtils.getOuterHTML(doc, { encodeEntities: true }),
     remoteContentRemoved: removedCount,
     linkTargets,
     linkTargetsOmitted: omitted,
