@@ -83,3 +83,16 @@ export function evaluateRecipients(addresses: string[], rules: RecipientRules): 
   }
   return { ok: true, recipients };
 }
+
+/** The same domain, or one is a subdomain of the other. */
+export function relatedDomains(a: string, b: string): boolean {
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+/** The domain and every parent that still has at least two labels: "a.b.example" gives "a.b.example", "b.example". */
+export function domainSuffixes(domain: string): string[] {
+  const labels = domain.split(".");
+  const out: string[] = [];
+  for (let i = 0; labels.length - i >= 2; i++) out.push(labels.slice(i).join("."));
+  return out;
+}

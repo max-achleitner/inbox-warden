@@ -86,11 +86,13 @@ export function register(server: McpServer, app: AppContext) {
         }
         const content = visible.text;
         const hiddenContentRemoved = visible.removed;
+        inv.provenance.noteSeen({ texts: [content, filename] });
         const scan = scanForInjection({ body: content, hidden: visible.hiddenText || undefined, attachmentNames: [filename] });
         inv.record({ injectionRisk: scan.riskLevel });
         return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
       }
 
+      inv.provenance.noteSeen({ texts: [filename] });
       const nameScan = scanForInjection({ attachmentNames: [filename] });
       inv.record({ injectionRisk: nameScan.riskLevel });
       if (IMAGE_TYPES.has(contentType)) {

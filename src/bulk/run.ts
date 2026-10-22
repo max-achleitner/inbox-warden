@@ -114,6 +114,10 @@ export async function previewBulk(app: AppContext, inv: ToolInvocation, req: Pre
     sample.sort((a, b) => b.uid - a.uid);
     // Over the whole selection (at most the bulk cap): a stray sender in a mixed filter shows up here
     const senders = await summarizeSenders(client, selection.uids, { groupBy: "address", limit: TOP_SENDERS });
+    inv.provenance.noteSeen({
+      correspondents: [...sample.map((s) => s.from), ...senders.senders.map((s) => s.sender)],
+      texts: [...sample.map((s) => s.subject), ...senders.senders.map((s) => s.name ?? "")],
+    });
     inv.record({
       injectionRisk: highestRisk([...sample, ...senders.senders].map((entry) => entry._injectionScan?.riskLevel)),
     });

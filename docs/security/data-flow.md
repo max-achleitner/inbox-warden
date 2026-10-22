@@ -30,6 +30,7 @@ The server itself sends nothing anywhere except to the configured IMAP/SMTP serv
 | Configuration | `~/.imap-mcp/config.json` | File mode 0600 | No |
 | Passwords, OAuth refresh tokens | OS keychain (macOS Keychain, Windows Credential Manager, Secret Service) or Claude Desktop's encrypted extension settings | OS protection | No |
 | Audit log | `~/.imap-mcp/audit/audit-YYYY-MM.jsonl` (configurable) | Mode 0600, hash chain | No (metadata only; subjects only at level `standard`) |
+| Recipient provenance | Server process memory only, 24 hours, never on disk | Keyed hashes (HMAC-SHA256, random key per process) | No (hashes of addresses and domains that appeared in mail Claude read) |
 | Send counters | `~/.imap-mcp/state/send-counter-<account>.json` | Mode 0600 | No (timestamps only) |
 | Downloaded attachments | The configured download folder (Plan 3) | User's file permissions | Yes — only files the user asked to save |
 | Logs | stderr (captured by the client) and optional `LOG_FILE` | — | No (secrets redacted, subjects/bodies omitted) |

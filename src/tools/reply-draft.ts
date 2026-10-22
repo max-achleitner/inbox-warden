@@ -7,7 +7,8 @@ import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
-import { formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
+import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
+import { headerSeen } from "../policy/provenance.js";
 import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { senderShape } from "./create-draft.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
@@ -55,6 +56,14 @@ export function register(server: McpServer, app: AppContext) {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
 
+      inv.provenance.noteSeen(
+        headerSeen({
+          from: flattenAddresses(original.from),
+          replyTo: flattenAddresses(original.replyTo),
+          to: flattenAddresses(original.to),
+          cc: flattenAddresses(original.cc),
+        }),
+      );
       const { to, cc } = replyRecipients(original, inv.account.ownAddresses, replyAll);
       if (to.length === 0) {
         return errorResult("Error creating reply draft", "The original email has no sender or Reply-To address to reply to.");

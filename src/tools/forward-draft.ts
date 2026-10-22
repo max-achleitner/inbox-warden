@@ -9,6 +9,8 @@ import { composeMessage, type OutgoingAttachment } from "../mail/compose.js";
 import { emlFilename, forwardInlineText, forwardSubject } from "../mail/forward.js";
 import { removeHeaders } from "../mail/headers.js";
 import { visibleString } from "../mail/visible-text.js";
+import { flattenAddresses } from "../mail/reply.js";
+import { headerSeen } from "../policy/provenance.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { MAX_ATTACHMENT_TOTAL_BYTES, outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { senderShape } from "./create-draft.js";
@@ -60,6 +62,14 @@ export function register(server: McpServer, app: AppContext) {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
       const original = await parseMail(raw);
+      inv.provenance.noteSeen(
+        headerSeen({
+          from: flattenAddresses(original.from),
+          replyTo: flattenAddresses(original.replyTo),
+          to: flattenAddresses(original.to),
+          cc: flattenAddresses(original.cc),
+        }),
+      );
 
       const intro = withSignature({ text: body }, identity, signature).text;
       let text: string;

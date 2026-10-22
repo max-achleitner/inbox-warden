@@ -15,6 +15,7 @@ import { flattenAddresses, type Mailbox } from "../mail/reply.js";
 import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { fullText, stripQuotedHistory, truncate } from "../mail/text.js";
 import { threadIds, threadQuery } from "../mail/thread.js";
+import { headerSeen, type SeenMail } from "../policy/provenance.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
 
@@ -140,6 +141,7 @@ export function register(server: McpServer, app: AppContext) {
       // 4. Load and shorten only the messages that are returned
       const messages: Array<Record<string, unknown>> = [];
       const risks: RiskLevel[] = [];
+      const seenMail: SeenMail[] = [];
       for (const entry of shown) {
         let parsed: ParsedMail;
         if (entry.folder === source && entry.uid === uid) {
@@ -167,6 +169,10 @@ export function register(server: McpServer, app: AppContext) {
           addressNames: [...from, ...to].map((a) => a.name),
         });
         risks.push(scan.riskLevel);
+        seenMail.push({
+          ...headerSeen({ from, to }),
+          texts: [own.text, subject ?? "", ...[...from, ...to].map((a) => a.name)],
+        });
         messages.push({
           folder: entry.folder,
           uid: entry.uid,
@@ -184,6 +190,7 @@ export function register(server: McpServer, app: AppContext) {
         });
       }
 
+      inv.provenance.noteSeen(...seenMail);
       inv.record({ folder: source, uids: [uid], count: messages.length, injectionRisk: highestRisk(risks) });
       return jsonResult({
         threadSize: unique.length,

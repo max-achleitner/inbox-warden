@@ -11,6 +11,7 @@ import { downloadMessage } from "../imap/strict.js";
 import { fullText, pageText } from "../mail/text.js";
 import { stripInvisible, stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { flattenAddresses } from "../mail/reply.js";
+import { headerSeen } from "../policy/provenance.js";
 import { countsAsAttachment } from "../imap/attachment-rule.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
@@ -81,6 +82,16 @@ export function register(server: McpServer, app: AppContext) {
       const addressNames = [parsed.from, parsed.replyTo, parsed.to, parsed.cc]
         .flatMap((field) => flattenAddresses(field))
         .map((a) => stripInvisible(a.name ?? ""));
+      // What this call returns, for recipient provenance (visible strings, never the hidden text)
+      inv.provenance.noteSeen({
+        ...headerSeen({
+          from: flattenAddresses(parsed.from),
+          replyTo: flattenAddresses(parsed.replyTo),
+          to: flattenAddresses(parsed.to),
+          cc: flattenAddresses(parsed.cc),
+        }),
+        texts: [full.text, subject ?? "", ...addressNames.map((n) => n.text), ...attachmentNames.map((n) => n.text)],
+      });
       // Header values that must stay exact lose only their tag characters (addresses are not touched at all)
       const headerPayloads: string[] = [];
       const exact = (value: string): string => {

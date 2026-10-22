@@ -102,6 +102,12 @@ describe("policy coverage of tool sources", () => {
     expect(offenders(/\bscanForInjection\(|\bscanSubjectOnly\(/, /injectionRisk/)).toEqual([]);
   });
 
+  it("every tool that returns mail content feeds the provenance store", () => {
+    // send-draft.ts and save-attachment.ts return no mail content to the AI
+    expect(offenders(/\bdownloadMessage\(|\bpreviewFor\(|\bsummarizeSenders\(/, /\.noteSeen\(/, ["send-draft.ts", "save-attachment.ts"])).toEqual([]);
+    expect(fs.readFileSync(path.join(TOOLS_DIR, "..", "bulk", "run.ts"), "utf8")).toMatch(/\.noteSeen\(/);
+  });
+
   describe("Gmail label lock: a message with a hidden label is not reachable on any path", () => {
     const source = (file: string) => fs.readFileSync(path.join(TOOLS_DIR, "..", file), "utf8");
 
