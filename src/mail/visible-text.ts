@@ -66,6 +66,11 @@ export const MAX_STYLE_CHARS = 64 * 1024;
 const MAX_VALUE_CHARS = 256;
 
 export function mergeRemoved(...parts: Array<HiddenContentRemoved | undefined>): HiddenContentRemoved | undefined {
+  return mergeRemovedList(parts);
+}
+
+/** Like mergeRemoved, but takes an array and never spreads it (a spread of ~150k items throws a RangeError). */
+export function mergeRemovedList(parts: ReadonlyArray<HiddenContentRemoved | undefined>): HiddenContentRemoved | undefined {
   let chars = 0;
   const kinds = new Set<HiddenKind>();
   for (const part of parts) {
@@ -249,7 +254,24 @@ function splitOutside(s: string, sep: string): string[] {
   return out;
 }
 
-const CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+/** Inline style values longer than this are not parsed (less hiding is detected, no text is ever removed for it). */
+const MAX_INLINE_STYLE_CHARS = 16 * 1024;
+
+/** Removes CSS comments in linear time; as in CSS, an unclosed comment runs to the end of the input. */
+function stripCssComments(css: string): string {
+  let start = css.indexOf("/*");
+  if (start < 0) return css;
+  let out = "";
+  let from = 0;
+  while (start >= 0) {
+    out += css.slice(from, start);
+    const end = css.indexOf("*/", start + 2);
+    if (end < 0) return out;
+    from = end + 2;
+    start = css.indexOf("/*", from);
+  }
+  return out + css.slice(from);
+}
 
 /** Declarations of one block: lower-cased values plus the names that carry `!important`. */
 interface Parsed {
@@ -285,9 +307,10 @@ const RELEVANT_PROPERTIES = new Set([
 const UNREADABLE_VALUE = "unreadable()";
 const IMPORTANT = /!\s*important$/i;
 
-function parseDecls(css: string): Parsed {
+function parseDecls(css: string, maxChars = MAX_STYLE_CHARS): Parsed {
   const parsed = emptyParsed();
-  for (const part of splitOutside(css.replace(CSS_COMMENT, ""), ";")) {
+  if (css.length > maxChars) return parsed;
+  for (const part of splitOutside(stripCssComments(css), ";")) {
     const colon = part.indexOf(":");
     if (colon < 1) continue;
     const name = part.slice(0, colon).trim().toLowerCase();
@@ -367,7 +390,7 @@ function parseRules(cssTexts: string[]): Map<string, Map<string, Winner>> {
       } else if (depth === 0) prelude += c;
     }
   };
-  for (const raw of cssTexts) scan(raw.replace(CSS_COMMENT, ""), true);
+  for (const raw of cssTexts) scan(raw.length > MAX_STYLE_CHARS ? "" : stripCssComments(raw), true);
 
   const winners = new Map<string, Map<string, Winner>>();
   for (const [key, list] of rules) {
@@ -520,11 +543,11 @@ export function visibleHtml(html: string): VisibleHtml {
   const styles = cssTexts(doc);
   // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
   const cssEvaluated = styles.reduce((sum, s) => sum + s.length, 0) <= MAX_STYLE_CHARS;
-  const hasStyle = styles.some((s) => s.replace(CSS_COMMENT, "").trim() !== "");
+  const hasStyle = styles.some((s) => (cssEvaluated ? stripCssComments(s) : s).trim() !== "");
   const winners = cssEvaluated ? parseRules(styles) : new Map<string, Map<string, Winner>>();
 
   const hidden: string[] = [];
-  const removals: HiddenContentRemoved[] = [];
+  const removals: Array<HiddenContentRemoved | undefined> = [];
   const remove = (kind: HiddenKind, raw: string) => {
     const { text, hiddenText } = stripInvisible(raw);
     const chars = text.replace(/\s/g, "").length;
@@ -543,14 +566,14 @@ export function visibleHtml(html: string): VisibleHtml {
     for (const [name, value] of Object.entries(el.attribs)) {
       const nameDirty = HAS_INVISIBLE.test(name);
       if (!nameDirty && !HAS_INVISIBLE.test(value)) continue;
-      const clean = note(URL_ATTRIBUTES.has(name) ? visibleUrl(value) : stripInvisible(value));
-      if (!nameDirty) {
-        el.attribs[name] = clean;
+      if (nameDirty) {
+        // The mail program ignores an attribute with a hidden character in its name; so must the cleaned copy.
+        note(stripInvisible(name));
+        note(stripInvisible(value));
+        delete el.attribs[name];
         continue;
       }
-      delete el.attribs[name];
-      const cleanName = note(stripInvisible(name)).trim();
-      if (cleanName && !Object.hasOwn(el.attribs, cleanName)) el.attribs[cleanName] = clean;
+      el.attribs[name] = note(URL_ATTRIBUTES.has(name) ? visibleUrl(value) : stripInvisible(value));
     }
   };
 
@@ -574,7 +597,7 @@ export function visibleHtml(html: string): VisibleHtml {
     const values: Decls = new Map();
     for (const [name, winner] of merged) values.set(name, winner.value);
     // Inline wins over a rule, unless the rule is !important and the inline value is not
-    const inline = parseDecls(el.attribs.style ?? "");
+    const inline = parseDecls(el.attribs.style ?? "", MAX_INLINE_STYLE_CHARS);
     for (const [name, value] of inline.values) {
       if (merged.get(name)?.important && !inline.important.has(name)) continue;
       values.set(name, value);
@@ -727,7 +750,8 @@ export function visibleHtml(html: string): VisibleHtml {
 
   // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
   const markup = stripTagCharacters(DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }));
-  const removed = mergeRemoved(...removals, markup.removed);
+  removals.push(markup.removed);
+  const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {
     html: markup.text,
     hiddenText: (markup.hiddenText ? [...hidden, markup.hiddenText] : hidden).join("\n"),

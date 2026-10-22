@@ -58,9 +58,11 @@ export function htmlToText(html: string): string {
 }
 
 const URL_PATTERN = /(?:https?:\/\/|mailto:|www\.)\S+/gi;
+/** Outlook inline-image placeholders: `[cid:image001.png@01DA…]` or a bare `cid:…`. */
+const CID_PATTERN = /\[?cid:[^\s\]]+\]?/gi;
 
 function words(text: string): Set<string> {
-  return new Set(text.normalize("NFKC").toLowerCase().replace(URL_PATTERN, " ").match(/[\p{L}\p{N}]{2,}/gu) ?? []);
+  return new Set(text.normalize("NFKC").toLowerCase().replace(URL_PATTERN, " ").replace(CID_PATTERN, " ").match(/[\p{L}\p{N}]{2,}/gu) ?? []);
 }
 
 function extraWords(text: string, known: Set<string>): boolean {

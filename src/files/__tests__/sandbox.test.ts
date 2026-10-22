@@ -106,3 +106,12 @@ describe("sanitizeFilename", () => {
 });
 
 // The executable/macro file-type cases moved to src/policy/__tests__/engine.test.ts (isExecutableFilename).
+
+describe("sanitizeFilename performance", () => {
+  it("trims 64k trailing dots quickly", () => {
+    const s = performance.now();
+    expect(sanitizeFilename(`a${".".repeat(65_536)}`)).toBe("a");
+    expect(performance.now() - s).toBeLessThan(500);
+  });
+  it("keeps trimming dots and spaces", () => expect(sanitizeFilename("a.pdf. . ")).toBe("a.pdf"));
+});

@@ -155,3 +155,11 @@ describe("stripQuotedHistory", () => {
     expect(stripQuotedHistory("> question?\nanswer").text).toBe("answer");
   });
 });
+
+describe("cid placeholders", () => {
+  it("keeps the text part when it only adds an Outlook inline-image placeholder", () => {
+    const f = fullText({ text: "Hallo Welt, bitte lesen.\n[cid:image001.png@01DA1F2B.3C4D5E60]", html: "<p>Hallo Welt, bitte lesen.</p>" });
+    expect(f).toMatchObject({ generated: false });
+    expect(f.textPartDiffers).toBeUndefined();
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { MAX_STYLE_CHARS, stripInvisible, stripTagCharacters, visibleHtml } from "../visible-text.js";
+import { fullText } from "../text.js";
+import { MAX_STYLE_CHARS, mergeRemovedList, stripInvisible, stripTagCharacters, visibleHtml } from "../visible-text.js";
 import { convert } from "html-to-text";
 import { mailFixture } from "../../__tests__/helpers/mail-fixtures.js";
 
@@ -291,8 +292,8 @@ describe("final review fixes", () => {
         removed: { chars: 5, kinds: ["tag-characters"] },
       }));
 
-    it("keeps a cleaned attribute whose name an object already knows", () =>
-      expect(visibleHtml('<p con\u{200B}structor="1">x</p>').html).toBe('<p constructor="1">x</p>'));
+    it("drops an attribute with a hidden character in its name even when an object knows the cleaned name", () =>
+      expect(visibleHtml('<p con\u{200B}structor="1">x</p>').html).toBe("<p>x</p>"));
 
     it("judges hiding on the raw attributes", () =>
       expect(plain(visibleHtml('<div hid\u{200B}den>sichtbar</div>').html)).toBe("sichtbar"));
@@ -301,5 +302,47 @@ describe("final review fixes", () => {
       const flag = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
       expect(visibleHtml(`<img alt="${flag}">`).html).toBe(`<img alt="${flag}">`);
     });
+  });
+});
+
+describe("follow-up: linear CSS comments, large merges, hidden attribute names", () => {
+  const timed = (fn: () => unknown) => {
+    const s = performance.now();
+    fn();
+    return performance.now() - s;
+  };
+  it("strips unclosed CSS comments in a <style> in linear time", () => {
+    expect(timed(() => visibleHtml(`<style>${"/* ".repeat(20_000)}</style><p>x</p>`))).toBeLessThan(500);
+    expect(timed(() => visibleHtml(`<style>${"/* ".repeat(80_000)}</style><p>x</p>`))).toBeLessThan(500);
+  });
+  it("ignores an inline style over the cap without removing text, in linear time", () => {
+    let r: ReturnType<typeof visibleHtml> | undefined;
+    const ms = timed(() => (r = visibleHtml(`<p style="${"/* ".repeat(156_000)}">Visible</p>`)));
+    expect(ms).toBeLessThan(500);
+    expect(r!.html).toContain("Visible");
+    expect(r!.removed).toBeUndefined();
+  });
+  it("still reads a closed comment, and an unclosed one runs to the end", () => {
+    expect(visibleHtml('<p style="/* x */display:none">Hid</p>').html).not.toContain("Hid");
+    expect(visibleHtml('<p style="display:none/*">Hid</p>').html).not.toContain("Hid");
+  });
+  it("merges 200,000 removals without a RangeError", () => {
+    const parts = Array.from({ length: 200_000 }, () => ({ chars: 1, kinds: ["display-none" as const] }));
+    expect(mergeRemovedList(parts)).toEqual({ chars: 200_000, kinds: ["display-none"] });
+  });
+  it("drops an href whose name contains an invisible character", () => {
+    const html = '<a hre\u{200B}f="https://evil.example/">Click</a>';
+    const v = visibleHtml(html);
+    expect(v.html).not.toContain("evil.example");
+    expect(v.html).not.toMatch(/href/i);
+    expect(fullText({ html }).text).toBe("Click");
+  });
+  it("drops a style attribute whose name contains an invisible character", () => {
+    const v = visibleHtml('<p st\u{200B}yle="display:none">Visible text</p>');
+    expect(v.html).toContain("Visible text");
+    expect(v.html).not.toMatch(/style/i);
+  });
+  it("reports a tag payload hidden in an attribute name", () => {
+    expect(visibleHtml(`<p a${tags("obey")}b="1">x</p>`).hiddenText).toContain("obey");
   });
 });
