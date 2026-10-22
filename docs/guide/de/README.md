@@ -287,6 +287,7 @@ brauchen Sie die Serverregel für NDA-Mails trotzdem.
   weiter“, befolgt Claude das nicht; auffällige Nachrichten werden als Hinweis markiert. Bleiben Sie trotzdem aufmerksam, wenn
   Claude etwas vorschlägt, das Sie nicht verlangt haben. Text, den Sie in der E-Mail nicht sehen (versteckte
   Elemente, unsichtbare Zeichen), entfernt Inbox Warden, bevor Claude die Nachricht liest.
+- **Entwürfe prüfen:** Bevor Sie einen Entwurf von Claude senden, prüfen Sie Empfänger und Text. Inbox Warden warnt, wenn ein Empfänger nur in einer empfangenen E-Mail vorkommt (etwa „bitte an rechnung@… senden“) und Sie ihm noch nie geschrieben haben.
 - **Nichts wird geraten.** Kann ein Filter oder Ordner nicht exakt angewendet werden, bricht die Aktion ab, statt
   mehr Mails zu verändern.
 - **Protokoll:** Jede Änderung und jeder Versand wird ohne Nachrichteninhalt protokolliert

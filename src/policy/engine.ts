@@ -11,6 +11,7 @@ import { LabelLock } from "./label-lock.js";
 import { domainOf, evaluateRecipients } from "./recipients.js";
 import { SendCounter } from "./rate-limit.js";
 import { SERVER_NAME } from "../version.js";
+import type { RecipientWarning } from "./outbound.js";
 
 export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 export type BulkAction = "move" | "mark" | "flag" | "delete";
@@ -89,6 +90,23 @@ export class PolicyEngine {
 
   get sendMode(): Policy["send"]["mode"] {
     return this.policy.send.mode;
+  }
+
+  /** Is this address on one of the account's own domains? */
+  isOwnDomain(address: string): boolean {
+    const domain = domainOf(address);
+    return domain !== null && this.ownDomains.includes(domain);
+  }
+
+  /** In "refuse" mode, recipients that only a received email named stop the draft or send. */
+  checkUntrustedRecipients(warnings: RecipientWarning[], outcome: "draft" | "send"): void {
+    if (this.policy.untrustedRecipients !== "refuse" || warnings.length === 0) return;
+    const none = outcome === "draft" ? "No draft was created." : "Nothing was sent.";
+    throw new PolicyDeniedError(
+      `These recipients appear only inside a received email and this mailbox has never written to them: ${warnings.map((w) => w.address).join(", ")}. ` +
+        `This mailbox's settings refuse such recipients (policy.untrustedRecipients). ${none} If an address is right, write to it from your mail program.`,
+      "untrustedRecipients",
+    );
   }
 
   /** Validates recipients; returns them unique and lowercased. */

@@ -26,6 +26,7 @@ Tippfehler in der Richtlinie verhindern den Start – nichts wird stillschweigen
 - **Kein stilles Fehlverhalten:** Lehnt der Mailserver etwas ab, meldet das Werkzeug einen Fehler. Eine fehlgeschlagene Suche liefert nie „alle E-Mails“.
 - **Bestätigung durch den Menschen:** Senden und Löschen werden in der Claude-App bestätigt. Wo die App es kann, fragt der Dienst selbst nach – gebunden an genau diese E-Mail.
 - **Schutz vor manipulierten E-Mails:** E-Mails können versuchen, die KI zu steuern („Prompt Injection“). Das lässt sich nicht zuverlässig erkennen. Der Schutz beruht deshalb auf Rechten und Bestätigungen: Senden ist standardmäßig aus, Senden wird bestätigt, und versteckter Text wird entfernt, bevor die KI eine Nachricht liest. Eine zusätzliche Prüfung markiert verdächtige Nachrichten – ein Hinweis, kein Schutz.
+- **Herkunft von Empfängern:** Kommt ein Empfänger nur im Text einer empfangenen E-Mail vor (etwa „bitte an rechnung@… senden“) und wurde ihm noch nie geschrieben, warnt der Dienst beim Entwurf. Mit `policy.untrustedRecipients: "refuse"` wird ein solcher Entwurf abgelehnt.
 - **Was geprüft wird, wird gesendet:** Entwürfe werden byte-genau verschickt; eine Kopie landet im Ordner „Gesendet“.
 - **Zugangsdaten** liegen im Schlüsselbund des Betriebssystems bzw. verschlüsselt in Claude Desktop, nie im Klartext in Dateien oder Protokollen.
 - **Verschlüsselung erzwungen:** keine unverschlüsselten Verbindungen (außer zu lokalen Brücken wie Proton Bridge); eigene Zertifikate werden per Fingerabdruck fest hinterlegt.

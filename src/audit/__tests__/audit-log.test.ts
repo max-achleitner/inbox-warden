@@ -135,6 +135,13 @@ describe("AuditLog", () => {
     expect(record.details).toEqual({ recipientsCount: 2, recipientsDomains: ["x.com", "y.org"], password: "[REDACTED]" });
   });
 
+  it("minimal level reduces untrustedRecipients like recipients", async () => {
+    const audit = new AuditLog({ ...options(), level: "minimal" });
+    await audit.onToolCall(event({ details: { untrustedRecipients: ["a@x.com", "b@x.com"] } }));
+    const [record] = readRecords(dir);
+    expect(record.details).toEqual({ untrustedRecipientsCount: 2, untrustedRecipientsDomains: ["x.com"] });
+  });
+
   it("retention removes old month files, keeps the head and leaves a verifiable anchored chain", async () => {
     now = new Date("2025-01-10T10:00:00Z");
     const audit = new AuditLog({ ...options(), retentionDays: 30 });

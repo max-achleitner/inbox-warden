@@ -5,6 +5,8 @@ import { findSpecialFolder } from "../imap/folders.js";
 import { strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
 import { PolicyDeniedError, type PolicyEngine, type RiskLevel } from "./engine.js";
 import { requireConfirmation } from "./confirm.js";
+import type { ProvenanceChannel, RecipientWarningReason } from "./provenance.js";
+import * as log from "../logging/logger.js";
 
 export interface OutboundRequest {
   action: "send_email" | "send_draft";
@@ -53,9 +55,14 @@ async function sentToExactly(client: ImapFlow, uids: number[], address: string):
  * Recipients that never appear in To/Cc/Bcc of the Sent folder. Lookups are capped; no Sent folder → none flagged.
  * Sent mail that `scope` hides does not count, so an address only written to there counts as new (the safe side).
  */
-export async function findNewRecipients(client: ImapFlow, recipients: string[], scope: MessageScope): Promise<string[]> {
+export async function findNewRecipients(
+  client: ImapFlow,
+  recipients: string[],
+  scope: MessageScope,
+  options: { assumeNew?: boolean } = {},
+): Promise<string[]> {
   const sent = await findSpecialFolder(client, "\\Sent");
-  if (!sent) return [];
+  if (!sent) return options.assumeNew ? [...recipients] : [];
   const lock = await client.getMailboxLock(sent, { readOnly: true });
   try {
     const fresh: string[] = [];
@@ -65,10 +72,53 @@ export async function findNewRecipients(client: ImapFlow, recipients: string[], 
       const shown = await visibleUids(client, hits.slice(-MAX_VERIFIED_HITS), scope);
       if (!(await sentToExactly(client, shown, address))) fresh.push(address);
     }
+    // beyond the cap nothing was checked: with assumeNew those count as new
+    if (options.assumeNew) fresh.push(...recipients.slice(MAX_NEW_RECIPIENT_LOOKUPS));
     return fresh;
   } finally {
     try { lock.release(); } catch { /* connection may already be dead */ }
   }
+}
+
+export interface RecipientWarning {
+  address: string;
+  reason: RecipientWarningReason;
+  message: string;
+}
+
+function warningMessage(address: string, reason: RecipientWarningReason): string {
+  switch (reason) {
+    case "only-in-mail-content":
+      return `${address} appears only inside a received email (its text, a link or its Reply-To), never as its sender or recipient, and this mailbox has never written to it.`;
+    case "domain-only-in-mail-content":
+      return `The domain of ${address} appears only inside a received email (its text or a link), and this mailbox has never written to ${address}.`;
+    case "mail-content-not-tracked":
+      return `Inbox Warden could not keep track of every address in the mail Claude read recently, and this mailbox has never written to ${address}.`;
+  }
+}
+
+/**
+ * Recipients that mail content named but no correspondence backs, and that this mailbox never wrote to.
+ * Fail closed: when Sent cannot be checked, every candidate stays flagged.
+ */
+export async function recipientWarnings(
+  inv: { provenance: ProvenanceChannel; account: OutboundAccount },
+  recipients: string[],
+): Promise<RecipientWarning[]> {
+  const policy = inv.account.policy;
+  const candidates = inv.provenance.contentOnly(recipients).filter((c) => !policy.isOwnDomain(c.address));
+  if (candidates.length === 0) return [];
+  let fresh: Set<string>;
+  try {
+    const client = await inv.account.getClient();
+    fresh = new Set(await findNewRecipients(client, candidates.map((c) => c.address), policy.messageScope(), { assumeNew: true }));
+  } catch {
+    log.warn("provenance.sent_lookup_failed", { account: policy.accountId });
+    fresh = new Set(candidates.map((c) => c.address));
+  }
+  return candidates
+    .filter((c) => fresh.has(c.address))
+    .map((c) => ({ address: c.address, reason: c.reason, message: warningMessage(c.address, c.reason) }));
 }
 
 function confirmationMessage(request: OutboundRequest, recipients: string[], newRecipients: string[], escalation: RiskLevel | null): string {

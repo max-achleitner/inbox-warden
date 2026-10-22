@@ -40,7 +40,7 @@ export function sanitizeDetails(details: Record<string, unknown>, level: AuditLe
   for (const [key, value] of Object.entries(details)) {
     const lower = key.toLowerCase();
     if (level === "minimal" && lower === "subject") continue;
-    if (level === "minimal" && (lower === "recipients" || lower === "newrecipients") && Array.isArray(value)) {
+    if (level === "minimal" && (lower === "recipients" || lower === "newrecipients" || lower === "untrustedrecipients") && Array.isArray(value)) {
       reduced[`${key}Count`] = value.length;
       reduced[`${key}Domains`] = domains(value);
       continue;

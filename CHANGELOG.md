@@ -52,6 +52,7 @@ All notable changes to this project are documented here. The format follows
 - Existing deny patterns now hide more (subfolders, the same name at any depth), and folder-lock refusals say that nothing was changed.
 - Refusals for locked folders, blocked recipient domains, bulk limits and blocked attachment types say that the mailbox's settings cause them, instead of naming an administrator.
 - README: the security section starts with what Claude is allowed to do; prompt-injection screening is described as an extra signal, not a guarantee. "Verify downloads" leads with the build attestation, and the checksum check works when only some files were downloaded.
+- Drafts (`create_draft`, `reply_draft`, `forward_draft`) report `recipientWarnings` when a recipient appears only inside a received email that Claude read — in its text, a link, or a Reply-To on another domain — and the mailbox has never written to it. `policy.untrustedRecipients: "refuse"` refuses such drafts. The server keeps keyed hashes of the addresses it saw in memory for 24 hours; they never reach a log or the audit log.
 
 ### Fixed
 - `read_email` no longer fails on HTML nested thousands of levels deep.

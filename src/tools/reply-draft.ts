@@ -5,6 +5,7 @@ import type { AppContext } from "../context.js";
 import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
+import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
@@ -24,7 +25,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create reply draft",
       description:
         "Create a reply draft to an existing email with threading headers (In-Reply-To, References). " +
-        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts.",
+        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft.",
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the original email"),
@@ -90,8 +91,10 @@ export function register(server: McpServer, app: AppContext) {
         references: references.length > 0 ? references : undefined,
         attachments: resolvedAttachments,
       });
+      const warnings = await recipientWarnings(inv, message.envelope.to);
+      inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to });
+      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
 
       // The draft keeps the original's strings; the result shows them as a reader sees them (no invisible characters)
       return jsonResult({
@@ -105,6 +108,7 @@ export function register(server: McpServer, app: AppContext) {
         replyAll,
         inReplyTo: original.messageId === undefined ? undefined : stripTagCharacters(original.messageId).text,
         originalFolder: path,
+        ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
       });
     },
   );

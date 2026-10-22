@@ -51,6 +51,8 @@ export const PolicySchema = z.strictObject({
   bulk: BulkPolicySchema.prefault({}),
   folders: FolderPolicySchema.prefault({}),
   protectedFolders: z.boolean().default(true),
+  /** Recipients that appear only inside a received email and were never written to: warn on the draft, or refuse it. */
+  untrustedRecipients: z.enum(["warn", "refuse"]).default("warn"),
   attachments: AttachmentPolicySchema.prefault({}),
 });
 

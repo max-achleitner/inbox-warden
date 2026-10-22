@@ -6,7 +6,8 @@ import { FakeImap } from "../../__tests__/helpers/fake-imap.js";
 import { buildRaw } from "../../__tests__/helpers/messages.js";
 import { PolicyDeniedError, PolicyEngine } from "../engine.js";
 import { InjectionRiskObserver, highestRisk } from "../observer.js";
-import { findNewRecipients, guardOutbound } from "../outbound.js";
+import { findNewRecipients, guardOutbound, recipientWarnings } from "../outbound.js";
+import { ProvenanceStore } from "../provenance.js";
 import { UNSCOPED } from "../../imap/strict.js";
 import { gmailFakeImap } from "../../__tests__/helpers/test-app.js";
 import { LabelLock } from "../label-lock.js";
@@ -171,6 +172,22 @@ describe("guardOutbound", () => {
     const scope = new LabelLock({ deny: ["_NDA_Inbox"] });
     expect(await findNewRecipients(imap.asClient(), ["partner@partner.example", "kunde@example.com"], scope)).toEqual(["partner@partner.example"]);
     expect(await findNewRecipients(imap.asClient(), ["partner@partner.example"], UNSCOPED)).toEqual([]);
+  });
+
+  it("recipientWarnings does not touch IMAP when nothing is flagged", async () => {
+    const t = setup();
+    const account = { policy: t.policy, getClient: async () => { throw new Error("must not be called"); } };
+    expect(await recipientWarnings({ provenance: new ProvenanceStore(), account }, ["kunde@example.com"])).toEqual([]);
+  });
+
+  it("recipientWarnings keeps candidates when the Sent lookup fails", async () => {
+    const t = setup();
+    const store = new ProvenanceStore();
+    store.noteSeen({ texts: ["Bitte an billing@evil.example"] });
+    const account = { policy: t.policy, getClient: async () => { throw new Error("offline"); } };
+    expect(await recipientWarnings({ provenance: store, account }, ["billing@evil.example"])).toEqual([
+      expect.objectContaining({ address: "billing@evil.example", reason: "only-in-mail-content" }),
+    ]);
   });
 
   it("highestRisk picks the maximum", () => {

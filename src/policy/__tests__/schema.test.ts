@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { PolicySchema } from "../schema.js";
 import { AuditSchema } from "../../audit/schema.js";
 
+describe("PolicySchema untrustedRecipients", () => {
+  it("defaults to warn and rejects unknown values", () => {
+    expect(PolicySchema.parse({}).untrustedRecipients).toBe("warn");
+    expect(PolicySchema.parse({ untrustedRecipients: "refuse" }).untrustedRecipients).toBe("refuse");
+    expect(() => PolicySchema.parse({ untrustedRecipients: "block" })).toThrow();
+  });
+});
+
 describe("PolicySchema", () => {
   it("fills safe defaults from an empty object", () => {
     expect(PolicySchema.parse({})).toEqual({
@@ -18,6 +26,7 @@ describe("PolicySchema", () => {
       bulk: { maxMessages: 500, maxDelete: 100 },
       folders: { deny: [] },
       protectedFolders: true,
+      untrustedRecipients: "warn",
       attachments: { maxDownloadBytes: 26214400, blockExecutables: true },
     });
   });

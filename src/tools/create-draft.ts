@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import type { AppContext } from "../context.js";
 import { requireSpecialFolder } from "../imap/folders.js";
 import { strictAppend } from "../imap/strict.js";
+import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
@@ -24,7 +25,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create draft",
       description:
         "Create a draft email and save it to the Drafts folder for review before sending. " +
-        "Uses the sender's display name and signature. Returns the draft's uid." +
+        "Uses the sender's display name and signature. Returns the draft's uid. If the result has recipientWarnings, tell the user before they send the draft." +
         // send_draft is only registered when some account may send (same predicate as defineTool)
         (app.anyAccountAllows("send") ? " send_draft can send it after the user has reviewed it." : ""),
       tier: "write",
@@ -58,10 +59,12 @@ export function register(server: McpServer, app: AppContext) {
         html: content.html,
         attachments: resolvedAttachments,
       });
+      const warnings = await recipientWarnings(inv, message.envelope.to);
+      inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to });
+      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
 
-      return jsonResult({ success: true, folder: draftsFolder, uid, messageId: message.messageId, from: identity.email, to, subject });
+      return jsonResult({ success: true, folder: draftsFolder, uid, messageId: message.messageId, from: identity.email, to, subject, ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}) });
     },
   );
 }

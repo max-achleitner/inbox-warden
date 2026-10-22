@@ -25,6 +25,12 @@ describe("instructions and descriptions", () => {
     await client.close();
   });
 
+  it("tells the model to report recipientWarnings", async () => {
+    const client = await connect();
+    expect(client.getInstructions() ?? "").toContain("recipientWarnings");
+    await client.close();
+  });
+
   it("tells the model to react to high and critical injection levels only", async () => {
     const client = await connect();
     const instructions = client.getInstructions() ?? "";

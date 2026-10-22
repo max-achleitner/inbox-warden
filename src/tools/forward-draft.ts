@@ -5,6 +5,7 @@ import type { AppContext } from "../context.js";
 import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
+import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage, type OutgoingAttachment } from "../mail/compose.js";
 import { emlFilename, forwardInlineText, forwardSubject } from "../mail/forward.js";
 import { removeHeaders } from "../mail/headers.js";
@@ -29,7 +30,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create a forward draft",
       description:
         "Create a draft that forwards an existing email. mode \"inline\" (default) puts the original below your text and keeps its file attachments; " +
-        "mode \"attachment\" attaches the original email unchanged as an .eml file. Saves to Drafts for review — nothing is sent.",
+        "mode \"attachment\" attaches the original email unchanged as an .eml file. Saves to Drafts for review — nothing is sent. If the result has recipientWarnings, tell the user before they send the draft.",
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the email to forward"),
@@ -106,9 +107,11 @@ export function register(server: McpServer, app: AppContext) {
         text,
         attachments: all.length > 0 ? all : undefined,
       });
+      const warnings = await recipientWarnings(inv, message.envelope.to);
+      inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
 
-      inv.record({ folder: path, uids: [uid], action: "forward_draft", messageId: message.messageId, recipients: message.envelope.to });
+      inv.record({ folder: path, uids: [uid], action: "forward_draft", messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
       // The draft keeps the original's subject and file names; the result shows them without invisible characters
       return jsonResult({
         success: true,
@@ -119,6 +122,7 @@ export function register(server: McpServer, app: AppContext) {
         subject: visibleString(subject),
         mode,
         attachments: all.map((a) => visibleString(a.filename)),
+        ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
       });
     },
   );
