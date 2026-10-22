@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { boundedText, fullText, stripQuotedHistory, truncate } from "../text.js";
+import { boundedText, fullText, htmlNotCheckedFields, stripQuotedHistory, truncate } from "../text.js";
 
 describe("boundedText", () => {
   const text = "0123456789".repeat(5); // 50 chars
@@ -45,6 +45,16 @@ describe("fullText", () => {
     const pad = "͏‌ ".repeat(50);
     expect(fullText({ text: `Hallo${pad}Welt` }).text).toBe("Hallo Welt");
     expect(fullText({ html: `<p>Hallo</p><div>${"&#847;&zwnj;&nbsp;".repeat(50)}</div><p>Welt</p>` }).text).not.toMatch(/[͏‌]/);
+  });
+
+  it("does not wrap lines (word wrap is quadratic on long runs of inline elements)", () => {
+    expect(fullText({ html: `<p>${"wort ".repeat(100)}</p>` }).text).toBe("wort ".repeat(100).trim());
+  });
+
+  it("marks quoted HTML once, however deeply it is nested, so the thread view can drop it", () => {
+    const f = fullText({ html: '<p>Danke!</p><blockquote type="cite"><p>Frage</p><blockquote><p>Alte Frage</p></blockquote></blockquote>' });
+    expect(f.text).toBe("Danke!\n\n> Frage\n> \n> Alte Frage");
+    expect(stripQuotedHistory(f.text).text).toBe("Danke!");
   });
 
   it("returns an empty string for messages without a body", () => {
@@ -162,4 +172,23 @@ describe("cid placeholders", () => {
     expect(f).toMatchObject({ generated: false });
     expect(f.textPartDiffers).toBeUndefined();
   });
+});
+
+describe("htmlNotCheckedFields", () => {
+  const unchecked = (reason: "too-large" | "too-complex" | "contains-frames") =>
+    ({ text: "", generated: false, hiddenText: "", htmlNotChecked: reason }) as const;
+
+  it.each([
+    ["too-large", "This HTML attachment is too large to check for hidden text, so its text is not shown."],
+    ["too-complex", "This HTML attachment is nested too deeply to check for hidden text, so its text is not shown."],
+    ["contains-frames", "This HTML attachment contains frames, whose content browsers do not show, so its text is not shown."],
+  ] as const)("words the note for an attachment, which has no plain-text part (%s)", (reason, note) =>
+    expect(htmlNotCheckedFields(unchecked(reason), "attachment")).toEqual({ htmlNotChecked: reason, note }));
+
+  it("says for an email with frames that its plain-text part was not compared with the HTML", () =>
+    expect(htmlNotCheckedFields(unchecked("contains-frames")).note).toBe(
+      "This email's HTML contains frames, whose content mail programs do not show, so it is not shown; Claude sees only its plain-text part, if it has one. Its plain-text part was not compared with the HTML.",
+    ));
+
+  it("adds nothing for checked HTML", () => expect(htmlNotCheckedFields(fullText({ html: "<p>x</p>" }), "attachment")).toEqual({}));
 });

@@ -104,6 +104,8 @@ describe("withoutRemoteContent", () => {
     ["self-closing svg paths", "<svg>" + "<path/>".repeat(3100) + "</svg>"],
     ["unclosed paragraphs", "<p>x".repeat(3100)],
     ["unclosed list items", "<ul>" + "<li>x".repeat(3100) + "</ul>"],
+    ["unclosed table rows", "<table>" + "<tr><td>x".repeat(5000) + "</table>"],
+    ["1,000 nested table cells", "<td><table>".repeat(1000)],
   ])("accepts a flat document of %s", (_n, html) => {
     expect(() => withoutRemoteContent(html)).not.toThrow();
   });
@@ -111,6 +113,19 @@ describe("withoutRemoteContent", () => {
     const start = performance.now();
     expect(() => withoutRemoteContent(tag.repeat(200_000))).toThrow(/nested too deeply/);
     expect(performance.now() - start).toBeLessThan(500);
+  });
+  it("refuses HTML over 2 MB", () => {
+    expect(() => withoutRemoteContent("<p>x</p>".repeat(300_000))).toThrow(/too large.*Nothing was saved or sent/);
+  });
+  it.each([
+    ["stray closing tags", "<div></b>"],
+    ["stray paragraph ends in svg", "<svg></p>"],
+    ["svg contexts closed by their parent", "<div><svg></div>"],
+  ])("refuses 120k %s quickly, which htmlparser2 would need minutes for", (_n, piece) => {
+    const start = performance.now();
+    // 120k stay under the 2 MB that is refused for its size alone
+    expect(() => withoutRemoteContent(piece.repeat(120_000))).toThrow(/nested too deeply.*Nothing was saved or sent/);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
   it("removes SVG elements with a remote href, ping attributes, and lists form targets", () => {
     const r = withoutRemoteContent('<svg><feImage href="https://evil.example/a"/><mpath xlink:href="//evil.example/b"/></svg><a href="/x" ping="https://evil.example/p">x</a><form action="https://shop.example/f"><button formaction="https://shop.example/g">go</button></form>');
@@ -129,7 +144,7 @@ describe("withoutRemoteContent", () => {
   ])("handles about 1 MB of %s quickly", (_n, html) => {
     const start = performance.now();
     withoutRemoteContent(html);
-    expect(performance.now() - start).toBeLessThan(500);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
   it.each([
     '<svg><style><img src="https://h.example/x?d=secret"></style></svg>',

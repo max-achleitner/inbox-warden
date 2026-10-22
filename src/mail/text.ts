@@ -1,6 +1,8 @@
-import { convert } from "html-to-text";
+import { compile, type FormatCallback } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
-import { mergeRemoved, stripInvisible, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
+import { mergeRemoved, stripInvisible, uncheckedHtml, visibleHtml, type HiddenContentRemoved, type HtmlNotChecked } from "./visible-text.js";
+
+export type { HtmlNotChecked } from "./visible-text.js";
 
 export interface TextSource {
   text?: string;
@@ -26,8 +28,37 @@ export interface FullText {
   hidden?: HiddenContentRemoved;
   /** Removed text; for scanning only, never shown. */
   hiddenText: string;
-  /** Cleaned HTML when the message has an HTML part. */
+  /** Cleaned HTML when the message has an HTML part that could be checked. */
   html?: string;
+  /** Why the HTML part was not checked for hidden text: `text` is the text part (or empty), the HTML's text is only scanned. */
+  htmlNotChecked?: HtmlNotChecked;
+}
+
+/** Tool results carry the note for `htmlNotChecked`. */
+export const HTML_NOT_CHECKED_NOTES: Readonly<Record<HtmlNotChecked, string>> = {
+  "too-large":
+    "This email's HTML is too large to check for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.",
+  "too-complex":
+    "This email's HTML is nested too deeply to check for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.",
+  "contains-frames":
+    "This email's HTML contains frames, whose content mail programs do not show, so it is not shown; Claude sees only its plain-text part, if it has one. Its plain-text part was not compared with the HTML.",
+  "thread-budget":
+    "This thread has more HTML than one call checks, so this message's HTML is not shown; Claude sees only its plain-text part, if it has one. Read it with read_email.",
+};
+
+/** The notes for an HTML attachment, which has no plain-text part (and is never read under a thread's budget). */
+export const ATTACHMENT_NOT_CHECKED_NOTES: Readonly<Record<Exclude<HtmlNotChecked, "thread-budget">, string>> = {
+  "too-large": "This HTML attachment is too large to check for hidden text, so its text is not shown.",
+  "too-complex": "This HTML attachment is nested too deeply to check for hidden text, so its text is not shown.",
+  "contains-frames": "This HTML attachment contains frames, whose content browsers do not show, so its text is not shown.",
+};
+
+/** `htmlNotChecked` and its note, for a tool result about an email or an HTML attachment. */
+export function htmlNotCheckedFields(full: FullText, of: "email" | "attachment" = "email"): { htmlNotChecked?: HtmlNotChecked; note?: string } {
+  const reason = full.htmlNotChecked;
+  if (!reason) return {};
+  const note = of === "attachment" && reason !== "thread-budget" ? ATTACHMENT_NOT_CHECKED_NOTES[reason] : HTML_NOT_CHECKED_NOTES[reason];
+  return { htmlNotChecked: reason, note };
 }
 
 /**
@@ -36,17 +67,55 @@ export interface FullText {
  */
 export const TEXT_PART_EXTRA_WORDS = 5;
 
-function convertHtml(html: string): string {
-  return convert(html, {
-    wordwrap: 120,
-    selectors: [
-      { selector: "a", options: { linkBrackets: ["[", "]"] } },
-      { selector: "img", format: "skip" },
-      { selector: "style", format: "skip" },
-      { selector: "script", format: "skip" },
-    ],
-  });
+/** Removes leading and trailing line breaks without a regex. */
+function trimLineBreaks(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text.charCodeAt(start) === 10) start++;
+  while (end > start && text.charCodeAt(end - 1) === 10) end--;
+  return text.slice(start, end);
 }
+
+/** Blockquotes open in the conversion running now; html-to-text calls formatters synchronously. */
+let quoteDepth = 0;
+
+/**
+ * html-to-text prefixes every line of a blockquote once per level, so 500 nested quotes turn 1 MB into 500 MB of work
+ * and text. Only the outermost quote is marked ("> " per line, which stripQuotedHistory drops); nested ones are blocks.
+ */
+const outerQuote: FormatCallback = (elem, walk, builder) => {
+  if (quoteDepth > 0) {
+    builder.openBlock({ leadingLineBreaks: 2 });
+    walk(elem.children, builder);
+    builder.closeBlock({ trailingLineBreaks: 2 });
+    return;
+  }
+  quoteDepth++;
+  try {
+    builder.openBlock({ leadingLineBreaks: 2, reservedLineLength: 2 });
+    walk(elem.children, builder);
+    builder.closeBlock({
+      trailingLineBreaks: 2,
+      blockTransform: (text) => trimLineBreaks(text).split("\n").map((line) => "> " + line).join("\n"),
+    });
+  } finally {
+    quoteDepth--;
+  }
+};
+
+const convertHtml = compile({
+  // Word wrap splits the growing last word again for every inline element that adds to it: quadratic on a long run of
+  // inline elements without whitespace (2 MB of "<td>x" took 25 s)
+  wordwrap: false,
+  formatters: { outerQuote },
+  selectors: [
+    { selector: "a", options: { linkBrackets: ["[", "]"] } },
+    { selector: "blockquote", format: "outerQuote" },
+    { selector: "img", format: "skip" },
+    { selector: "style", format: "skip" },
+    { selector: "script", format: "skip" },
+  ],
+});
 
 /**
  * Visible text of a raw HTML string (hidden elements and invisible characters removed). It cleans the HTML itself, so
@@ -85,12 +154,24 @@ export function textPartDiffers(plain: string, visibleHtmlText: string): boolean
  * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
  * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
  * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
+ * HTML that cannot be checked (too large, too complex, with frames) is never shown (`htmlNotChecked`): then only the text
+ * part is. `skipHtml` takes that way without parsing the HTML, for a caller's own reason (a time budget).
  */
-export function fullText(parsed: TextSource): FullText {
+export function fullText(parsed: TextSource, options: { skipHtml?: HtmlNotChecked } = {}): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
   const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
   const plainText = plain ? clean(plain.text) : "";
-  const vh = parsed.html ? visibleHtml(parsed.html) : undefined;
+  const vh = parsed.html ? (options.skipHtml ? uncheckedHtml(parsed.html, options.skipHtml) : visibleHtml(parsed.html)) : undefined;
+  if (vh?.notChecked) {
+    // Fail closed: the unchecked HTML shows nothing, the text part is all a reader can be shown
+    return {
+      text: plainText,
+      generated: false,
+      hiddenText: [vh.hiddenText, plain?.hiddenText].filter(Boolean).join("\n"),
+      ...(plain?.removed ? { hidden: plain.removed } : {}),
+      htmlNotChecked: vh.notChecked,
+    };
+  }
   // Safety net: whatever the conversion prints (link targets, attribute text) is cleaned like a text node
   const converted = vh ? stripInvisible(convertHtml(vh.html)) : undefined;
   const htmlText = converted?.text ?? "";
