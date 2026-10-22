@@ -68,6 +68,7 @@ export function register(server: McpServer, app: AppContext) {
         ...result,
         confirmation: outbound.confirmation,
         ...(outbound.newRecipients.length > 0 ? { newRecipients: outbound.newRecipients } : {}),
+        ...(outbound.recipientWarnings.length > 0 ? { recipientWarnings: outbound.recipientWarnings } : {}),
       });
     },
   );

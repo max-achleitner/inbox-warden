@@ -11,6 +11,9 @@ import * as readEmail from "../read-email.js";
 import * as createDraft from "../create-draft.js";
 import * as replyDraft from "../reply-draft.js";
 import * as forwardDraft from "../forward-draft.js";
+import * as sendEmail from "../send-email.js";
+import * as sendDraft from "../send-draft.js";
+import { buildRaw } from "../../__tests__/helpers/messages.js";
 
 const EVIL = "billing@evil.example";
 const MAIL =
@@ -204,6 +207,50 @@ describe("untrusted recipients in drafts", () => {
     const record = file.trim().split("\n").map((l) => JSON.parse(l)).find((r) => r.tool === "create_draft");
     expect(record.details).toMatchObject({ untrustedRecipientsCount: 1, untrustedRecipientsDomains: ["evil.example"] });
     expect(file).not.toContain("billing@");
+    await h.close();
+  });
+});
+
+describe("untrusted recipients when sending", () => {
+  const sendRegisters = [readEmail.register, sendEmail.register, sendDraft.register];
+  const accept = { elicitation: () => ({ action: "accept" as const, content: { confirm: true } }) };
+
+  async function connectWith(options: Parameters<ReturnType<typeof createTestApp>["connectWith"]>[0]) {
+    const t = createTestApp();
+    t.imap().addMessage("INBOX", MAIL);
+    const h = await t.connectWith(options, ...sendRegisters);
+    expect((await h.call("read_email", { uid: 1 })).isError).toBe(false);
+    return { t, h };
+  }
+
+  it("send_email to an address named in a read email asks with the reason and sends after accept", async () => {
+    const { t, h } = await connectWith(accept);
+    const res = await h.call("send_email", { to: EVIL, subject: "Rechnung", body: "Hallo" });
+    expect(res.isError).toBe(false);
+    expect(h.elicitations[0]).toContain("Check recipient: billing@evil.example");
+    expect(t.capture().sent).toHaveLength(1);
+    expect(res.json.recipientWarnings[0].address).toBe(EVIL);
+    await h.close();
+  });
+
+  it("send_draft to such an address is refused without a dialog", async () => {
+    const { t, h } = await connectWith({});
+    t.imap().addMessage("Drafts", await buildRaw({ from: "max@firma.example", to: EVIL, subject: "Rechnung", text: "Hallo" }), { flags: ["\\Draft"] });
+    const res = await h.call("send_draft", { uid: 1 });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/only inside a received email: billing@evil\.example/);
+    expect(t.capture().sent).toHaveLength(0);
+    expect(t.imap().uidsIn("Drafts")).toHaveLength(1);
+    await h.close();
+  });
+
+  it("a Bcc-only untrusted recipient also needs the dialog", async () => {
+    const { t, h } = await connectWith(accept);
+    const res = await h.call("send_email", { to: "news@shop.example", bcc: EVIL, subject: "Rechnung", body: "Hallo" });
+    expect(res.isError).toBe(false);
+    expect(h.elicitations[0]).toContain("Check recipient: billing@evil.example");
+    expect(res.json.recipientWarnings).toHaveLength(1);
+    expect(t.capture().sent).toHaveLength(1);
     await h.close();
   });
 });

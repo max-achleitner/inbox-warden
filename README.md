@@ -98,7 +98,7 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
 
 - **Sending and deleting are off by default.** Claude reads, sorts and writes drafts; you send them from
   your mail program. You switch sending or deleting on per mailbox.
-- **You approve what leaves your mailbox.** With sending on, each send is confirmed — in Inbox Warden's own dialog where your Claude app can show one, otherwise through the app's approval prompt (unless you choose `direct`); recipient rules and rate limits apply, and every send is recorded.
+- **You approve what leaves your mailbox.** With sending on, each send is confirmed — in Inbox Warden's own dialog where your Claude app can show one, otherwise through the app's approval prompt (unless you choose `direct`); recipient rules and rate limits apply, and every send is recorded. A recipient that appears only inside a received email always needs your confirmation.
 - **Bulk changes are previewed first.** Sorting or deleting many messages at once first shows how many
   are affected, then changes exactly those — at most 500 per action (100 for deletes) by default.
 - **Locked folders stay out of reach.** Keep mail under an NDA in a folder Claude can neither see nor open:

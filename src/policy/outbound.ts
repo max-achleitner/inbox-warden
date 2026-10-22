@@ -25,6 +25,7 @@ export type OutboundDecision =
       confirmation: "elicitation" | "client-approval" | "not-required";
       recipients: string[];
       newRecipients: string[];
+      recipientWarnings: RecipientWarning[];
     }
   | { proceed: false; result: InputRequiredResult };
 
@@ -121,7 +122,15 @@ export async function recipientWarnings(
     .map((c) => ({ address: c.address, reason: c.reason, message: warningMessage(c.address, c.reason) }));
 }
 
-function confirmationMessage(request: OutboundRequest, recipients: string[], newRecipients: string[], escalation: RiskLevel | null): string {
+const MAX_WARNING_LINES = 5;
+
+function confirmationMessage(
+  request: OutboundRequest,
+  recipients: string[],
+  newRecipients: string[],
+  warnings: RecipientWarning[],
+  escalation: RiskLevel | null,
+): string {
   const lines = [
     request.action === "send_draft" ? "Send this draft now?" : "Send this email now?",
     `From: ${request.from}`,
@@ -130,6 +139,10 @@ function confirmationMessage(request: OutboundRequest, recipients: string[], new
   ];
   if (request.attachmentCount > 0) lines.push(`Attachments: ${request.attachmentCount}`);
   if (newRecipients.length > 0) lines.push(`Never emailed before: ${newRecipients.join(", ")}`);
+  for (const w of warnings.slice(0, MAX_WARNING_LINES)) lines.push(`Check recipient: ${w.message}`);
+  if (warnings.length > MAX_WARNING_LINES) {
+    lines.push(`…and ${warnings.length - MAX_WARNING_LINES} more recipients that appear only inside received email.`);
+  }
   if (escalation) {
     lines.push(
       `Warning: an email read in this session looked like a manipulation attempt (risk: ${escalation}). ` +
@@ -146,7 +159,7 @@ function confirmationMessage(request: OutboundRequest, recipients: string[], new
  * returns the input_required result the tool must return unchanged.
  */
 export async function guardOutbound(
-  inv: Pick<ToolInvocation, "sdk" | "record" | "clientCapabilities"> & { account: OutboundAccount },
+  inv: Pick<ToolInvocation, "sdk" | "record" | "clientCapabilities" | "provenance"> & { account: OutboundAccount },
   request: OutboundRequest,
 ): Promise<OutboundDecision> {
   const policy = inv.account.policy;
@@ -161,36 +174,45 @@ export async function guardOutbound(
   const newRecipients = policy.policy.send.flagNewRecipients
     ? await findNewRecipients(await inv.account.getClient(), recipients, policy.messageScope())
     : [];
+  const warnings = await recipientWarnings(inv, recipients);
+  policy.checkUntrustedRecipients(warnings, "send");
   inv.record({
     recipients,
     subject: request.subject,
     attachmentCount: request.attachmentCount,
     ...(newRecipients.length > 0 ? { newRecipients } : {}),
+    ...(warnings.length > 0 ? { untrustedRecipients: warnings.map((w) => w.address) } : {}),
   });
 
   const escalation = policy.injectionEscalation();
   // In confirm mode a finding only adds a warning to the dialog; in direct mode it forces one.
   const forced = policy.sendMode === "direct" && escalation !== null;
-  if (policy.sendMode === "direct" && !forced) {
+  if (policy.sendMode === "direct" && !forced && warnings.length === 0) {
     inv.record({ confirmation: "not-required" });
-    return { proceed: true, confirmation: "not-required", recipients, newRecipients };
+    return { proceed: true, confirmation: "not-required", recipients, newRecipients, recipientWarnings: warnings };
   }
 
   const outcome = requireConfirmation(inv, {
-    message: confirmationMessage(request, recipients, newRecipients, escalation),
+    message: confirmationMessage(request, recipients, newRecipients, warnings, escalation),
     digest: request.digest,
-    required: forced || policy.policy.send.requireElicitation,
+    required: forced || policy.policy.send.requireElicitation || warnings.length > 0,
   });
   switch (outcome.status) {
     case "pending":
       return { proceed: false, result: outcome.result };
     case "refused":
+      if (warnings.length > 0) {
+        throw new PolicyDeniedError(
+          `${outcome.reason} The confirmation is required because these recipients appear only inside a received email: ${warnings.map((w) => w.address).join(", ")}.`,
+          "send.untrustedRecipients",
+        );
+      }
       throw new PolicyDeniedError(outcome.reason, forced ? "send.injectionEscalation" : "send.confirmation");
     case "confirmed":
       inv.record({ confirmation: "elicitation", ...(escalation ? { injectionEscalation: escalation } : {}) });
-      return { proceed: true, confirmation: "elicitation", recipients, newRecipients };
+      return { proceed: true, confirmation: "elicitation", recipients, newRecipients, recipientWarnings: warnings };
     case "client-approval":
       inv.record({ confirmation: "client-approval", ...(escalation ? { injectionEscalation: escalation } : {}) });
-      return { proceed: true, confirmation: "client-approval", recipients, newRecipients };
+      return { proceed: true, confirmation: "client-approval", recipients, newRecipients, recipientWarnings: warnings };
   }
 }

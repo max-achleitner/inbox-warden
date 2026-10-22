@@ -20,13 +20,15 @@ function setup(policyInput: Record<string, unknown> = {}, capabilities: Record<s
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "imap-mcp-state-"));
   const policy = new PolicyEngine("main", PolicySchema.parse(policyInput), ["max@firma.example"], { stateDir });
   const recorded: Record<string, unknown> = {};
+  const provenance = new ProvenanceStore();
   const inv = {
+    provenance,
     sdk: { mcpReq: { inputResponses: undefined, requestState: () => undefined } } as never,
     record: (d: Record<string, unknown>) => Object.assign(recorded, d),
     clientCapabilities: () => capabilities as never,
     account: { policy, getClient: async () => imap.asClient() },
   };
-  return { imap, policy, inv, recorded };
+  return { imap, policy, inv, recorded, provenance };
 }
 
 const request = { action: "send_email" as const, from: "max@firma.example", recipients: ["kunde@example.com"], subject: "Angebot", attachmentCount: 0, digest: "d" };
@@ -80,6 +82,58 @@ describe("guardOutbound", () => {
     observe(plain);
     expect(await guardOutbound(plain.inv, request)).toMatchObject({ proceed: true, confirmation: "client-approval" });
     expect(plain.recorded.injectionEscalation).toBe("high");
+  });
+
+  describe("untrusted recipients", () => {
+    const named = (t: ReturnType<typeof setup>) => t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com senden"] });
+
+    it("an untrusted recipient makes the dialog mandatory, also in direct mode", async () => {
+      const refused = setup({ send: { mode: "direct" } });
+      named(refused);
+      await expect(guardOutbound(refused.inv, request)).rejects.toThrow(/cannot show a confirmation dialog/);
+      await expect(guardOutbound(refused.inv, request)).rejects.toThrow(/only inside a received email: kunde@example\.com/);
+
+      const asks = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+      named(asks);
+      const decision = await guardOutbound(asks.inv, request);
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        expect(JSON.stringify(decision.result)).toContain("Check recipient: kunde@example.com appears only inside a received email");
+      }
+      expect(asks.recorded).toMatchObject({ untrustedRecipients: ["kunde@example.com"] });
+    });
+
+    it("the refusal carries the rule send.untrustedRecipients", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      named(t);
+      await expect(guardOutbound(t.inv, request)).rejects.toMatchObject({ rule: "send.untrustedRecipients" });
+    });
+
+    it("refuse mode refuses the send", async () => {
+      const t = setup({ untrustedRecipients: "refuse" }, { elicitation: { form: {} } });
+      named(t);
+      const err = await guardOutbound(t.inv, request).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as Error).message).toMatch(/Nothing was sent\./);
+    });
+
+    it("lists at most five recipients and counts the rest", async () => {
+      const t = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+      const addresses = Array.from({ length: 7 }, (_, i) => `x${i}@evil.example`);
+      t.provenance.noteSeen({ texts: [addresses.join(" ")] });
+      const decision = await guardOutbound(t.inv, { ...request, recipients: addresses });
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        const text = JSON.stringify(decision.result);
+        expect(text.match(/Check recipient:/g)).toHaveLength(5);
+        expect(text).toContain("…and 2 more recipients that appear only inside received email.");
+      }
+    });
+
+    it("no warnings, no change", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required", recipientWarnings: [] });
+    });
   });
 
   describe("refusal rules and escalation outcomes", () => {

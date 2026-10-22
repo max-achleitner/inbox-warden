@@ -66,7 +66,7 @@
 ## 6. Honest limits
 
 - **Client approvals can be switched to "Always allow".** The server's policy limits (recipients, rates, folder scope, bulk caps, drafts-only) still apply; the server cannot prove that a human read each message. Use drafts-only for most staff.
-- **Confirmation dialogs depend on the client.** Clients that cannot show them fall back to their own approval prompt — unless `requireElicitation` is on, or — in `direct` mode — an injection finding is active, in which case sending is refused.
+- **Confirmation dialogs depend on the client.** Clients that cannot show them fall back to their own approval prompt — unless `requireElicitation` is on, a recipient appears only inside received mail, or — in `direct` mode — an injection finding is active, in which case sending is refused.
 - **Why no "confirm token" for sending:** a token returned to the model can be replayed by the same (possibly manipulated) model in the next call. It proves nothing about a human. Tokens are used only for bulk *selection integrity* (exact UID set), never as human approval.
 - **The injection scanner is heuristic.** It is a signal for the user, the model and the audit log; no protection depends on it alone.
 - **Hiding mail.** A manipulated model can move or mark single messages without a dialog (write tier, on by default), e.g. a supplier's correction into Archive. Bulk changes need a preview; every change is in the audit log.
