@@ -30,7 +30,10 @@ export interface FullText {
   html?: string;
 }
 
-/** A text part with at least this many distinct words the visible HTML lacks is not what the reader saw. */
+/**
+ * A text part that has at least this many distinct words the visible HTML lacks, or lacks this many of the visible
+ * HTML's words, is not what the reader saw.
+ */
 export const TEXT_PART_EXTRA_WORDS = 5;
 
 function convertHtml(html: string): string {
@@ -45,7 +48,11 @@ function convertHtml(html: string): string {
   });
 }
 
-/** Visible text of an HTML string (hidden elements and invisible characters removed). */
+/**
+ * Visible text of a raw HTML string (hidden elements and invisible characters removed). It cleans the HTML itself, so
+ * never pass it HTML that `visibleHtml` already cleaned: a second pass no longer sees the removed `<style>` rules and
+ * can drop text that was styled through them.
+ */
 export function htmlToText(html: string): string {
   return convertHtml(visibleHtml(html).html);
 }
@@ -56,17 +63,26 @@ function words(text: string): Set<string> {
   return new Set(text.normalize("NFKC").toLowerCase().replace(URL_PATTERN, " ").match(/[\p{L}\p{N}]{2,}/gu) ?? []);
 }
 
-/** True when the plain-text part says something (at least TEXT_PART_EXTRA_WORDS distinct words) the visible HTML text does not. */
-export function textPartDiffers(plain: string, visibleHtmlText: string): boolean {
-  const known = words(visibleHtmlText);
+function extraWords(text: string, known: Set<string>): boolean {
   let extra = 0;
-  for (const word of words(plain)) if (!known.has(word) && ++extra >= TEXT_PART_EXTRA_WORDS) return true;
+  for (const word of words(text)) if (!known.has(word) && ++extra >= TEXT_PART_EXTRA_WORDS) return true;
   return false;
 }
 
 /**
+ * True when the plain-text part and the visible HTML text say different things: one has at least
+ * TEXT_PART_EXTRA_WORDS distinct words the other lacks (a text part that says more, or a stub that says less).
+ */
+export function textPartDiffers(plain: string, visibleHtmlText: string): boolean {
+  const plainWords = words(plain);
+  const htmlWords = words(visibleHtmlText);
+  return extraWords(plain, htmlWords) || extraWords(visibleHtmlText, plainWords);
+}
+
+/**
  * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
- * says more than the visible HTML (then the HTML text is shown and `textPartDiffers` is set). Preheader padding is dropped.
+ * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
+ * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
  */
 export function fullText(parsed: TextSource): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
@@ -84,8 +100,15 @@ export function fullText(parsed: TextSource): FullText {
     return { text: plainText, generated: false, ...common };
   }
   if (vh) {
-    const differs = plainText !== "";
-    return { text: htmlText, generated: true, ...(differs ? { textPartDiffers: true as const } : {}), ...common };
+    if (plainText === "") return { text: htmlText, generated: true, ...common };
+    // The reader saw the HTML; the text part is scanned (as hidden text) but never shown
+    return {
+      text: htmlText,
+      generated: true,
+      textPartDiffers: true,
+      ...common,
+      hiddenText: [hiddenText, plainText].filter(Boolean).join("\n"),
+    };
   }
   return { text: "", generated: false, ...common };
 }
