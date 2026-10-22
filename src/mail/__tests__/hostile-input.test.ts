@@ -151,11 +151,11 @@ describe("HTML the parser would need minutes for", () => {
     expect(ms).toBeLessThan(1_000);
   });
 
-  // dom-serializer writes the text of iframe, noembed, noframes and plaintext unescaped, so html-to-text parses
-  // "&lt;div&gt;" there as an element when it reads the cleaned copy
+  // dom-serializer writes the text of xmp unescaped. After "<xmp/>" htmlparser2 decodes it ("&lt;" is "<"), and when
+  // html-to-text reads the cleaned copy, "<xmp>" is raw text again up to the decoded "</xmp>": the rest becomes elements
   it.each([
-    ["deep", "<iframe>" + "&lt;div&gt;".repeat(5_000) + "</iframe>"],
-    ["slow", "<noembed>" + "&lt;div&gt;&lt;/b&gt;".repeat(160_000) + "</noembed>"],
+    ["deep", "<xmp/>&lt;/xmp&gt;" + "&lt;div&gt;".repeat(5_000)],
+    ["slow", "<xmp/>&lt;/xmp&gt;" + "&lt;div&gt;&lt;/b&gt;".repeat(160_000)],
   ])("HTML that becomes %s only when the cleaned copy is parsed again", (_name, html) => {
     const { result, ms } = timed(() => fullText({ text: "Hallo Welt", html }));
     expect(result).toMatchObject({ text: "Hallo Welt", htmlTooComplex: true });

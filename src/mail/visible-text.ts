@@ -512,9 +512,18 @@ interface Frame {
   /** Kept nodes; the array of the enclosing frame when this frame unwraps an over-deep element. */
   kept: ChildNode[];
   owner?: ParentNode;
+  /** Text kept here goes into a `<plaintext>`, which the serializer writes unescaped: it is escaped beforehand. */
+  escapeText?: boolean;
 }
 
 const REMOVED_SILENTLY = new Set(["script", "template", "title", "style"]);
+/**
+ * Elements whose content no reader sees (a browser shows the frame's document or the embedded object instead): removed,
+ * their text is scanned but not reported. The serializer would also write their text unescaped, so html-to-text would
+ * read markup spelled with entities there as elements.
+ */
+const NEVER_SHOWN = new Set(["noscript", "iframe", "noembed", "noframes"]);
+const escapeMarkup = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Collects text (and comment text) of a subtree without recursion, skipping style and script content. */
 function subtreeText(root: ChildNode): string {
@@ -748,7 +757,10 @@ export function visibleHtml(html: string): VisibleHtml {
       node.data = stripped.text;
       const reason = stripped.text.trim() ? textReason(frame.state) : undefined;
       if (reason) remove(reason, stripped.text);
-      else frame.kept.push(node);
+      else {
+        if (frame.escapeText) node.data = escapeMarkup(node.data);
+        frame.kept.push(node);
+      }
       continue;
     }
     if (isDirective(node)) {
@@ -758,12 +770,13 @@ export function visibleHtml(html: string): VisibleHtml {
     if (!isTag(node)) {
       if ("children" in node) {
         // CDATA and similar containers: unwrap
-        stack.push({ src: [...(node as ParentNode).children], i: 0, state: frame.state, depth: frame.depth, kept: frame.kept });
+        const children = [...(node as ParentNode).children];
+        stack.push({ src: children, i: 0, state: frame.state, depth: frame.depth, kept: frame.kept, escapeText: frame.escapeText });
       } else frame.kept.push(node);
       continue;
     }
 
-    if (node.name === "noscript") {
+    if (NEVER_SHOWN.has(node.name)) {
       const inner = stripInvisible(subtreeText(node));
       if (inner.text.trim()) hidden.push(inner.text);
       if (inner.hiddenText) hidden.push(inner.hiddenText);
@@ -781,19 +794,20 @@ export function visibleHtml(html: string): VisibleHtml {
     const src = [...node.children];
     if (depth > MAX_HTML_DEPTH) {
       // Too deep for the serialiser and html-to-text: the children move up into the enclosing kept element.
-      stack.push({ src, i: 0, state, depth, kept: frame.kept });
+      stack.push({ src, i: 0, state, depth, kept: frame.kept, escapeText: frame.escapeText });
     } else {
       // Judged on the raw attributes (as a reader's mail program sees them), cleaned only once kept
       cleanAttributes(node);
       frame.kept.push(node);
-      stack.push({ src, i: 0, state, depth, kept: [], owner: node });
+      stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText: node.name === "plaintext" });
     }
   }
 
   // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
   const markup = stripTagCharacters(DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }));
-  // html-to-text parses the cleaned copy again. The serializer writes the text of iframe, noembed, noframes and
-  // plaintext unescaped, so "&lt;div&gt;" there becomes an element: the copy must pass the same gate.
+  // html-to-text parses the cleaned copy again, which need not give the same tree: the serializer writes the text of
+  // <xmp> unescaped, so after "<xmp/>" a decoded "</xmp>" ends it early and the rest becomes elements. The copy must
+  // pass the same gate.
   const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
   if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return tooComplex(html);
   removals.push(markup.removed);
