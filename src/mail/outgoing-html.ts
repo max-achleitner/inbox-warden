@@ -324,7 +324,9 @@ export function withoutRemoteContent(html: string): OutgoingHtml {
       // comments (conditional ones are read by Outlook, VML can fetch images), CDATA and directives other than the doctype
       const droppable = node.type === "comment" || node.type === "cdata" || (node.type === "directive" && !/^!doctype/i.test((node as { name?: string }).name ?? ""));
       if (droppable) {
-        if (node.type === "comment" && /^\s*\[if\b|\[endif\]/i.test((node as unknown as { data: string }).data)) removedCount++;
+        // a conditional comment starts with "[if …" or contains "[endif]"
+        const data = node.type === "comment" ? (node as unknown as { data: string }).data : "";
+        if (/^\s*\[if\b/i.test(data) || /\[endif\]/i.test(data)) removedCount++;
         edits.replace(node, null);
       }
       continue;
