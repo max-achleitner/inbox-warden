@@ -258,19 +258,34 @@ export const HEX_SEQUENCE = /(?:0x[0-9A-Fa-f]{2}\s*){4,}|(?:\\x[0-9A-Fa-f]{2}){4
 
 export const RISK_POINTS: Record<PatternStrength, number> = { strong: 3, generic: 1 };
 
+/** Appended to the description of a pattern that matched only after Unicode normalisation. */
+export const VIA_NORMALIZATION = " (detected via unicode normalization)";
+/** Appended to the zero-width finding when the characters sit inside words (the strong variant). */
+export const INTERLEAVED = " interleaved with visible text";
+
 /**
- * Sum of RISK_POINTS over the distinct descriptions (the same phrase twice counts once):
- * 0 none, 1 low, 2 medium, 3-4 high, 5 or more critical.
+ * Two findings of the same check, whatever the field, the count or the variant: the type plus the description
+ * without numbers and without the normalisation or interleaving note.
+ */
+export function findingKey(finding: { type?: string; description: string }): string {
+  const base = finding.description.replace(VIA_NORMALIZATION, "").replace(INTERLEAVED, "").replace(/\d+/g, "#");
+  return `${finding.type ?? ""}|${base}`;
+}
+
+/**
+ * Sum of RISK_POINTS over the distinct patterns (findingKey; the same pattern in several fields counts once, at its
+ * strongest): 0 none, 1 low, 2 medium, 3-4 high, 5 or more critical.
  */
 export function computeRiskLevel(
-  findings: Array<{ description: string; strength: PatternStrength }>,
+  findings: Array<{ type?: string; description: string; strength: PatternStrength }>,
 ): "none" | "low" | "medium" | "high" | "critical" {
-  const byDescription = new Map<string, PatternStrength>();
+  const byPattern = new Map<string, PatternStrength>();
   for (const f of findings) {
-    if (byDescription.get(f.description) !== "strong") byDescription.set(f.description, f.strength);
+    const key = findingKey(f);
+    if (byPattern.get(key) !== "strong") byPattern.set(key, f.strength);
   }
   let points = 0;
-  for (const strength of byDescription.values()) points += RISK_POINTS[strength];
+  for (const strength of byPattern.values()) points += RISK_POINTS[strength];
   if (points === 0) return "none";
   if (points === 1) return "low";
   if (points === 2) return "medium";

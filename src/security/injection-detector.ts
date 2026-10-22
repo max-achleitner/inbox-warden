@@ -15,6 +15,8 @@ import {
   URL_ENCODED_SEQUENCE,
   HEX_SEQUENCE,
   CONFIDENCE,
+  INTERLEAVED,
+  VIA_NORMALIZATION,
   computeRiskLevel,
   type PatternStrength,
   type ScanLocation,
@@ -109,7 +111,7 @@ function scanPatterns(
           if (pat.strength === "strong") viaStrong = true;
           findings.push({
             type: pat.type,
-            description: `${pat.description} (detected via unicode normalization)`,
+            description: `${pat.description}${VIA_NORMALIZATION}`,
             location,
             snippet: makeSnippet(normalized, normalizedMatch),
             confidence: CONFIDENCE[pat.strength],
@@ -134,6 +136,36 @@ function scanPatterns(
 
 // ─── Category B: Unicode obfuscation detection ──────────────────────────────
 
+// Letter-like trick characters only: mathematical alphanumerics, negative circled/squared and circled letters,
+// superscript/subscript letters, and fullwidth Latin letters and digits. Flags (regional indicators), other emoji,
+// superscript digits and fullwidth punctuation occur in ordinary mail and do not count; neither does a letter shown as
+// an emoji (followed by U+FE0F, such as the parking sign).
+const TRICK_LETTERS =
+  "\u{1D400}-\u{1D7FF}\u{1F150}-\u{1F189}\u{24B6}-\u{24E9}" +
+  "\u{1D2C}-\u{1D5B}\u{1D62}-\u{1D65}\u{1D9C}\u{1DA0}\u{1DBB}\u{2071}\u{207F}\u{2090}-\u{209C}\u{02B0}\u{02B2}\u{02B3}\u{02B7}\u{02B8}\u{02E1}-\u{02E3}";
+const FULLWIDTH_ALNUM = "\u{FF10}-\u{FF19}\u{FF21}-\u{FF3A}\u{FF41}-\u{FF5A}";
+const TRICK = new RegExp(`[${TRICK_LETTERS}](?!\u{FE0F})`, "gu");
+const TRICK_OR_FULLWIDTH = new RegExp(`[${TRICK_LETTERS}${FULLWIDTH_ALNUM}](?!\u{FE0F})`, "gu");
+/** In Chinese, Japanese and Korean text fullwidth letters and digits are ordinary typography. */
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/** Groups of consecutive words that contain trick characters (a word with one trick character counts whole). */
+function trickRuns(text: string, trick: RegExp): string[] {
+  const runs: string[] = [];
+  let current: string[] = [];
+  for (const word of text.split(/\s+/)) {
+    trick.lastIndex = 0;
+    if (word && trick.test(word)) current.push(word);
+    else if (current.length > 0) {
+      runs.push(current.join(" "));
+      current = [];
+    }
+  }
+  if (current.length > 0) runs.push(current.join(" "));
+  trick.lastIndex = 0;
+  return runs;
+}
+
 function scanUnicodeObfuscation(
   text: string,
   location: ScanLocation,
@@ -141,30 +173,17 @@ function scanUnicodeObfuscation(
 ): void {
   if (!hasNonAscii(text)) return;
 
-  // Check for high concentration of unusual Unicode blocks
-  const mathAlpha = text.match(/[\u{1D400}-\u{1D7FF}]/gu);
-  const enclosed = text.match(/[\u{1F150}-\u{1F189}]/gu);
-  const regional = text.match(/[\u{1F1E6}-\u{1F1FF}]/gu);
-  const fullwidth = text.match(/[\uFF01-\uFF5E]/g);
-  const circled = text.match(/[\u24B6-\u24E9]/g);
-  // Superscript/subscript chars used for letter substitution
-  const superSub = text.match(/[\u1D2C-\u1D42\u1D43-\u1D5B\u1D62-\u1D65\u1D9C\u1DA0\u1DBB\u2070-\u209C\u02B0\u02B2\u02B3\u02B7\u02B8\u02E1-\u02E3]/g);
-
-  const trickCharCount =
-    (mathAlpha?.length ?? 0) +
-    (enclosed?.length ?? 0) +
-    (regional?.length ?? 0) +
-    (fullwidth?.length ?? 0) +
-    (circled?.length ?? 0) +
-    (superSub?.length ?? 0);
+  const trick = CJK.test(text) ? TRICK : TRICK_OR_FULLWIDTH;
+  const trickCharCount = text.match(trick)?.length ?? 0;
 
   // Only flag if there's a meaningful cluster (>= 4 trick chars)
   if (trickCharCount >= 4) {
-    // Strong only when the letters, once normalised, spell something instruction-like
-    const strength: PatternStrength = DECODED_INJECTION_KEYWORDS.test(normalizeToASCII(text)) ? "strong" : "generic";
+    // Strong only when the trick-character words, once normalised, spell an instruction keyword
+    const strong = trickRuns(text, trick).some((run) => DECODED_INJECTION_KEYWORDS.test(normalizeToASCII(run)));
+    const strength: PatternStrength = strong ? "strong" : "generic";
     findings.push({
       type: "unicode_obfuscation",
-      description: `${trickCharCount} Unicode trick characters detected (mathematical, enclosed, regional indicator, fullwidth, or circled)`,
+      description: `${trickCharCount} Unicode trick characters detected (mathematical, enclosed, circled, superscript or fullwidth letters)`,
       location,
       snippet: text.slice(0, 200),
       confidence: CONFIDENCE[strength],
@@ -193,7 +212,7 @@ function scanInvisibleText(
       const interleaved = /\S[\u200B\u200C\u200D\uFEFF\u2060\u180E]+\S/.test(scanned);
       findings.push({
         type: "invisible_text",
-        description: `${invisibleMatches.length} zero-width characters detected${interleaved ? " interleaved with visible text" : ""}`,
+        description: `${invisibleMatches.length} zero-width characters detected${interleaved ? INTERLEAVED : ""}`,
         location,
         snippet: text.slice(0, 200),
         confidence: CONFIDENCE[interleaved ? "strong" : "generic"],
@@ -219,7 +238,8 @@ function scanInvisibleText(
 // ─── Category G: Encoding evasion detection ──────────────────────────────────
 
 // Instruction-like keywords to check in decoded content
-const DECODED_INJECTION_KEYWORDS = /(?:ignore|system|override|instruction|execute|forward|send all|admin|anweisung|ignoriere)/i;
+// Whole words only: "Kassensystem" or "administration" are no instruction
+const DECODED_INJECTION_KEYWORDS = /\b(?:ignore|ignoriere|system|override|instructions?|execute|forward|send all|admin|anweisung(?:en)?)\b/i;
 
 function scanEncodingEvasion(
   text: string,
@@ -388,7 +408,11 @@ export function scanForInjection(input: ScanInput): InjectionScanResult {
         return count > 1 ? `${label} (${count}x)` : label;
       })
       .join(", ");
-    sanitizedPreview = `⚠️ This email contains ${findings.length} prompt injection indicator(s): ${descriptions}`;
+    // D13: only high and critical are called an injection; lower levels are weak hints
+    sanitizedPreview =
+      riskLevel === "high" || riskLevel === "critical"
+        ? `⚠️ This email contains ${findings.length} prompt injection indicator(s): ${descriptions}`
+        : `Weak hint (risk ${riskLevel}): ${findings.length} pattern(s) that also occur in ordinary mail (${descriptions}); not a sign of manipulation on its own.`;
   }
 
   return { hasInjection, riskLevel, findings, sanitizedPreview };
