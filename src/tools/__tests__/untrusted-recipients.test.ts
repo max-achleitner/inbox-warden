@@ -140,6 +140,42 @@ describe("untrusted recipients in drafts", () => {
     await h.close();
   });
 
+  it("a freemail domain is never the mailbox's own", async () => {
+    const t = createTestApp([{ email: "max@gmail.com" }]);
+    t.imap().addMessage("INBOX", MAIL.replace("billing@evil.example", "billing.evil@gmail.com"));
+    const h = await t.connect(...registers);
+    await h.call("read_email", { uid: 1 });
+    const res = await h.call("create_draft", draftArgs("billing.evil@gmail.com"));
+    expect(res.isError).toBe(false);
+    expect(res.json.recipientWarnings).toEqual([expect.objectContaining({ address: "billing.evil@gmail.com", reason: "only-in-mail-content" })]);
+    await h.close();
+  });
+
+  it("refuse mode stops reply_draft and forward_draft without saving", async () => {
+    const { t, h } = await setup({ policy: { untrustedRecipients: "refuse" } });
+    const fwd = await h.call("forward_draft", { uid: 1, to: EVIL });
+    expect(fwd.isError).toBe(true);
+    expect(fwd.text).toMatch(/No draft was created\./);
+    const cc = await h.call("forward_draft", { uid: 1, to: "news@shop.example", cc: EVIL });
+    expect(cc.isError).toBe(true);
+    t.imap().addMessage(
+      "INBOX",
+      "From: rechnung@lieferant.example\r\nReply-To: zahlung@lieferant-pay.example\r\nTo: max@firma.example\r\nSubject: Zahlung\r\n\r\nx",
+    );
+    const reply = await h.call("reply_draft", { uid: 2, body: "ok" });
+    expect(reply.isError).toBe(true);
+    expect(reply.text).toMatch(/No draft was created\./);
+    expect(t.imap().uidsIn("Drafts")).toHaveLength(0);
+    await h.close();
+  });
+
+  it("forward_draft checks Cc", async () => {
+    const { h } = await setup();
+    const res = await h.call("forward_draft", { uid: 1, to: "news@shop.example", cc: EVIL });
+    expect(res.json.recipientWarnings).toHaveLength(1);
+    await h.close();
+  });
+
   it("forward_draft and reply_draft are checked too", async () => {
     const { t, h } = await setup();
     const fwd = await h.call("forward_draft", { uid: 1, to: EVIL });

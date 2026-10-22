@@ -12,6 +12,7 @@ import { domainOf, evaluateRecipients } from "./recipients.js";
 import { SendCounter } from "./rate-limit.js";
 import { SERVER_NAME } from "../version.js";
 import type { RecipientWarning } from "./outbound.js";
+import { FREEMAIL_DOMAINS } from "./provenance.js";
 
 export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 export type BulkAction = "move" | "mark" | "flag" | "delete";
@@ -92,10 +93,10 @@ export class PolicyEngine {
     return this.policy.send.mode;
   }
 
-  /** Is this address on one of the account's own domains? */
+  /** Is this address on one of the account's own domains? A public provider (gmail.com, gmx.de, …) is never "own": anyone can have an address there. */
   isOwnDomain(address: string): boolean {
     const domain = domainOf(address);
-    return domain !== null && this.ownDomains.includes(domain);
+    return domain !== null && !FREEMAIL_DOMAINS.has(domain) && this.ownDomains.includes(domain);
   }
 
   /** In "refuse" mode, recipients that only a received email named stop the draft or send. */
