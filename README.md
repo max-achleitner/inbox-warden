@@ -107,7 +107,7 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
 - **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
   action fails and says so — it never falls back to "all mail".
 - **Claude reads what you see.** Text an email hides in its HTML (invisible elements, white on white, tiny fonts) and invisible characters are removed before Claude reads the message.
-- **Drafts are yours to check.** Before you send a draft Claude wrote, look at the recipients and the text. Inbox Warden warns when a recipient appears only inside a received email; `policy.untrustedRecipients: "refuse"` blocks such drafts.
+- **Drafts are yours to check.** Before you send a draft Claude wrote, look at the recipients and the text. Inbox Warden warns when a recipient appears only inside a received email; `policy.untrustedRecipients: "refuse"` blocks such drafts. Remote images are removed from the HTML Claude writes, and its links are listed.
 - **Tamper-evident audit log** of every change and every sent message (no message contents).
 - **Encrypted connections only** (TLS 1.2+, no plaintext fallback); self-signed servers are pinned by fingerprint.
 - **Built for untrusted mail.** Text in an email can try to steer Claude (prompt injection). No filter detects that reliably, so Inbox Warden does not depend on one: what protects you are the permissions and confirmations above and the removal of hidden text. A heuristic check also marks suspicious messages — a hint, not a safeguard.

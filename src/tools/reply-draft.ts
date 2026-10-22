@@ -7,11 +7,12 @@ import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage } from "../mail/compose.js";
+import { withoutRemoteContent } from "../mail/outgoing-html.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject, replyToMismatch } from "../mail/reply.js";
 import { headerSeen } from "../policy/provenance.js";
 import { stripTagCharacters, visibleAddress, visibleString } from "../mail/visible-text.js";
-import { senderShape } from "./create-draft.js";
+import { htmlFields, senderShape } from "./create-draft.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { defineTool } from "./shared/define-tool.js";
 import { errorResult, jsonResult } from "./shared/result.js";
@@ -25,7 +26,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create reply draft",
       description:
         "Create a reply draft to an existing email with threading headers (In-Reply-To, References). " +
-        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft. If the result has replyToNote, tell the user.",
+        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft. If the result has replyToNote, tell the user. Remote images and other remote content in html are removed; linkTargets lists the links so the user can check them.",
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the original email"),
@@ -75,7 +76,8 @@ export function register(server: McpServer, app: AppContext) {
         : [];
       const references = original.messageId ? [...originalReferences, original.messageId] : originalReferences;
       const subject = replySubject(original.subject);
-      const signed = withSignature({ text: body, html }, identity, signature);
+      const cleaned = html === undefined ? undefined : withoutRemoteContent(html);
+      const signed = withSignature({ text: body, html: cleaned?.html }, identity, signature);
       const text = quoteOriginal ? `${signed.text}\n\n${quotePlain(original, quoteLanguage)}` : signed.text;
       const htmlBody = signed.html && quoteOriginal ? `${signed.html}<br>${quoteHtml(original, quoteLanguage)}` : signed.html;
 
@@ -110,6 +112,7 @@ export function register(server: McpServer, app: AppContext) {
         inReplyTo: original.messageId === undefined ? undefined : stripTagCharacters(original.messageId).text,
         originalFolder: path,
         ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
+        ...htmlFields(cleaned),
         ...(mismatch
           ? {
               replyToNote:

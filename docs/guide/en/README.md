@@ -270,7 +270,7 @@ if `allow` covers it. As long as the Inbox is allowed, you still need the server
   Claude does not follow it; suspicious messages are marked as a hint. Still pay attention when Claude suggests something
   you did not ask for. Text you cannot see in the email (hidden elements, invisible characters) is removed before
   Claude reads it.
-- **Check drafts:** Before you send a draft Claude wrote, check the recipients and the text. Inbox Warden warns when a recipient only appears inside a received email (such as "please send it to billing@…") and you have never written to it. Sending to such an address always needs your confirmation in a dialog. If a reply goes to a Reply-To address on another domain than the sender, Inbox Warden points it out.
+- **Check drafts:** Before you send a draft Claude wrote, check the recipients and the text. Inbox Warden warns when a recipient only appears inside a received email (such as "please send it to billing@…") and you have never written to it. Sending to such an address always needs your confirmation in a dialog. If a reply goes to a Reply-To address on another domain than the sender, Inbox Warden points it out. Remote images are removed from the HTML Claude writes, and the draft's links are listed.
 - **Nothing is guessed.** If a filter or folder cannot be applied exactly, the action stops instead of changing more mail.
 - **Audit log:** every change and every sent message is recorded without message content
   (`inbox-warden audit verify` checks that the log is unaltered).

@@ -82,4 +82,17 @@ describe("reply_draft", () => {
     expect(res.isError).toBe(true);
     expect(res.text).toMatch(/No message with UID 99/);
   });
+
+  it("cleans Claude's HTML but quotes the original unchanged", async () => {
+    imap.addMessage(
+      "INBOX",
+      await buildRaw({ from: "kunde@example.com", to: ME, subject: "Frage", html: '<p>Hallo</p><img src="https://shop.example/banner.png">', text: "Hallo" }),
+    );
+    const res = await h.call("reply_draft", { uid: 1, body: "ok", html: '<p>ok</p><img src="https://evil.example/t.gif">' });
+    expect(res.isError).toBe(false);
+    const html = (await simpleParser(imap.message("Drafts", res.json.uid)!.raw)).html as string;
+    expect(html).toContain("shop.example/banner.png");
+    expect(html).not.toContain("evil.example");
+    expect(res.json.remoteContentRemoved).toBe(1);
+  });
 });
