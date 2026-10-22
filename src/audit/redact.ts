@@ -31,6 +31,31 @@ function domains(list: unknown[]): string[] {
   return [...new Set(list.map((v) => String(v).split("@").pop()!.toLowerCase()))].sort();
 }
 
+/** Characters that end a local part when reading backwards from "@": whitespace, controls and address delimiters. */
+function endsLocalPart(code: number): boolean {
+  if (code <= 32 || code === 0x7f || code === 0x85 || code === 0xa0 || code === 0x2028 || code === 0x2029 || code === 0x3000) return true;
+  // " ( ) , : ; < > @ [ \ ]
+  return code === 34 || code === 40 || code === 41 || code === 44 || code === 58 || code === 59 || code === 60 || code === 62 ||
+    code === 64 || code === 91 || code === 92 || code === 93;
+}
+
+/**
+ * "…@domain" for every address in a text (level minimal keeps only domains). One pass: each "@" reads back
+ * to the previous delimiter, which is never before the previous "@".
+ */
+export function withoutLocalParts(text: string): string {
+  let out = "";
+  let last = 0;
+  for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
+    let start = at;
+    while (start > last && !endsLocalPart(text.charCodeAt(start - 1))) start--;
+    if (start === at) continue;
+    out += text.slice(last, start) + "…";
+    last = at;
+  }
+  return last === 0 ? text : out + text.slice(last);
+}
+
 /**
  * Prepare ToolInvocation.record() details for the audit log.
  * minimal: no subjects, recipient lists reduced to count + domains.
@@ -40,7 +65,7 @@ export function sanitizeDetails(details: Record<string, unknown>, level: AuditLe
   for (const [key, value] of Object.entries(details)) {
     const lower = key.toLowerCase();
     if (level === "minimal" && lower === "subject") continue;
-    if (level === "minimal" && (lower === "recipients" || lower === "newrecipients") && Array.isArray(value)) {
+    if (level === "minimal" && (lower === "recipients" || lower === "newrecipients" || lower === "untrustedrecipients") && Array.isArray(value)) {
       reduced[`${key}Count`] = value.length;
       reduced[`${key}Domains`] = domains(value);
       continue;

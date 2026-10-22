@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import { PolicySchema } from "../schema.js";
 import { AuditSchema } from "../../audit/schema.js";
 
+describe("PolicySchema untrustedRecipients", () => {
+  it("defaults to warn and rejects unknown values", () => {
+    expect(PolicySchema.parse({}).untrustedRecipients).toBe("warn");
+    expect(PolicySchema.parse({ untrustedRecipients: "refuse" }).untrustedRecipients).toBe("refuse");
+    expect(() => PolicySchema.parse({ untrustedRecipients: "block" })).toThrow();
+  });
+});
+
 describe("PolicySchema", () => {
   it("fills safe defaults from an empty object", () => {
     expect(PolicySchema.parse({})).toEqual({
@@ -12,14 +20,19 @@ describe("PolicySchema", () => {
         maxPerHour: 20,
         maxPerDay: 100,
         flagNewRecipients: true,
-        confirmAfterInjectionRisk: "medium",
+        confirmAfterInjectionRisk: "high",
         requireElicitation: false,
       },
       bulk: { maxMessages: 500, maxDelete: 100 },
       folders: { deny: [] },
       protectedFolders: true,
+      untrustedRecipients: "warn",
       attachments: { maxDownloadBytes: 26214400, blockExecutables: true },
     });
+  });
+
+  it("defaults confirmAfterInjectionRisk to high", () => {
+    expect(PolicySchema.parse({}).send.confirmAfterInjectionRisk).toBe("high");
   });
 
   it("normalises recipient domains", () => {

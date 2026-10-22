@@ -21,7 +21,7 @@ Recommended settings for companies. Start with the baseline, then pick a profile
           "maxRecipients": 10,
           "maxPerHour": 10,
           "maxPerDay": 50,
-          "confirmAfterInjectionRisk": "medium"
+          "confirmAfterInjectionRisk": "high"
         },
         "bulk": { "maxMessages": 200, "maxDelete": 50 },
         "folders": { "deny": ["**/HR/**", "**/Personal/**", "**/Geschäftsführung/**"] },
@@ -49,6 +49,8 @@ Every policy setting is checked strictly: a misspelt key stops the server with a
 As soon as `policy.folders` hides any folder, folders that show the mail of all other folders are hidden too, whatever their name: Gmail's All Mail, Starred and Important (listed by the server as `\All`, `\Flagged`, `\Important`).
 
 **Gmail labels.** On Gmail every folder is a label, and one message can carry several: an NDA mail labelled `_NDA_Inbox` can also sit in INBOX, carry `Kunden` or be your reply in Sent. A message with a label that a `deny` pattern hides is hidden in every folder, as if it did not exist: no tool lists, counts, reads, changes, replies to or forwards it, and a UID pointing at it is answered like a missing one. Labels follow the deny rules above; `\Inbox`, `\Sent`, `\Draft`, `\Trash` and `\Spam` count as INBOX and the matching special folder, `\Important` and `\Starred` never hide a message, and a label merely missing from `allow` hides nothing. If Gmail does not report a message's labels, the tool refuses and changes nothing. On such an account `get_email_count` reads the labels of every message instead of the folder status (up to 20,000 per call; a bigger folder is reported as unavailable), searches check the newest 20,000 matches, `delete_folder` does not say how many messages a non-empty folder holds, and `rename_folder` refuses a folder that holds hidden messages, since renaming a label renames it on them too. Other servers and Gmail accounts without `deny` patterns are not affected.
+
+`policy.untrustedRecipients` (default `warn`) covers recipients that appear only inside a received email and were never written to: `warn` reports them on drafts and makes the send dialog mandatory, `refuse` blocks such drafts and sends. Addresses on the mailbox's own domain are not reported, but public providers such as gmail.com never count as own. Use `refuse` for mailboxes that write only to known contacts.
 
 ## 2. Profiles
 
@@ -78,6 +80,8 @@ As soon as `policy.folders` hides any folder, folders that show the mail of all 
 
 - Full-disk encryption, screen lock, current OS updates.
 - Only one person uses the OS account that runs the server.
+- In conversations that read mail, do not let Claude use web fetch, a browser or other internet tools without asking you: a manipulated email could make Claude send data through them, and Inbox Warden never sees that.
+- Keep `files.downloadDir` outside folders that coding agents work in; a saved attachment is content from a stranger.
 - Keep `IMAP_MCP_PROTOCOL_LOG` unset; enable it only for troubleshooting and delete the log afterwards (it can contain message data).
 - Bundle and env-only installations: fill in the IMAP/SMTP server fields or set `IMAP_MCP_NO_AUTOCONFIG=1`; otherwise the server looks up the email domain at every start (DNS MX, `autoconfig.<domain>`, `autoconfig.thunderbird.net`).
 

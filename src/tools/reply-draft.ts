@@ -1,14 +1,18 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { listFolderInfo, requireSpecialFolder } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
+import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage } from "../mail/compose.js";
+import { withoutRemoteContent } from "../mail/outgoing-html.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
-import { formatAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
-import { senderShape } from "./create-draft.js";
+import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject, replyToMismatch } from "../mail/reply.js";
+import { headerSeen } from "../policy/provenance.js";
+import { stripTagCharacters, visibleAddress, visibleString } from "../mail/visible-text.js";
+import { htmlFields, senderShape } from "./create-draft.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { defineTool } from "./shared/define-tool.js";
 import { errorResult, jsonResult } from "./shared/result.js";
@@ -22,7 +26,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create reply draft",
       description:
         "Create a reply draft to an existing email with threading headers (In-Reply-To, References). " +
-        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts.",
+        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft. If the result has replyToNote, tell the user. Remote images and other remote content in html are removed; linkTargets lists the links so the user can check them.",
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the original email"),
@@ -49,11 +53,19 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(path);
       let original;
       try {
-        original = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
+        original = await parseMail(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
 
+      inv.provenance.noteSeen(
+        headerSeen({
+          from: flattenAddresses(original.from),
+          replyTo: flattenAddresses(original.replyTo),
+          to: flattenAddresses(original.to),
+          cc: flattenAddresses(original.cc),
+        }),
+      );
       const { to, cc } = replyRecipients(original, inv.account.ownAddresses, replyAll);
       if (to.length === 0) {
         return errorResult("Error creating reply draft", "The original email has no sender or Reply-To address to reply to.");
@@ -64,7 +76,8 @@ export function register(server: McpServer, app: AppContext) {
         : [];
       const references = original.messageId ? [...originalReferences, original.messageId] : originalReferences;
       const subject = replySubject(original.subject);
-      const signed = withSignature({ text: body, html }, identity, signature);
+      const cleaned = html === undefined ? undefined : withoutRemoteContent(html);
+      const signed = withSignature({ text: body, html: cleaned?.html }, identity, signature);
       const text = quoteOriginal ? `${signed.text}\n\n${quotePlain(original, quoteLanguage)}` : signed.text;
       const htmlBody = signed.html && quoteOriginal ? `${signed.html}<br>${quoteHtml(original, quoteLanguage)}` : signed.html;
 
@@ -80,20 +93,36 @@ export function register(server: McpServer, app: AppContext) {
         references: references.length > 0 ? references : undefined,
         attachments: resolvedAttachments,
       });
+      const mismatch = replyToMismatch(original, inv.account.ownAddresses);
+      const warnings = await recipientWarnings(inv, message.envelope.to);
+      // recorded before a refusal, so a refused draft is audited like a refused send
+      inv.record({ recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
+      inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to });
+      inv.record({ folder: draftsFolder, messageId: message.messageId });
 
+      // The draft keeps the original's strings; the result shows them as a reader sees them (no invisible characters)
       return jsonResult({
         success: true,
         folder: draftsFolder,
         uid: draftUid,
         messageId: message.messageId,
-        to: formatAddressList(to),
-        ...(cc.length > 0 ? { cc: formatAddressList(cc) } : {}),
-        subject,
+        to: formatVisibleAddressList(to),
+        ...(cc.length > 0 ? { cc: formatVisibleAddressList(cc) } : {}),
+        subject: visibleString(subject),
         replyAll,
-        inReplyTo: original.messageId,
+        inReplyTo: original.messageId === undefined ? undefined : stripTagCharacters(original.messageId).text,
         originalFolder: path,
+        ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
+        ...htmlFields(cleaned),
+        ...(mismatch
+          ? {
+              replyToNote:
+                mismatch.from === null
+                  ? `The reply goes to the Reply-To address ${visibleAddress(mismatch.replyTo)}, and the sender's address is unknown. Make sure the user wants the reply to go there.`
+                  : `The reply goes to the Reply-To address ${visibleAddress(mismatch.replyTo)}, which is on a different domain than the sender ${visibleAddress(mismatch.from)}. Make sure the user wants the reply to go there.`,
+            }
+          : {}),
       });
     },
   );

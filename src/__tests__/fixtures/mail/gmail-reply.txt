@@ -1,0 +1,14 @@
+Danke, passt so.
+
+-- 
+Max Achleitner
+
+Am Mo., 20. Okt. 2026 um 09:12 Uhr schrieb WooPayments <payments@example.com>:
+
+> Your payout is on its way
+>
+> A payout of €1,234.56 was sent to your bank account ending in 1234.
+>
+> View payout details: https://example.com/payouts
+>
+> You received this email because you use WooPayments.

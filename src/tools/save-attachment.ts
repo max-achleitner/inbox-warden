@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { simpleParser } from "mailparser";
+import { parseMail } from "../mail/parse.js";
 import type { AppContext } from "../context.js";
 import { scanForInjection } from "../security/injection-detector.js";
 import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage } from "../imap/strict.js";
 import { resolveDownloadTarget } from "../files/sandbox.js";
+import { stripInvisible } from "../mail/visible-text.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
 
@@ -38,7 +39,7 @@ export function register(server: McpServer, app: AppContext) {
       const lock = await client.getMailboxLock(path);
       let parsed;
       try {
-        parsed = await simpleParser(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
+        parsed = await parseMail(await downloadMessage(client, uid, path, inv.account.policy.messageScope(folders)));
       } finally {
         try { lock.release(); } catch { /* connection may already be dead */ }
       }
@@ -47,14 +48,16 @@ export function register(server: McpServer, app: AppContext) {
       if (!attachment) {
         throw new Error(`No attachment at index ${attachmentIndex}. Email has ${parsed.attachments.length} attachments. Nothing was saved.`);
       }
-      const filename = attachment.filename || `attachment_${attachmentIndex}`;
+      // The file is saved under the name a reader sees: no invisible characters (zero-width, bidi, tag payloads)
+      const visibleName = stripInvisible(attachment.filename ?? "");
+      const filename = visibleName.text || `attachment_${attachmentIndex}`;
       // Size limit and executable/macro file types (policy.attachments.blockExecutables, on by default)
       inv.account.policy.checkAttachment(filename, attachment.size, true);
       const target = await resolveDownloadTarget(app.config.files.downloadDir, filename);
       await writeFile(target, attachment.content, { flag: "wx", mode: 0o600 });
       await markAsDownloaded(target);
       const sha256 = createHash("sha256").update(attachment.content).digest("hex");
-      const nameScan = scanForInjection({ attachmentNames: [filename] });
+      const nameScan = scanForInjection({ attachmentNames: [filename], hidden: visibleName.hiddenText || undefined });
       inv.record({ injectionRisk: nameScan.riskLevel });
 
       inv.record({ folder: path, uids: [uid], action: "save_attachment" });

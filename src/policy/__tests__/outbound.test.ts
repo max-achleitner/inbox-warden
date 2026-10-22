@@ -6,7 +6,8 @@ import { FakeImap } from "../../__tests__/helpers/fake-imap.js";
 import { buildRaw } from "../../__tests__/helpers/messages.js";
 import { PolicyDeniedError, PolicyEngine } from "../engine.js";
 import { InjectionRiskObserver, highestRisk } from "../observer.js";
-import { findNewRecipients, guardOutbound } from "../outbound.js";
+import { findNewRecipients, guardOutbound, recipientWarnings } from "../outbound.js";
+import { ProvenanceStore } from "../provenance.js";
 import { UNSCOPED } from "../../imap/strict.js";
 import { gmailFakeImap } from "../../__tests__/helpers/test-app.js";
 import { LabelLock } from "../label-lock.js";
@@ -19,13 +20,15 @@ function setup(policyInput: Record<string, unknown> = {}, capabilities: Record<s
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "imap-mcp-state-"));
   const policy = new PolicyEngine("main", PolicySchema.parse(policyInput), ["max@firma.example"], { stateDir });
   const recorded: Record<string, unknown> = {};
+  const provenance = new ProvenanceStore();
   const inv = {
+    provenance,
     sdk: { mcpReq: { inputResponses: undefined, requestState: () => undefined } } as never,
     record: (d: Record<string, unknown>) => Object.assign(recorded, d),
     clientCapabilities: () => capabilities as never,
     account: { policy, getClient: async () => imap.asClient() },
   };
-  return { imap, policy, inv, recorded };
+  return { imap, policy, inv, recorded, provenance };
 }
 
 const request = { action: "send_email" as const, from: "max@firma.example", recipients: ["kunde@example.com"], subject: "Angebot", attachmentCount: 0, digest: "d" };
@@ -63,6 +66,133 @@ describe("guardOutbound", () => {
     await expect(guardOutbound(t.inv, request)).rejects.toThrow(/cannot show a confirmation dialog/);
   });
 
+  it("in confirm mode an injection finding only adds a warning line", async () => {
+    const elicits = setup({}, { elicitation: { form: {} } });
+    const observe = (t: ReturnType<typeof setup>) =>
+      new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+        tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk: "high" },
+      });
+    observe(elicits);
+    const pending = await guardOutbound(elicits.inv, request);
+    expect(pending.proceed).toBe(false);
+    if (!pending.proceed) {
+      expect(JSON.stringify(pending.result)).toContain("Warning: an email read in this session looked like a manipulation attempt (risk: high)");
+    }
+    const plain = setup();
+    observe(plain);
+    expect(await guardOutbound(plain.inv, request)).toMatchObject({ proceed: true, confirmation: "client-approval" });
+    expect(plain.recorded.injectionEscalation).toBe("high");
+  });
+
+  describe("untrusted recipients", () => {
+    const named = (t: ReturnType<typeof setup>) => t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com senden"] });
+
+    it("an untrusted recipient makes the dialog mandatory, also in direct mode", async () => {
+      const refused = setup({ send: { mode: "direct" } });
+      named(refused);
+      await expect(guardOutbound(refused.inv, request)).rejects.toThrow(/cannot show a confirmation dialog/);
+      await expect(guardOutbound(refused.inv, request)).rejects.toThrow(/only inside a received email: kunde@example\.com/);
+
+      const asks = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+      named(asks);
+      const decision = await guardOutbound(asks.inv, request);
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        expect(JSON.stringify(decision.result)).toContain("Check recipient: kunde@example.com appears only inside a received email");
+      }
+      expect(asks.recorded).toMatchObject({ untrustedRecipients: ["kunde@example.com"] });
+    });
+
+    it("the refusal carries the rule send.untrustedRecipients", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      named(t);
+      await expect(guardOutbound(t.inv, request)).rejects.toMatchObject({ rule: "send.untrustedRecipients" });
+    });
+
+    it("refuse mode refuses the send", async () => {
+      const t = setup({ untrustedRecipients: "refuse" }, { elicitation: { form: {} } });
+      named(t);
+      const err = await guardOutbound(t.inv, request).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as Error).message).toMatch(/Nothing was sent\./);
+    });
+
+    it("lists at most five recipients and counts the rest", async () => {
+      const t = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+      const addresses = Array.from({ length: 7 }, (_, i) => `x${i}@evil.example`);
+      t.provenance.noteSeen({ texts: [addresses.join(" ")] });
+      const decision = await guardOutbound(t.inv, { ...request, recipients: addresses });
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        const text = JSON.stringify(decision.result);
+        expect(text.match(/Check recipient:/g)).toHaveLength(5);
+        expect(text).toContain("…and 2 more recipients that appear only inside received email.");
+      }
+    });
+
+    it("no warnings, no change", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required", recipientWarnings: [] });
+    });
+  });
+
+  describe("refusal rules and escalation outcomes", () => {
+    const observe = (t: ReturnType<typeof setup>, injectionRisk: "high" | "critical") =>
+      new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+        tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk },
+      });
+    const rejection = async (promise: Promise<unknown>) => {
+      try {
+        await promise;
+      } catch (err) {
+        return err;
+      }
+      throw new Error("expected a refusal");
+    };
+
+    it("direct mode with a high finding and no dialog is refused with send.injectionEscalation", async () => {
+      const t = setup({ send: { mode: "direct" } });
+      observe(t, "high");
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.injectionEscalation");
+    });
+
+    it("confirm mode with requireElicitation and no dialog is refused with send.confirmation", async () => {
+      const t = setup({ send: { requireElicitation: true } });
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.confirmation");
+    });
+
+    it("confirm mode with a finding and unknown client capabilities is refused", async () => {
+      const t = setup();
+      t.inv.clientCapabilities = () => undefined as never;
+      observe(t, "high");
+      const err = await rejection(guardOutbound(t.inv, request));
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("send.confirmation");
+    });
+
+    it("a critical finding in confirm mode with a dialog is pending and carries the warning line", async () => {
+      const t = setup({}, { elicitation: { form: {} } });
+      observe(t, "critical");
+      const decision = await guardOutbound(t.inv, request);
+      expect(decision.proceed).toBe(false);
+      if (!decision.proceed) {
+        expect(JSON.stringify(decision.result)).toContain("looked like a manipulation attempt (risk: critical)");
+      }
+    });
+  });
+
+  it("a medium finding does not escalate with the default threshold", async () => {
+    const t = setup({ send: { mode: "direct" } });
+    new InjectionRiskObserver([t].map((x) => ({ policy: x.policy }))).onToolCall({
+      tool: "read_email", accountId: "main", tier: "read", outcome: "success", durationMs: 1, details: { injectionRisk: "medium" },
+    });
+    expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required" });
+  });
+
   it("enforces recipient rules before anything else", async () => {
     const t = setup({ send: { blockedRecipientDomains: ["example.com"] } });
     await expect(guardOutbound(t.inv, request)).rejects.toBeInstanceOf(PolicyDeniedError);
@@ -96,6 +226,69 @@ describe("guardOutbound", () => {
     const scope = new LabelLock({ deny: ["_NDA_Inbox"] });
     expect(await findNewRecipients(imap.asClient(), ["partner@partner.example", "kunde@example.com"], scope)).toEqual(["partner@partner.example"]);
     expect(await findNewRecipients(imap.asClient(), ["partner@partner.example"], UNSCOPED)).toEqual([]);
+  });
+
+  it("guardOutbound looks each recipient up in Sent only once", async () => {
+    const t = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    const decision = await guardOutbound(t.inv, request);
+    expect(decision.proceed).toBe(false);
+    expect(t.imap.callsTo("search")).toHaveLength(1);
+    expect(t.recorded).toMatchObject({ newRecipients: ["kunde@example.com"], untrustedRecipients: ["kunde@example.com"] });
+  });
+
+  it("guardOutbound still checks a candidate the new-recipient check did not look up", async () => {
+    const t = setup({ send: { mode: "direct", flagNewRecipients: false } }, { elicitation: { form: {} } });
+    t.imap.addMessage("Sent", await buildRaw({ from: "max@firma.example", to: "kunde@example.com", subject: "x", text: "y" }));
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required", recipientWarnings: [] });
+  });
+
+  it.each([
+    [6, "…and 1 more recipient that appears only inside received email."],
+    [7, "…and 2 more recipients that appear only inside received email."],
+  ])("the dialog sums up warnings beyond five (%i recipients)", async (count, line) => {
+    const t = setup({}, { elicitation: { form: {} } });
+    const recipients = Array.from({ length: count }, (_, i) => `r${i}@evil.example`);
+    t.provenance.noteSeen({ texts: [recipients.join(" ")] });
+    const decision = await guardOutbound(t.inv, { ...request, recipients });
+    expect(decision.proceed).toBe(false);
+    if (!decision.proceed) expect(JSON.stringify(decision.result)).toContain(line);
+  });
+
+  it("records the recipients before refusing untrusted ones in refuse mode", async () => {
+    const t = setup({ untrustedRecipients: "refuse" });
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    await expect(guardOutbound(t.inv, request)).rejects.toThrow(/refuse such recipients/);
+    expect(t.recorded).toMatchObject({ recipients: ["kunde@example.com"], untrustedRecipients: ["kunde@example.com"] });
+  });
+
+  it("recipientWarnings does not touch IMAP when nothing is flagged", async () => {
+    const t = setup();
+    const account = { policy: t.policy, getClient: async () => { throw new Error("must not be called"); } };
+    expect(await recipientWarnings({ provenance: new ProvenanceStore(), account }, ["kunde@example.com"])).toEqual([]);
+  });
+
+  it("recipientWarnings keeps candidates when the Sent lookup fails", async () => {
+    const t = setup();
+    const store = new ProvenanceStore();
+    store.noteSeen({ texts: ["Bitte an billing@evil.example"] });
+    const account = { policy: t.policy, getClient: async () => { throw new Error("offline"); } };
+    expect(await recipientWarnings({ provenance: store, account }, ["billing@evil.example"])).toEqual([
+      expect.objectContaining({ address: "billing@evil.example", reason: "only-in-mail-content" }),
+    ]);
+  });
+
+  it("recipientWarnings shows an invisible character in the address as a percent-encoded one in the text", async () => {
+    const t = setup();
+    const store = new ProvenanceStore();
+    const address = "bil​ling@evil.example";
+    store.noteSeen({ texts: [`Bitte an ${address}`] });
+    const account = { policy: t.policy, getClient: async () => { throw new Error("offline"); } };
+    const [warning] = await recipientWarnings({ provenance: store, account }, [address]);
+    expect(warning.address).toBe(address);
+    expect(warning.message).toContain("bil%E2%80%8Bling@evil.example");
+    expect(warning.message).not.toContain("​");
   });
 
   it("highestRisk picks the maximum", () => {

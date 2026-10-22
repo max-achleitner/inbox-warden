@@ -11,6 +11,7 @@ import * as log from "./logging/logger.js";
 import { CONFIG_DIR } from "./config/load.js";
 import { PolicyEngine, tierAllowed } from "./policy/engine.js";
 import { InjectionRiskObserver } from "./policy/observer.js";
+import { ProvenanceStore } from "./policy/provenance.js";
 import { SERVER_NAME } from "./version.js";
 
 export interface AccountRuntime {
@@ -48,6 +49,8 @@ export interface AppContext {
   readonly accounts: ReadonlyMap<string, AccountRuntime>;
   readonly defaultAccountId: string;
   readonly observers: ToolObserver[];
+  /** Which addresses mail content named, for recipient warnings. One per process, in memory only. */
+  readonly provenance: ProvenanceStore;
   /** The store the app was created with (the sign_in tool saves refresh tokens here). */
   readonly secrets: SecretStore;
   resolveAccount(id: string | undefined): AccountRuntime;
@@ -158,6 +161,7 @@ export function createAppContext(config: AppConfig, secrets: SecretStore, deps: 
     accounts,
     defaultAccountId,
     observers: [new InjectionRiskObserver(accounts)],
+    provenance: new ProvenanceStore(),
     secrets,
     resolveAccount(id) {
       const key = id?.trim() || defaultAccountId;

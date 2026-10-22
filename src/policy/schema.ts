@@ -21,8 +21,8 @@ export const SendPolicySchema = z.strictObject({
   maxPerHour: z.number().int().min(0).default(20),
   maxPerDay: z.number().int().min(0).default(100),
   flagNewRecipients: z.boolean().default(true),
-  /** After reading an email at or above this injection risk, every send needs confirmation for one hour. */
-  confirmAfterInjectionRisk: z.enum(["medium", "high", "critical", "never"]).default("medium"),
+  /** After reading an email at or above this injection risk, the confirmation dialog warns for one hour, and direct mode needs a dialog. */
+  confirmAfterInjectionRisk: z.enum(["medium", "high", "critical", "never"]).default("high"),
   /** true: refuse to send when the client cannot show a confirmation dialog (no fallback to client approval). */
   requireElicitation: z.boolean().default(false),
 });
@@ -51,6 +51,8 @@ export const PolicySchema = z.strictObject({
   bulk: BulkPolicySchema.prefault({}),
   folders: FolderPolicySchema.prefault({}),
   protectedFolders: z.boolean().default(true),
+  /** Recipients that appear only inside a received email and were never written to: warn on the draft, or refuse it. */
+  untrustedRecipients: z.enum(["warn", "refuse"]).default("warn"),
   attachments: AttachmentPolicySchema.prefault({}),
 });
 

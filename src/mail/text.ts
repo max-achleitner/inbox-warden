@@ -1,5 +1,6 @@
 import { convert } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
+import { mergeRemoved, stripInvisible, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
 
 export interface TextSource {
   text?: string;
@@ -13,9 +14,29 @@ export interface BoundedText {
   truncated: boolean;
   nextOffset?: number;
   textGenerated?: true;
+  textPartDiffers?: true;
+  hiddenContentRemoved?: HiddenContentRemoved;
 }
 
-export function htmlToText(html: string): string {
+export interface FullText {
+  text: string;
+  generated: boolean;
+  textPartDiffers?: true;
+  /** From the HTML part (always when there is one) merged with the text part's report. */
+  hidden?: HiddenContentRemoved;
+  /** Removed text; for scanning only, never shown. */
+  hiddenText: string;
+  /** Cleaned HTML when the message has an HTML part. */
+  html?: string;
+}
+
+/**
+ * A text part that has at least this many distinct words the visible HTML lacks, or lacks this many of the visible
+ * HTML's words, is not what the reader saw.
+ */
+export const TEXT_PART_EXTRA_WORDS = 5;
+
+function convertHtml(html: string): string {
   return convert(html, {
     wordwrap: 120,
     selectors: [
@@ -27,12 +48,71 @@ export function htmlToText(html: string): string {
   });
 }
 
-/** The message text; generated from HTML when there is no text/plain part. Preheader padding is dropped. */
-export function fullText(parsed: TextSource): { text: string; generated: boolean } {
+/**
+ * Visible text of a raw HTML string (hidden elements and invisible characters removed). It cleans the HTML itself, so
+ * never pass it HTML that `visibleHtml` already cleaned: a second pass no longer sees the removed `<style>` rules and
+ * can drop text that was styled through them.
+ */
+export function htmlToText(html: string): string {
+  return convertHtml(visibleHtml(html).html);
+}
+
+const URL_PATTERN = /(?:https?:\/\/|mailto:|www\.)\S+/gi;
+/** Outlook inline-image placeholders: `[cid:image001.png@01DA…]` or a bare `cid:…`. */
+const CID_PATTERN = /\[?cid:[^\s\]]+\]?/gi;
+
+function words(text: string): Set<string> {
+  return new Set(text.normalize("NFKC").toLowerCase().replace(URL_PATTERN, " ").replace(CID_PATTERN, " ").match(/[\p{L}\p{N}]{2,}/gu) ?? []);
+}
+
+function extraWords(text: string, known: Set<string>): boolean {
+  let extra = 0;
+  for (const word of words(text)) if (!known.has(word) && ++extra >= TEXT_PART_EXTRA_WORDS) return true;
+  return false;
+}
+
+/**
+ * True when the plain-text part and the visible HTML text say different things: one has at least
+ * TEXT_PART_EXTRA_WORDS distinct words the other lacks (a text part that says more, or a stub that says less).
+ */
+export function textPartDiffers(plain: string, visibleHtmlText: string): boolean {
+  const plainWords = words(plain);
+  const htmlWords = words(visibleHtmlText);
+  return extraWords(plain, htmlWords) || extraWords(visibleHtmlText, plainWords);
+}
+
+/**
+ * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
+ * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
+ * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
+ */
+export function fullText(parsed: TextSource): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
-  if (parsed.text) return { text: clean(parsed.text), generated: false };
-  if (parsed.html) return { text: clean(htmlToText(parsed.html)), generated: true };
-  return { text: "", generated: false };
+  const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
+  const plainText = plain ? clean(plain.text) : "";
+  const vh = parsed.html ? visibleHtml(parsed.html) : undefined;
+  // Safety net: whatever the conversion prints (link targets, attribute text) is cleaned like a text node
+  const converted = vh ? stripInvisible(convertHtml(vh.html)) : undefined;
+  const htmlText = converted?.text ?? "";
+  const hidden = mergeRemoved(vh?.removed, converted?.removed, plain?.removed);
+  const hiddenText = [vh?.hiddenText, converted?.hiddenText, plain?.hiddenText].filter(Boolean).join("\n");
+  const common = { hiddenText, ...(hidden ? { hidden } : {}), ...(vh ? { html: vh.html } : {}) };
+
+  if (plainText && (!vh || htmlText.trim() === "" || !textPartDiffers(plainText, htmlText))) {
+    return { text: plainText, generated: false, ...common };
+  }
+  if (vh) {
+    if (plainText === "") return { text: htmlText, generated: true, ...common };
+    // The reader saw the HTML; the text part is scanned (as hidden text) but never shown
+    return {
+      text: htmlText,
+      generated: true,
+      textPartDiffers: true,
+      ...common,
+      hiddenText: [hiddenText, plainText].filter(Boolean).join("\n"),
+    };
+  }
+  return { text: "", generated: false, ...common };
 }
 
 function isHighSurrogate(code: number): boolean {
@@ -45,8 +125,8 @@ function safeEnd(text: string, end: number): number {
 }
 
 /** A window of the message text for paging: [offset, offset + maxChars). */
-export function boundedText(parsed: TextSource, opts: { maxChars: number; offset: number }): BoundedText {
-  const { text, generated } = fullText(parsed);
+export function pageText(full: FullText, opts: { maxChars: number; offset: number }): BoundedText {
+  const { text, generated } = full;
   const total = text.length;
   let start = Math.min(Math.max(0, opts.offset), total);
   if (start > 0 && start < total && isHighSurrogate(text.charCodeAt(start - 1))) start -= 1;
@@ -58,7 +138,13 @@ export function boundedText(parsed: TextSource, opts: { maxChars: number; offset
     truncated: end < total,
     ...(end < total ? { nextOffset: end } : {}),
     ...(generated ? { textGenerated: true as const } : {}),
+    ...(full.textPartDiffers ? { textPartDiffers: true as const } : {}),
+    ...(full.hidden ? { hiddenContentRemoved: full.hidden } : {}),
   };
+}
+
+export function boundedText(parsed: TextSource, opts: { maxChars: number; offset: number }): BoundedText {
+  return pageText(fullText(parsed), opts);
 }
 
 export function truncate(text: string, maxChars: number): { text: string; truncated: boolean } {

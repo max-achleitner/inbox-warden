@@ -25,6 +25,7 @@ When Claude uses a tool, the requested email content (for example a search resul
 - Configuration (`~/.imap-mcp/config.json`, no passwords).
 - An audit log of actions that change or send mail (time, account, action, folder, message IDs, recipients). It contains no message bodies or attachments.
 - Rate-limit counters.
+- While the server runs: keyed hashes of the email addresses and domains that appeared in mail Claude read, for 24 hours, in memory only (never on disk), so it can warn about recipients that only an email suggested.
 
 ## What is never collected
 

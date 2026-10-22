@@ -62,4 +62,35 @@ describe("create_draft", () => {
     expect(await hOn.description("create_draft")).toContain("send_draft");
     await hOn.close();
   });
+
+  it("removes remote images from the HTML and lists the links", async () => {
+    const res = await h.call("create_draft", {
+      to: "kunde@example.com",
+      subject: "Angebot",
+      body: "Hallo",
+      html: '<p>Hallo</p><img src="https://evil.example/t.gif"><a href="https://shop.example/a">Angebot</a>',
+    });
+    expect(res.isError).toBe(false);
+    expect(((await simpleParser(imap.message("Drafts", res.json.uid)!.raw)).html as string)).not.toContain("evil.example");
+    expect(res.json).toMatchObject({ remoteContentRemoved: 1, linkTargets: ["https://shop.example/a"] });
+    expect(res.json.linkTargetsOmitted).toBeUndefined();
+  });
+
+  it("adds no fields without html", async () => {
+    const res = await h.call("create_draft", { to: "kunde@example.com", subject: "x", body: "Hallo" });
+    expect(res.json).not.toHaveProperty("remoteContentRemoved");
+    expect(res.json).not.toHaveProperty("linkTargets");
+  });
+
+  it("keeps a remote logo in the configured signature", async () => {
+    const t = createTestApp([{ identities: [{ email: "max@firma.example", name: "Max", signatureHtml: '<img src="https://firma.example/logo.png">' }] }]);
+    const h2 = await t.connect(createDraft.register);
+    try {
+      const res = await h2.call("create_draft", { to: "kunde@example.com", subject: "x", body: "Hallo", html: "<p>Hallo</p>" });
+      expect(res.isError).toBe(false);
+      expect(((await simpleParser(t.imap().message("Drafts", res.json.uid)!.raw)).html as string)).toContain("firma.example/logo.png");
+    } finally {
+      await h2.close();
+    }
+  });
 });

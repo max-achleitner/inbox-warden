@@ -13,6 +13,7 @@ import * as log from "../../logging/logger.js";
 import { errorResult } from "./result.js";
 import { PolicyDeniedError, tierAllowed, tierDenialMessage } from "../../policy/engine.js";
 import { clientCapabilitiesOf } from "../../policy/confirm.js";
+import type { ProvenanceChannel } from "../../policy/provenance.js";
 
 export interface ToolSpec<S extends z.ZodRawShape> {
   name: string;
@@ -34,6 +35,8 @@ export interface ToolInvocation {
   sdk: ServerContext;
   /** Add details for observers (audit log). Never pass message bodies or secrets. */
   record(details: Record<string, unknown>): void;
+  /** Separate from record(): what read tools returned, for recipient provenance. Never reaches observers or the audit log. */
+  provenance: ProvenanceChannel;
   /** Capabilities of the calling client (2026-07-28 request envelope, else the 2025-era handshake). */
   clientCapabilities(): ClientCapabilities | undefined;
 }
@@ -113,6 +116,7 @@ export function defineTool<S extends z.ZodRawShape>(
             account,
             sdk: ctx,
             record: (d) => Object.assign(details, d),
+            provenance: app.provenance,
             clientCapabilities: () => clientCapabilitiesOf(server, ctx),
           });
           // A confirmation round is not a finished call: no observers, no audit record

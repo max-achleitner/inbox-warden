@@ -30,6 +30,28 @@ describe("PolicyEngine", () => {
     expect(tierDenialMessage(account, "delete")).toMatch(/does not allow delete actions. Nothing was changed/);
   });
 
+  it("checkUntrustedRecipients refuses only in refuse mode", () => {
+    const warnings = [{ address: "billing@evil.example", reason: "only-in-mail-content" as const, message: "m" }];
+    expect(() => engine(policy()).checkUntrustedRecipients(warnings, "send")).not.toThrow();
+    const strict = engine(PolicySchema.parse({ untrustedRecipients: "refuse" }));
+    expect(() => strict.checkUntrustedRecipients([], "send")).not.toThrow();
+    expect(() => strict.checkUntrustedRecipients(warnings, "send")).toThrow(/billing@evil\.example.*Nothing was sent\./);
+    try {
+      strict.checkUntrustedRecipients(warnings, "draft");
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(PolicyDeniedError);
+      expect((err as PolicyDeniedError).rule).toBe("untrustedRecipients");
+      expect((err as Error).message).toContain("No draft was created.");
+    }
+  });
+
+  it("knows the account's own domain", () => {
+    const e = engine(policy());
+    expect(e.isOwnDomain("Kollege@Firma.Example")).toBe(true);
+    expect(e.isOwnDomain("x@evil.example")).toBe(false);
+  });
+
   it("enforces the hourly send limit", () => {
     const e = engine(policy({ maxPerHour: 1 }));
     e.checkRate();

@@ -8,8 +8,10 @@ import { searchFilterShape } from "../imap/search-query.js";
 import { LABEL_SCAN_NOTE, hasAttachmentPart, keywordsSupported, selectByFilter } from "../imap/select.js";
 import { newestFirst, positionComparator } from "../imap/order.js";
 import { envelopeDate } from "../imap/envelope.js";
+import { visibleString } from "../mail/visible-text.js";
 import { previewFor } from "../mail/preview.js";
 import { highestRisk } from "../policy/observer.js";
+import { headerSeen, type SeenMail } from "../policy/provenance.js";
 import { defineTool } from "./shared/define-tool.js";
 import { jsonResult } from "./shared/result.js";
 
@@ -20,7 +22,7 @@ const LIMIT_ORDER_NOTE =
 /** Safely extract address from an envelope address object */
 function parseEnvelopeAddress(a: any): { name: string; address: string } {
   return {
-    name: a.name || "",
+    name: visibleString(a.name || ""),
     address: a.address || (a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ""),
   };
 }
@@ -88,15 +90,21 @@ export function register(server: McpServer, app: AppContext) {
 
         const previews = includePreview ? await previewFor(client, pageUids, previewChars) : new Map<number, string>();
         const messages: any[] = [];
+        const seenMail: SeenMail[] = [];
         for await (const msg of client.fetch(
           pageUids,
           { uid: true, envelope: true, flags: true, bodyStructure: true, size: true },
           { uid: true },
         )) {
-          const subject = msg.envelope?.subject;
+          const subject = visibleString(msg.envelope?.subject);
           const preview = previews.get(msg.uid);
-          const addressNames = [...(msg.envelope?.from ?? []), ...(msg.envelope?.to ?? [])].map((a) => a.name ?? "");
+          const addressNames = [...(msg.envelope?.from ?? []), ...(msg.envelope?.to ?? [])].map((a) => visibleString(a.name ?? ""));
           const _injectionScan = scanForInjection({ subject, body: preview, addressNames });
+          const env = msg.envelope;
+          seenMail.push({
+            ...headerSeen({ from: env?.from, replyTo: env?.replyTo, to: env?.to, cc: env?.cc }),
+            texts: [subject ?? "", preview ?? "", ...addressNames],
+          });
           messages.push({
             uid: msg.uid,
             ...(compact ? {} : { messageId: msg.envelope?.messageId }),
@@ -114,6 +122,7 @@ export function register(server: McpServer, app: AppContext) {
 
         // IMAP fetch order is unspecified; use the order the page was chosen in
         messages.sort(positionComparator(pageUids));
+        inv.provenance.noteSeen(...seenMail);
         inv.record({ injectionRisk: highestRisk(messages.map((m) => m._injectionScan?.riskLevel)) });
         return jsonResult({ ...base, count: messages.length, messages });
       } finally {

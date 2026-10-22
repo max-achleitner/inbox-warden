@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { domainMatches, evaluateRecipients, normalizeDomainPattern } from "../recipients.js";
+import { domainMatches, domainSuffixes, evaluateRecipients, normalizeDomainPattern, relatedDomains } from "../recipients.js";
 
 const base = { blockedDomains: [], maxRecipients: 20, ownDomains: ["firma.example"] };
 
@@ -42,5 +42,17 @@ describe("recipient rules", () => {
 
   it("rejects addresses without a domain", () => {
     expect(evaluateRecipients(["undisclosed-recipients:"], base)).toMatchObject({ ok: false, rule: "send.recipients" });
+  });
+});
+
+describe("related domains", () => {
+  it("relates a domain to its parents and children only", () => {
+    expect(relatedDomains("mail.shop.example", "shop.example")).toBe(true);
+    expect(relatedDomains("shop.example", "mail.shop.example")).toBe(true);
+    expect(relatedDomains("shop.example", "shop-pay.example")).toBe(false);
+  });
+  it("lists a domain and its parents with at least two labels", () => {
+    expect(domainSuffixes("a.b.example")).toEqual(["a.b.example", "b.example"]);
+    expect(domainSuffixes("example")).toEqual([]);
   });
 });

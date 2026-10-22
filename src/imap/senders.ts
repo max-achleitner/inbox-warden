@@ -1,5 +1,6 @@
 import type { ImapFlow } from "imapflow";
 import { envelopeDate } from "./envelope.js";
+import { visibleString } from "../mail/visible-text.js";
 import { scanSubjectOnly, type InjectionScanResult } from "../security/injection-detector.js";
 
 export type SenderGrouping = "address" | "domain";
@@ -48,7 +49,7 @@ export async function summarizeSenders(
       if (date && (!group.oldest || date < group.oldest)) group.oldest = date;
       if (date && (!group.newest || date > group.newest)) group.newest = date;
       if (opts.groupBy === "address" && from?.name && msg.uid > group.nameUid) {
-        group.name = from.name;
+        group.name = visibleString(from.name);
         group.nameUid = msg.uid;
       }
       groups.set(key, group);

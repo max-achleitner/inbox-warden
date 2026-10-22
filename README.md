@@ -98,8 +98,7 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
 
 - **Sending and deleting are off by default.** Claude reads, sorts and writes drafts; you send them from
   your mail program. You switch sending or deleting on per mailbox.
-- **You approve what leaves your mailbox.** With sending on, you confirm each send (unless you choose
-  `direct`); recipient rules and rate limits apply, and every send is recorded.
+- **You approve what leaves your mailbox.** With sending on, each send is confirmed — in Inbox Warden's own dialog where your Claude app can show one, otherwise through the app's approval prompt (unless you choose `direct`); recipient rules and rate limits apply, and every send is recorded. A recipient needs your confirmation when Inbox Warden saw it only inside a received email in this session.
 - **Bulk changes are previewed first.** Sorting or deleting many messages at once first shows how many
   are affected, then changes exactly those — at most 500 per action (100 for deletes) by default.
 - **Locked folders stay out of reach.** Keep mail under an NDA in a folder Claude can neither see nor open:
@@ -107,12 +106,11 @@ What protects your mailbox is what Claude is *allowed* to do, not what an email 
   ([how](docs/guide/en/README.md#lock-folders-away-from-claude)).
 - **Nothing is changed by guesswork.** If a filter, folder or flag cannot be applied exactly, the
   action fails and says so — it never falls back to "all mail".
+- **Claude reads what you see.** Text an email hides in its HTML (invisible elements, white on white, tiny fonts) and invisible characters are removed before Claude reads the message.
+- **Drafts are yours to check.** Before you send a draft Claude wrote, look at the recipients and the text. Inbox Warden warns when a recipient appears only inside an email Claude read recently ([limits](docs/security/threat-model.md#6-honest-limits)); `policy.untrustedRecipients: "refuse"` blocks such drafts and sends. Remote images are removed from the HTML Claude writes, and its links are listed.
 - **Tamper-evident audit log** of every change and every sent message (no message contents).
 - **Encrypted connections only** (TLS 1.2+, no plaintext fallback); self-signed servers are pinned by fingerprint.
-- **Prompt-injection screening is an extra signal, not a guarantee.** Email content is checked for known
-  manipulation patterns before Claude sees it. A suspicious message is flagged to Claude, and for the next
-  hour every send needs your confirmation, even in `direct` mode. The check is a heuristic that can miss
-  new tricks and flag harmless mail, so it backs up the permissions above instead of replacing them.
+- **Built for untrusted mail.** Text in an email can try to steer Claude (prompt injection). No filter detects that reliably, so Inbox Warden does not depend on one: what protects you are the permissions and confirmations above and the removal of hidden text. A heuristic check also marks suspicious messages — a hint, not a safeguard.
 - **No telemetry.** See [PRIVACY.md](PRIVACY.md), the [security overview](SECURITY.md) and the
   security documentation in [docs/security/](docs/security/threat-model.md) (threat model, data flow,
   hardening guide, [Sicherheitsübersicht für IT-Verantwortliche](docs/security/sicherheitsuebersicht.md)).

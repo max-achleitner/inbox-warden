@@ -7,7 +7,7 @@ import { withFileLock } from "../file-lock.js";
 import * as log from "../logging/logger.js";
 import { redactString } from "../logging/redact.js";
 import { canonicalJson } from "./canonical.js";
-import { sanitizeDetails, type AuditLevel } from "./redact.js";
+import { sanitizeDetails, withoutLocalParts, type AuditLevel } from "./redact.js";
 import { DEFAULT_RETENTION_DAYS } from "./schema.js";
 
 export const GENESIS_HASH = "0".repeat(64);
@@ -188,8 +188,14 @@ export class AuditLog implements ToolObserver {
     if (event.tier === "write" || event.tier === "send" || event.tier === "delete") return true;
     if (event.outcome === "denied") return true;
     const risk = event.details.injectionRisk;
-    if (typeof risk === "string" && risk !== "none") return true;
+    if (risk === "medium" || risk === "high" || risk === "critical") return true;
     return this.includeReads;
+  }
+
+  /** Credentials removed; at level minimal also every local part (refusals name recipients). Cut after reducing. */
+  private errorText(error: string): string {
+    const redacted = redactString(error);
+    return (this.level === "minimal" ? withoutLocalParts(redacted) : redacted).slice(0, 500);
   }
 
   async onToolCall(event: ToolCallEvent): Promise<void> {
@@ -202,7 +208,7 @@ export class AuditLog implements ToolObserver {
         outcome: event.outcome,
         durationMs: event.durationMs,
         details: sanitizeDetails(event.details, this.level),
-        ...(event.error ? { error: redactString(event.error).slice(0, 500) } : {}),
+        ...(event.error ? { error: this.errorText(event.error) } : {}),
       });
       this.lastError = null;
     } catch (err) {

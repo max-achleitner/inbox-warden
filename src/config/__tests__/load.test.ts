@@ -37,6 +37,15 @@ describe("loadConfig", () => {
     expect((err as Error).message).not.toContain("hunter2");
   });
 
+  it("names where a corrupt config file breaks, without quoting it", async () => {
+    const file = path.join(dir, "config.json");
+    fs.writeFileSync(file, '{"password": "hunter2secret",}');
+    const err = await loadConfig(env, { secrets: new MemorySecrets() }).catch((e) => e as Error);
+    expect(err).toBeInstanceOf(ConfigError);
+    expect((err as Error).message).toMatch(/not valid JSON \((line \d+ column \d+|position \d+)\)\.$/);
+    expect((err as Error).message).not.toContain("hunter2");
+  });
+
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   });

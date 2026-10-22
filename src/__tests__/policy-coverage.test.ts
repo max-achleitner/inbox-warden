@@ -33,6 +33,10 @@ describe("policy coverage of tool sources", () => {
     expect(toolSources().filter(({ source }) => /\bresolveFolder\(|\bmatchFolder\(/.test(source)).map(({ file }) => file)).toEqual([]);
   });
 
+  it("no tool parses mail without parseMail", () => {
+    expect(toolSources().filter(({ source }) => /\bsimpleParser\(/.test(source)).map(({ file }) => file)).toEqual([]);
+  });
+
   it("every tool that enumerates folders applies the folder policy", () => {
     expect(offenders(/\blistTree\(|\blistFolderInfo\(/, /\bvisibleFolders\(|\bfolderAllowed\(|\bresolvePolicyFolder\(/)).toEqual([]);
   });
@@ -98,6 +102,12 @@ describe("policy coverage of tool sources", () => {
     expect(offenders(/\bscanForInjection\(|\bscanSubjectOnly\(/, /injectionRisk/)).toEqual([]);
   });
 
+  it("every tool that returns mail content feeds the provenance store", () => {
+    // send-draft.ts and save-attachment.ts return no mail content to the AI
+    expect(offenders(/\bdownloadMessage\(|\bpreviewFor\(|\bsummarizeSenders\(/, /\.noteSeen\(/, ["send-draft.ts", "save-attachment.ts"])).toEqual([]);
+    expect(fs.readFileSync(path.join(TOOLS_DIR, "..", "bulk", "run.ts"), "utf8")).toMatch(/\.noteSeen\(/);
+  });
+
   describe("Gmail label lock: a message with a hidden label is not reachable on any path", () => {
     const source = (file: string) => fs.readFileSync(path.join(TOOLS_DIR, "..", file), "utf8");
 
@@ -118,7 +128,8 @@ describe("policy coverage of tool sources", () => {
     it("the bulk runner, the new-recipient check and the answered marker use the scope", () => {
       expect(source("bulk/run.ts").match(/\.messageScope\(/g)).toHaveLength(2);
       expect(source("policy/outbound.ts")).toMatch(/visibleUids\(client, hits/);
-      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(await inv\.account\.getClient\(\), recipients, policy\.messageScope\(\)\)/);
+      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(await inv\.account\.getClient\(\), recipients, policy\.messageScope\(\)[,)]/);
+      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(client, unknown, policy\.messageScope\(\)[,)]/);
       expect(source("mail/answered.ts")).toMatch(/visibleUids\(client, await strictSearch/);
     });
 

@@ -40,6 +40,11 @@ export function register(server: McpServer, app: AppContext) {
         const selection = await selectByFilter(client, filters, inv.account.policy.messageScope(folders));
         const scannedUids = selection.uids.slice(-SENDER_SCAN_LIMIT);
         const summary = await summarizeSenders(client, scannedUids, { groupBy, limit });
+        // Grouped by domain there are no addresses to remember, only the (untrusted) names
+        inv.provenance.noteSeen({
+          correspondents: groupBy === "address" ? summary.senders.map((s) => s.sender) : [],
+          texts: summary.senders.map((s) => s.name ?? ""),
+        });
         inv.record({
           folder: path,
           count: selection.uids.length,

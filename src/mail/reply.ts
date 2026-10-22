@@ -1,5 +1,7 @@
 import type { AddressObject, EmailAddress } from "mailparser";
-import { convert } from "html-to-text";
+import { domainOf, relatedDomains } from "../policy/recipients.js";
+import { fullText } from "./text.js";
+import { visibleAddress, visibleString } from "./visible-text.js";
 
 export interface Mailbox {
   name: string;
@@ -59,6 +61,26 @@ export function replyRecipients(
   return { to, cc };
 }
 
+/**
+ * A Reply-To on a different domain than the sender (a common invoice-fraud trick). Non-null only when the
+ * reply really goes to the Reply-To address, i.e. the original has one, and one of its addresses is on a
+ * domain unrelated to the From address's domain. The mailbox's own addresses are skipped, as replyRecipients
+ * skips them, so the note never names an address the reply does not go to.
+ */
+export function replyToMismatch(original: OriginalMessage, ownAddresses: string[]): { replyTo: string; from: string | null } | null {
+  const own = new Set(ownAddresses.map((a) => a.toLowerCase()));
+  const from = flattenAddresses(original.from)[0]?.address;
+  const fromDomain = from === undefined ? null : domainOf(from);
+  for (const m of flattenAddresses(original.replyTo)) {
+    if (own.has(m.address.toLowerCase())) continue;
+    if (from === undefined || fromDomain === null) return { replyTo: m.address, from: null };
+    const d = domainOf(m.address);
+    // an invisible character in the address (IDNA ignores it in the domain) is a look-alike trick, never a match
+    if (d === null || visibleAddress(m.address) !== m.address || !relatedDomains(d, fromDomain)) return { replyTo: m.address, from };
+  }
+  return null;
+}
+
 /** "Re: " unless the subject already carries a reply prefix (Re, AW, Antw, SV, VS). */
 export function replySubject(subject: string | undefined): string {
   const s = (subject ?? "").trim();
@@ -86,9 +108,7 @@ function attribution(original: OriginalMessage, language: QuoteLanguage, timeZon
 }
 
 function originalText(original: OriginalMessage): string {
-  if (original.text) return original.text;
-  if (original.html) return convert(original.html, { wordwrap: 100, selectors: [{ selector: "img", format: "skip" }] });
-  return "";
+  return fullText(original).text;
 }
 
 /** Plain-text quote block: attribution line followed by "> "-prefixed original text. */
@@ -119,4 +139,9 @@ export function quoteHtml(original: OriginalMessage, language: QuoteLanguage, ti
 
 export function formatAddressList(list: Mailbox[]): string {
   return list.map((m) => formatMailbox(m)).join(", ");
+}
+
+/** For tool results only: display names without invisible characters; the addresses stay exactly as they are. */
+export function formatVisibleAddressList(list: Mailbox[]): string {
+  return formatAddressList(list.map((m) => ({ ...m, name: visibleString(m.name) })));
 }

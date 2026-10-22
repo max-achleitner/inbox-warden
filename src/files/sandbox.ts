@@ -66,8 +66,10 @@ export function sanitizeFilename(input: string): string {
   let name = input.split(/[/\\]/).pop() ?? "";
   name = name
     .replace(/[\x00-\x1f\x7f<>:"|?*]/g, "_")
-    .replace(/^[.\s]+/, "")
-    .replace(/[.\s]+$/, "");
+    .replace(/^[.\s]+/, "");
+  let end = name.length;
+  while (end > 0 && /[.\s]/.test(name[end - 1]!)) end--;
+  name = name.slice(0, end);
   if (!name) name = "attachment";
   if (WINDOWS_RESERVED.test(name)) name = `_${name}`;
   if (name.length > 180) {

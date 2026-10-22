@@ -1,6 +1,7 @@
 import type { ImapFlow, MessageStructureObject } from "imapflow";
 import { convert } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
+import { stripInvisible, visibleHtml } from "./visible-text.js";
 
 /** Bytes fetched per message for a preview. HTML gets more because <head>/<style> often fill the first KBs. */
 const PLAIN_FETCH_BYTES = 4096;
@@ -83,7 +84,7 @@ export function decodePartialBody(raw: Buffer, encoding: string, charset: string
 /** Collapse to a single line of at most `chars` characters. */
 export function previewText(decoded: string, isHtml: boolean, chars: number): string {
   const text = isHtml
-    ? convert(decoded, {
+    ? convert(visibleHtml(decoded).html, {
         wordwrap: false,
         selectors: [
           { selector: "a", options: { ignoreHref: true } },
@@ -93,7 +94,7 @@ export function previewText(decoded: string, isHtml: boolean, chars: number): st
           { selector: "head", format: "skip" },
         ],
       })
-    : decoded;
+    : stripInvisible(decoded).text;
   const collapsed = text.replace(PREHEADER_PADDING_GLOBAL, " ").replace(/\s+/g, " ").trim();
   return collapsed.length > chars ? `${collapsed.slice(0, chars - 1).trimEnd()}…` : collapsed;
 }
