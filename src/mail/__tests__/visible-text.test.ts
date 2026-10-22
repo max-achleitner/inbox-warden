@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripInvisible, visibleHtml } from "../visible-text.js";
+import { MAX_STYLE_CHARS, stripInvisible, visibleHtml } from "../visible-text.js";
 import { convert } from "html-to-text";
 import { mailFixture } from "../../__tests__/helpers/mail-fixtures.js";
 
@@ -184,4 +184,82 @@ describe("fix round 1", () => {
 
   it("ignores a unitless font-size", () =>
     expect(plain(visibleHtml('<span style="font-size:1">sichtbar</span>').html)).toBe("sichtbar"));
+});
+
+describe("final review fixes", () => {
+  describe("translucent backgrounds are not judged", () => {
+    it.each([
+      '<div style="background-color:rgba(0,0,0,.05);padding:8px">npm install inbox-warden</div>',
+      '<div style="background:#0000000d">npm install inbox-warden</div>',
+      '<style>p{margin:0}</style><div style="background:#111111"><span style="background:rgba(255,255,255,.12);color:#ffffff">npm install inbox-warden</span></div>',
+      '<table><tr><td bgcolor="#111111"><div style="background:rgba(255,255,255,0.12)"><font color="#ffffff">npm install inbox-warden</font></div></td></tr></table>',
+    ])("keeps the text of %s", (html) => {
+      const v = visibleHtml(`<p>Intro</p>${html}`);
+      expect(plain(v.html)).toContain("npm install inbox-warden");
+      expect(v.removed).toBeUndefined();
+    });
+
+    it.each([
+      '<div style="background:rgba(255,255,255,1)"><span style="color:#fff">secret words</span></div>',
+      '<div style="background:#ffffffff"><span style="color:#fff">secret words</span></div>',
+      '<div style="background:#000"><div style="background:transparent"><span style="color:#000">secret words</span></div></div>',
+    ])("still removes text on an opaque background of its own colour: %s", (html) => {
+      expect(visibleHtml(`<p>Hallo</p>${html}`).removed).toEqual({ chars: 11, kinds: ["invisible-color"] });
+    });
+  });
+
+  describe("legacy <font size>", () => {
+    it.each(["2", "1", "+1", "-1", "7"])("<font size=%s> inside a font-size:0 wrapper keeps its text", (size) => {
+      const v = visibleHtml(`<table><tr><td style="font-size:0"><font size="${size}" face="Arial">Spaltentext</font></td></tr></table>`);
+      expect(plain(v.html)).toBe("Spaltentext");
+      expect(v.removed).toBeUndefined();
+    });
+
+    it("a CSS font-size beats the size attribute", () =>
+      expect(visibleHtml('<p>Hallo</p><font size="3" style="font-size:0">secret words</font>').removed).toEqual({ chars: 11, kinds: ["tiny-font"] }));
+  });
+
+  describe("style sheets", () => {
+    it("evaluates nothing by CSS when the style sheets exceed the cap, so no visible text can be lost", () => {
+      const filler = `.f{color:#000}`.repeat(Math.ceil((MAX_STYLE_CHARS + 1) / 14));
+      const html =
+        `<style>${filler}.x{display:none}</style>` +
+        '<div class="x">one</div><div style="display:none">two</div><span style="color:#fff">three</span>' +
+        '<div style="font-size:0">four</div><div hidden>secret words</div>';
+      const v = visibleHtml(html);
+      expect(plain(v.html)).toBe("one\ntwo\nthree\nfour");
+      expect(v.removed).toEqual({ chars: 11, kinds: ["hidden-attribute"] });
+    });
+
+    it.each([
+      ["a later rule wins", "<style>.a{display:none}.a{display:block}</style>", "shown"],
+      ["an !important rule beats a later one", "<style>.a{display:none!important}.a{display:block}</style>", "hidden"],
+      ["tag.class beats .class", "<style>p.a{display:none}.a{display:block}</style>", "hidden"],
+      ["#id beats .class", "<style>#i{display:block}.a{display:none}</style>", "shown"],
+      ["a rule for another tag does not apply", "<style>div.a{display:none}</style>", "shown"],
+      ["a later class on the element does not reorder the rules", "<style>.b{display:none}.a{display:block}</style>", "shown"],
+    ])("cascade: %s", (_name, style, expected) => {
+      const v = visibleHtml(`${style}<p>Hallo</p><p id="I" class="b A">secret words</p>`);
+      expect(plain(v.html).includes("secret words")).toBe(expected === "shown");
+    });
+
+    it("treats an overlong value as not understood", () => {
+      const v = visibleHtml(`<div style="background:#ffffff ${"x".repeat(300)}"><span style="color:#fff">sichtbar</span></div>`);
+      expect(plain(v.html)).toBe("sichtbar");
+    });
+
+    it.each(["calc(12px + 1vw)", "var(--size)", "2vw", "clamp(12px, 2vw, 16px)"])(
+      "keeps text whose font-size it does not understand inside a font-size:0 wrapper: %s",
+      (size) => expect(plain(visibleHtml(`<div style="font-size:0"><span style="font-size:${size}">sichtbar</span></div>`).html)).toBe("sichtbar"),
+    );
+
+    it("still removes a tiny font set in px inside a wrapper of unknown size", () =>
+      expect(visibleHtml('<p>Hallo</p><div style="font-size:2vw"><span style="font-size:1px">secret words</span></div>').removed).toEqual({ chars: 11, kinds: ["tiny-font"] }));
+
+    it.each(["opacity:1e-9", "opacity:0.05", "opacity:5%"])("reads %s", (style) =>
+      expect(visibleHtml(`<p>Hallo</p><div style="${style}">secret words</div>`).removed).toEqual({ chars: 11, kinds: ["zero-opacity"] }));
+
+    it("ignores an opacity that is not a number", () =>
+      expect(plain(visibleHtml('<div style="opacity:0.05abc">sichtbar</div>').html)).toBe("sichtbar"));
+  });
 });

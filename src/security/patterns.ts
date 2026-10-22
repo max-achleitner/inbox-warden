@@ -34,7 +34,8 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
   },
   {
     type: "system_prompt_override",
-    pattern: /(?:^|\n)\s*(?:---+|===+|\*\*\*+)\s*(?:SYSTEM|ADMIN|NEW INSTRUCTIONS|NEUE ANWEISUNGEN|SYSTEMANWEISUNG)/im,
+    // Spaces before the delimiter stay on its line, so long runs of blank lines are not rescanned from every line start
+    pattern: /^[^\S\r\n\u{2028}\u{2029}]*(?:---+|===+|\*\*\*+)\s*(?:SYSTEM|ADMIN|NEW INSTRUCTIONS|NEUE ANWEISUNGEN|SYSTEMANWEISUNG)/imu,
     description: "Delimiter followed by system override keyword",
     strength: "generic",
     locations: ["body", "hidden"],
@@ -83,7 +84,7 @@ const INSTRUCTION_PATTERNS: PatternDef[] = [
   },
   {
     type: "instruction_injection",
-    pattern: /\b(?:from now on|ab jetzt|ab sofort)\s*,?\s*(?:you|du|the assistant|der assistent)\s+(?:will|must|should|wirst|musst|sollst)\b/i,
+    pattern: /\b(?:from now on|ab jetzt|ab sofort)\s*(?:,\s*)?(?:you|du|the assistant|der assistent)\s+(?:will|must|should|wirst|musst|sollst)\b/i,
     description: "Behavioral override from now on",
     strength: "generic",
     locations: ["body", "hidden"],
@@ -196,7 +197,7 @@ const SOCIAL_PATTERNS: PatternDef[] = [
 const EXFILTRATION_PATTERNS: PatternDef[] = [
   {
     type: "data_exfiltration",
-    pattern: /\b(?:forward|send|draft|weiterleiten|senden)\s+(?:all|the|alle|die)?\s*(?:emails?|messages?|data|contents?|passwords?|credentials?|e-?mails?|nachrichten|daten|inhalte|passwörter)\s+(?:to|an)\b/i,
+    pattern: /\b(?:forward|send|draft|weiterleiten|senden)\s+(?:(?:all|the|alle|die)\s*)?(?:emails?|messages?|data|contents?|passwords?|credentials?|e-?mails?|nachrichten|daten|inhalte|passwörter)\s+(?:to|an)\b/i,
     description: "Instruction to exfiltrate data via email",
     strength: "generic",
     locations: ["body", "hidden"],
@@ -227,8 +228,11 @@ export const INVISIBLE_CHARS_GLOBAL = /[\u200B\u200C\u200D\uFEFF\u2060\u180E]/g;
 /**
  * Newsletter preheader padding: invisible characters alternating with spaces ("&#847;&zwnj;&nbsp;" repeated),
  * used to keep body text out of the inbox preview. Carries no hidden text, so it is neither shown nor counted.
+ * Linear on long runs: a match starts only where a run of padding characters starts (lookbehind), and each run is
+ * taken whole (captured in a lookahead, which never backtracks).
  */
-export const PREHEADER_PADDING_GLOBAL = /(?:[͏­​‌‍⁠﻿᠎]+\s+){2,}/g;
+export const PREHEADER_PADDING_GLOBAL =
+  /(?<![\u{034F}\u{00AD}\u{200B}\u{200C}\u{200D}\u{2060}\u{FEFF}\u{180E}])(?:(?=([\u{034F}\u{00AD}\u{200B}\u{200C}\u{200D}\u{2060}\u{FEFF}\u{180E}]+))\1\s+){2,}/gu;
 
 /** Bidirectional text override characters */
 export const BIDI_OVERRIDES_GLOBAL = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;

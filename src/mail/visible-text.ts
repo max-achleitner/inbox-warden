@@ -57,6 +57,13 @@ const COLOR_DISTANCE_MAX = 16; // per RGB channel
 const OFF_SCREEN_PX = -500;
 const INVISIBLE_REPORT_MIN = 3;
 const MAX_HTML_DEPTH = 500;
+/**
+ * Style sheets (all `<style>` texts together, which caps each one too) longer than this are not evaluated at all: no
+ * rule is applied and nothing is judged by CSS, because an unread rule could show any text a judgement would remove.
+ */
+export const MAX_STYLE_CHARS = 64 * 1024;
+/** Longer declaration values are not evaluated: they count as not understood (safe for every property read here). */
+const MAX_VALUE_CHARS = 256;
 
 export function mergeRemoved(...parts: Array<HiddenContentRemoved | undefined>): HiddenContentRemoved | undefined {
   let chars = 0;
@@ -209,38 +216,64 @@ interface Parsed {
 
 const emptyParsed = (): Parsed => ({ values: new Map(), important: new Set() });
 
+/** The only properties the evaluation reads; every other declaration is dropped while parsing. */
+const RELEVANT_PROPERTIES = new Set([
+  "display",
+  "visibility",
+  "opacity",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "height",
+  "max-height",
+  "width",
+  "max-width",
+  "text-indent",
+  "position",
+  "left",
+  "top",
+  "font-size",
+  "color",
+  "background",
+  "background-color",
+  "background-image",
+]);
+/** Stands in for a value longer than MAX_VALUE_CHARS: no colour, length, keyword or image test below accepts it. */
+const UNREADABLE_VALUE = "unreadable()";
+const IMPORTANT = /!\s*important$/i;
+
 function parseDecls(css: string): Parsed {
   const parsed = emptyParsed();
   for (const part of splitOutside(css.replace(CSS_COMMENT, ""), ";")) {
     const colon = part.indexOf(":");
     if (colon < 1) continue;
     const name = part.slice(0, colon).trim().toLowerCase();
-    let value = part.slice(colon + 1).trim().toLowerCase();
-    const important = /\s*!\s*important$/.test(value);
-    if (important) value = value.replace(/\s*!\s*important$/, "").trim();
-    if (!name || !value) continue;
-    parsed.values.set(name, value);
-    if (important) parsed.important.add(name);
+    if (!RELEVANT_PROPERTIES.has(name)) continue;
+    let value = part.slice(colon + 1).trim();
+    const bang = IMPORTANT.exec(value);
+    if (bang) value = value.slice(0, bang.index).trimEnd();
+    if (!value) continue;
+    parsed.values.set(name, value.length > MAX_VALUE_CHARS ? UNREADABLE_VALUE : value.toLowerCase());
+    if (bang) parsed.important.add(name);
     else parsed.important.delete(name);
   }
   return parsed;
 }
 
-/** Overlays `source` onto `target`: a later declaration wins unless the earlier one is `!important` and it is not. */
-function overlay(target: Parsed, source: Parsed): void {
-  for (const [name, value] of source.values) {
-    const important = source.important.has(name);
-    if (target.important.has(name) && !important) continue;
-    target.values.set(name, value);
-    if (important) target.important.add(name);
-    else target.important.delete(name);
-  }
+/** A winning declaration of the cascade: `!important` first, then specificity, then source order. */
+interface Winner {
+  value: string;
+  important: boolean;
+  specificity: number;
+  order: number;
 }
+
+const beats = (a: Winner, b: Winner): boolean =>
+  a.important !== b.important ? a.important : a.specificity !== b.specificity ? a.specificity > b.specificity : a.order > b.order;
 
 interface CssRule {
   order: number;
   specificity: number;
-  tag?: string;
   decls: Parsed;
 }
 
@@ -249,10 +282,11 @@ const SIMPLE_SELECTOR = /^([a-z][a-z0-9]*)?(?:([.#])([-\w]+))?$/i;
 const MEDIA_ALL = /^@media\s+(?:all|screen|only\s+screen)$/i;
 
 /**
- * Simple selector rules from every <style>, indexed by `tag`, `.class` or `#id`. @media all/screen/only screen count as
- * top level; every other @-block is skipped.
+ * The winning declarations of the simple selector rules from every <style>, per selector key (`tag`, `.class`, `#id`,
+ * `tag.class`, `tag#id`). @media all/screen/only screen count as top level; every other @-block is skipped. An element
+ * merges the winners of its own keys, so matching costs per element what its classes cost, not what the style sheet does.
  */
-function parseRules(cssTexts: string[]): Map<string, CssRule[]> {
+function parseRules(cssTexts: string[]): Map<string, Map<string, Winner>> {
   const rules = new Map<string, CssRule[]>();
   let order = 0;
   const scan = (css: string, allowMedia: boolean): void => {
@@ -276,26 +310,47 @@ function parseRules(cssTexts: string[]): Map<string, CssRule[]> {
           continue;
         }
         const decls = parseDecls(body);
+        if (decls.values.size === 0) continue;
         for (const selector of selectors.split(",")) {
           const m = SIMPLE_SELECTOR.exec(selector.trim());
           if (!m || (!m[1] && !m[2])) continue;
-          const tag = m[1]?.toLowerCase();
-          const key = m[2] ? `${m[2]}${m[3]!.toLowerCase()}` : tag!;
+          const tag = m[1]?.toLowerCase() ?? "";
+          const key = m[2] ? `${tag}${m[2]}${m[3]!.toLowerCase()}` : tag;
           const specificity = (tag ? 1 : 0) + (m[2] === "." ? 10 : m[2] === "#" ? 100 : 0);
           const list = rules.get(key) ?? [];
-          list.push({ order: order++, specificity, tag: m[2] ? tag : undefined, decls });
+          list.push({ order: order++, specificity, decls });
           rules.set(key, list);
         }
       } else if (depth === 0) prelude += c;
     }
   };
   for (const raw of cssTexts) scan(raw.replace(CSS_COMMENT, ""), true);
-  return rules;
+
+  const winners = new Map<string, Map<string, Winner>>();
+  for (const [key, list] of rules) {
+    const won = new Map<string, Winner>();
+    for (const rule of list) {
+      for (const [name, value] of rule.decls.values) {
+        const candidate = { value, important: rule.decls.important.has(name), specificity: rule.specificity, order: rule.order };
+        const current = won.get(name);
+        if (!current || beats(candidate, current)) won.set(name, candidate);
+      }
+    }
+    winners.set(key, won);
+  }
+  return winners;
 }
+
+// A number that can match only one way (no backtracking between the integer and the fraction digits). Values are
+// lower-cased, so the exponent is `e`.
+const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?`;
+const LENGTH = new RegExp(`^(${NUMBER})(px|pt|em|rem|%)?$`);
+const PLAIN_NUMBER = new RegExp(`^${NUMBER}$`);
+const NUMBER_OR_PERCENT = new RegExp(`^(${NUMBER})(%)?$`);
 
 /** Number with unit to px; undefined when it is not a plain length. `base` is the reference for em and %. */
 function toPx(value: string, base: number): number | undefined {
-  const m = /^([-+]?(?:\d+\.?\d*|\.\d+))(px|pt|em|rem|%|)$/.exec(value.trim());
+  const m = LENGTH.exec(value.trim());
   if (!m) return undefined;
   const n = parseFloat(m[1]!);
   switch (m[2]) {
@@ -312,6 +367,14 @@ function toPx(value: string, base: number): number | undefined {
   }
 }
 
+/** `opacity` as a fraction; undefined when it is not a number or percentage (invalid CSS is ignored by readers too). */
+function opacityOf(value: string): number | undefined {
+  const m = NUMBER_OR_PERCENT.exec(value);
+  if (!m) return undefined;
+  const n = parseFloat(m[1]!);
+  return m[2] ? n / 100 : n;
+}
+
 const FONT_KEYWORDS: Record<string, number> = {
   "xx-small": 9,
   "x-small": 10,
@@ -322,20 +385,40 @@ const FONT_KEYWORDS: Record<string, number> = {
   "xx-large": 32,
 };
 
-function fontSizePx(value: string, parent: number): number {
+/** `<font size="1…7">` in px; relative sizes (+n, -n) count from 3. */
+const LEGACY_FONT_PX = [10, 13, 16, 18, 24, 32, 48];
+
+function legacyFontPx(raw: string): number | undefined {
+  const m = /^\s*([-+]?)(\d+)/.exec(raw);
+  if (!m) return undefined;
+  const n = parseInt(m[2]!, 10);
+  const size = m[1] === "+" ? 3 + n : m[1] === "-" ? 3 - n : n;
+  return LEGACY_FONT_PX[Math.min(7, Math.max(1, size)) - 1];
+}
+
+/** Computed font size; "unknown" when the value is not understood (calc(), var(), vw …), which is never judged tiny. */
+function fontSizePx(value: string, parent: FontPx): FontPx {
   const keyword = FONT_KEYWORDS[value];
   if (keyword !== undefined) return keyword;
+  if (value === "inherit" || value === "unset") return parent;
+  if (value === "initial" || value === "revert") return 16;
+  if (PLAIN_NUMBER.test(value)) return parseFloat(value) === 0 ? 0 : parent; // unitless is invalid CSS
+  if (parent === "unknown") {
+    const absolute = toPx(value, Number.NaN);
+    return absolute === undefined || Number.isNaN(absolute) ? "unknown" : absolute;
+  }
   if (value === "smaller") return parent / 1.2;
   if (value === "larger") return parent * 1.2;
-  if (/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(value)) return parseFloat(value) === 0 ? 0 : parent; // unitless is invalid CSS
-  return toPx(value, parent) ?? parent;
+  return toPx(value, parent) ?? "unknown";
 }
 
 // --- visible HTML ------------------------------------------------------------------------------------------------
 
+type FontPx = number | "unknown";
+
 interface State {
   visibilityHidden: boolean;
-  fontPx: number;
+  fontPx: FontPx;
   /** undefined = not declared (black), "unknown" = declared but not understood */
   color: Rgba | "unknown" | undefined;
   /** undefined = not declared (white page), "unknown" = image or not understood */
@@ -384,11 +467,15 @@ function cssTexts(root: ParentNode): string[] {
   return texts;
 }
 
+const NO_DECLS: Decls = new Map();
+
 export function visibleHtml(html: string): VisibleHtml {
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
+  // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
+  const cssEvaluated = styles.reduce((sum, s) => sum + s.length, 0) <= MAX_STYLE_CHARS;
   const hasStyle = styles.some((s) => s.replace(CSS_COMMENT, "").trim() !== "");
-  const cssRules = parseRules(styles);
+  const winners = cssEvaluated ? parseRules(styles) : new Map<string, Map<string, Winner>>();
 
   const hidden: string[] = [];
   const removals: HiddenContentRemoved[] = [];
@@ -401,17 +488,31 @@ export function visibleHtml(html: string): VisibleHtml {
   };
 
   const declsOf = (el: Element): Decls => {
-    const keys = [el.name, ...(el.attribs.class ?? "").toLowerCase().split(/\s+/).filter(Boolean).map((c) => "." + c)];
-    if (el.attribs.id) keys.push("#" + el.attribs.id.toLowerCase());
-    const applicable: CssRule[] = [];
-    for (const key of keys) {
-      for (const rule of cssRules.get(key) ?? []) if (!rule.tag || rule.tag === el.name) applicable.push(rule);
+    const merged = new Map<string, Winner>();
+    if (winners.size > 0) {
+      const tag = el.name;
+      const keys = new Set([tag]);
+      for (const c of (el.attribs.class ?? "").toLowerCase().split(/\s+/)) {
+        if (c) keys.add("." + c).add(tag + "." + c);
+      }
+      const id = el.attribs.id?.toLowerCase();
+      if (id) keys.add("#" + id).add(tag + "#" + id);
+      for (const key of keys) {
+        for (const [name, winner] of winners.get(key) ?? []) {
+          const current = merged.get(name);
+          if (!current || beats(winner, current)) merged.set(name, winner);
+        }
+      }
     }
-    applicable.sort((x, y) => x.specificity - y.specificity || x.order - y.order);
-    const merged = emptyParsed();
-    for (const rule of applicable) overlay(merged, rule.decls);
-    overlay(merged, parseDecls(el.attribs.style ?? ""));
-    return merged.values;
+    const values: Decls = new Map();
+    for (const [name, winner] of merged) values.set(name, winner.value);
+    // Inline wins over a rule, unless the rule is !important and the inline value is not
+    const inline = parseDecls(el.attribs.style ?? "");
+    for (const [name, value] of inline.values) {
+      if (merged.get(name)?.important && !inline.important.has(name)) continue;
+      values.set(name, value);
+    }
+    return values;
   };
 
   const lengthPx = (d: Decls, prop: string): number | undefined => {
@@ -423,10 +524,7 @@ export function visibleHtml(html: string): VisibleHtml {
     if (d.get("display") === "none") return "display-none";
     if ("hidden" in el.attribs) return "hidden-attribute";
     const opacity = d.get("opacity");
-    if (opacity !== undefined) {
-      const o = opacity.endsWith("%") ? parseFloat(opacity) / 100 : parseFloat(opacity);
-      if (o <= HIDDEN_OPACITY_MAX) return "zero-opacity";
-    }
+    if (opacity !== undefined && (opacityOf(opacity) ?? 1) <= HIDDEN_OPACITY_MAX) return "zero-opacity";
     const clipped = ["overflow", "overflow-x", "overflow-y"].some((p) => /^(hidden|clip)$/.test(d.get(p) ?? ""));
     if (clipped && ["height", "max-height", "width", "max-width"].some((p) => (lengthPx(d, p) ?? 1) <= 0)) {
       return "zero-size";
@@ -445,7 +543,13 @@ export function visibleHtml(html: string): VisibleHtml {
     else if (visibility === "visible") s.visibilityHidden = false;
     const size = d.get("font-size");
     if (size !== undefined) s.fontPx = fontSizePx(size, parent.fontPx);
+    else if (el.name === "font" && el.attribs.size !== undefined) s.fontPx = legacyFontPx(el.attribs.size) ?? s.fontPx;
 
+    // An opaque colour replaces the background, a translucent one makes it unknown (not blended), transparent keeps it.
+    const setBackground = (c: Rgba | undefined) => {
+      if (c === undefined || (c.a > 0 && c.a < 1)) s.background = "unknown";
+      else if (c.a >= 1) s.background = c;
+    };
     const legacy = (raw: string | undefined) => {
       const v = raw?.trim().toLowerCase();
       return v !== undefined && /^[0-9a-f]{6}$/.test(v) ? "#" + v : v;
@@ -456,11 +560,7 @@ export function visibleHtml(html: string): VisibleHtml {
     else if (el.name === "a") s.color = "unknown"; // links are blue by default
 
     let image = el.attribs.background !== undefined && el.attribs.background !== "";
-    if (el.attribs.bgcolor) {
-      const c = parseColor(legacy(el.attribs.bgcolor)!);
-      if (c === undefined) s.background = "unknown";
-      else if (c.a > 0) s.background = c;
-    }
+    if (el.attribs.bgcolor) setBackground(parseColor(legacy(el.attribs.bgcolor)!));
     const bgImage = d.get("background-image");
     if (bgImage !== undefined && bgImage !== "none") image = true;
     const bgShort = d.get("background");
@@ -472,18 +572,15 @@ export function visibleHtml(html: string): VisibleHtml {
         .find((t) => t && parseColor(t) !== undefined);
     }
     if (bgValue === undefined && bgShort !== undefined && bgShort !== "none") image = true; // gradient, var(), ...
-    if (bgValue !== undefined) {
-      const c = parseColor(bgValue);
-      if (c === undefined) s.background = "unknown";
-      else if (c.a > 0) s.background = c;
-    }
+    if (bgValue !== undefined) setBackground(parseColor(bgValue));
     if (image) s.background = "unknown";
     return s;
   };
 
   const textReason = (s: State): HiddenKind | undefined => {
+    if (!cssEvaluated) return undefined;
     if (s.visibilityHidden) return "visibility-hidden";
-    if (s.fontPx <= HIDDEN_FONT_MAX_PX) return "tiny-font";
+    if (s.fontPx !== "unknown" && s.fontPx <= HIDDEN_FONT_MAX_PX) return "tiny-font";
     if (s.color !== undefined && s.color !== "unknown" && s.color.a <= HIDDEN_OPACITY_MAX) return "invisible-color";
     if (s.color === "unknown" || s.background === "unknown") return undefined;
     if ((s.color === undefined || s.background === undefined) && hasStyle) return undefined;
@@ -541,7 +638,7 @@ export function visibleHtml(html: string): VisibleHtml {
       continue;
     }
     if (REMOVED_SILENTLY.has(node.name)) continue;
-    const decls = declsOf(node);
+    const decls = cssEvaluated ? declsOf(node) : NO_DECLS;
     const reason = elementReason(node, decls);
     if (reason) {
       remove(reason, subtreeText(node));
