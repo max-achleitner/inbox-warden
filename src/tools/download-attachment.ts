@@ -78,9 +78,11 @@ export function register(server: McpServer, app: AppContext) {
         const raw = attachment.content.toString("utf-8");
         const isHtml = HTML_TYPES.has(contentType) || /\.html?$/i.test(filename);
         let visible: { text: string; hiddenText: string; removed?: HiddenContentRemoved };
+        let htmlTooComplex = false;
         if (isHtml) {
           const html = fullText({ html: raw });
           visible = { text: html.text, hiddenText: html.hiddenText, ...(html.hidden ? { removed: html.hidden } : {}) };
+          htmlTooComplex = html.htmlTooComplex === true;
         } else {
           visible = stripInvisible(raw);
         }
@@ -89,7 +91,7 @@ export function register(server: McpServer, app: AppContext) {
         inv.provenance.noteSeen({ texts: [content, filename] });
         const scan = scanForInjection({ body: content, hidden: visible.hiddenText || undefined, attachmentNames: [filename] });
         inv.record({ injectionRisk: scan.riskLevel });
-        return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
+        return jsonResult({ ...meta, encoding: "utf-8", content, ...(isHtml ? { convertedFromHtml: true } : {}), ...(htmlTooComplex ? { htmlTooComplex: true } : {}), ...(hiddenContentRemoved ? { hiddenContentRemoved } : {}), ...(scan.hasInjection ? { _injectionScan: scan } : {}) });
       }
 
       inv.provenance.noteSeen({ texts: [filename] });

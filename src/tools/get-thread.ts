@@ -13,7 +13,7 @@ import { highestRisk } from "../policy/observer.js";
 import { downloadMessage, strictSearch, visibleUids, type MessageScope } from "../imap/strict.js";
 import { flattenAddresses, type Mailbox } from "../mail/reply.js";
 import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
-import { fullText, stripQuotedHistory, truncate } from "../mail/text.js";
+import { fullText, HTML_TOO_COMPLEX_NOTE, stripQuotedHistory, truncate } from "../mail/text.js";
 import { threadIds, threadQuery } from "../mail/thread.js";
 import { headerSeen, type SeenMail } from "../policy/provenance.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -184,6 +184,7 @@ export function register(server: McpServer, app: AppContext) {
           text: body.text,
           ...(full.hidden ? { hiddenContentRemoved: full.hidden } : {}),
           ...(full.textPartDiffers ? { textPartDiffers: true } : {}),
+          ...(full.htmlTooComplex ? { htmlTooComplex: true, note: HTML_TOO_COMPLEX_NOTE } : {}),
           ...(body.truncated ? { truncated: true } : {}),
           ...(own.stripped ? { quotedHistoryRemoved: true } : {}),
           ...(scan.hasInjection ? { _injectionScan: scan } : {}),

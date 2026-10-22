@@ -1,6 +1,7 @@
 import { parseDocument, DomUtils } from "htmlparser2";
 import { isComment, isDirective, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
+import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
 
 /**
  * What a human sees in a mail: HTML without hidden elements, text without invisible characters.
@@ -49,6 +50,11 @@ export interface VisibleHtml {
   html: string;
   hiddenText: string;
   removed?: HiddenContentRemoved;
+  /**
+   * Parsing the HTML (or the cleaned copy html-to-text parses again) would take too long (see html-cost.ts): it was not
+   * checked, `html` is empty and `hiddenText` holds all of its text, for the scanner only.
+   */
+  tooComplex?: true;
 }
 
 const HIDDEN_FONT_MAX_PX = 1;
@@ -57,6 +63,8 @@ const COLOR_DISTANCE_MAX = 16; // per RGB channel
 const OFF_SCREEN_PX = -500;
 const INVISIBLE_REPORT_MIN = 3;
 const MAX_HTML_DEPTH = 500;
+/** html-to-text walks the cleaned HTML recursively and runs out of stack near 2,500 levels. */
+const MAX_REPARSE_DEPTH = 2 * MAX_HTML_DEPTH;
 /**
  * Style sheets (all `<style>` texts together, which caps each one too) longer than this are not evaluated at all: no
  * rule is applied and nothing is judged by CSS, because an unread rule could show any text a judgement would remove.
@@ -543,7 +551,36 @@ const NO_DECLS: Decls = new Map();
 /** Attributes holding a URL: invisible characters there are percent-encoded instead of removed. */
 const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "background", "action", "formaction", "poster", "cite", "xlink:href"]);
 
+const isAsciiLetter = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a);
+
+/** Everything outside start and end tags, for the scanner: one pass with indexOf, every tag becomes a space. */
+function textBetweenTags(html: string): string {
+  const parts: string[] = [];
+  let from = 0;
+  let lt = html.indexOf("<");
+  while (lt >= 0) {
+    const next = html.charCodeAt(lt + 1);
+    if (isAsciiLetter(next) || (next === 0x2f && isAsciiLetter(html.charCodeAt(lt + 2)))) {
+      const gt = html.indexOf(">", lt + 2);
+      if (gt < 0) break;
+      parts.push(html.slice(from, lt));
+      from = gt + 1;
+      lt = html.indexOf("<", from);
+    } else lt = html.indexOf("<", lt + 1);
+  }
+  parts.push(html.slice(from));
+  return parts.join(" ");
+}
+
+/** Not parsed and not shown: all of its text goes to the scanner. */
+function tooComplex(html: string): VisibleHtml {
+  const text = stripInvisible(textBetweenTags(html));
+  return { html: "", hiddenText: [text.text, text.hiddenText].filter(Boolean).join("\n"), tooComplex: true };
+}
+
 export function visibleHtml(html: string): VisibleHtml {
+  // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
+  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return tooComplex(html);
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
   // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
@@ -755,6 +792,10 @@ export function visibleHtml(html: string): VisibleHtml {
 
   // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
   const markup = stripTagCharacters(DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }));
+  // html-to-text parses the cleaned copy again. The serializer writes the text of iframe, noembed, noframes and
+  // plaintext unescaped, so "&lt;div&gt;" there becomes an element: the copy must pass the same gate.
+  const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
+  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return tooComplex(html);
   removals.push(markup.removed);
   const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {

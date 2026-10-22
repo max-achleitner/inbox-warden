@@ -26,9 +26,18 @@ export interface FullText {
   hidden?: HiddenContentRemoved;
   /** Removed text; for scanning only, never shown. */
   hiddenText: string;
-  /** Cleaned HTML when the message has an HTML part. */
+  /** Cleaned HTML when the message has an HTML part that could be checked. */
   html?: string;
+  /**
+   * The HTML part would take the parser too long, so it was not checked for hidden text: `text` is the text part (or
+   * empty), the HTML's text is only scanned.
+   */
+  htmlTooComplex?: true;
 }
+
+/** Tool results carry this with `htmlTooComplex`. */
+export const HTML_TOO_COMPLEX_NOTE =
+  "The HTML of this email is nested too deeply to check it for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.";
 
 /**
  * A text part that has at least this many distinct words the visible HTML lacks, or lacks this many of the visible
@@ -85,12 +94,23 @@ export function textPartDiffers(plain: string, visibleHtmlText: string): boolean
  * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
  * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
  * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
+ * HTML too costly to parse is never shown (`htmlTooComplex`): then only the text part is.
  */
 export function fullText(parsed: TextSource): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
   const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
   const plainText = plain ? clean(plain.text) : "";
   const vh = parsed.html ? visibleHtml(parsed.html) : undefined;
+  if (vh?.tooComplex) {
+    // Fail closed: the unchecked HTML shows nothing, the text part is all a reader can be shown
+    return {
+      text: plainText,
+      generated: false,
+      hiddenText: [vh.hiddenText, plain?.hiddenText].filter(Boolean).join("\n"),
+      ...(plain?.removed ? { hidden: plain.removed } : {}),
+      htmlTooComplex: true,
+    };
+  }
   // Safety net: whatever the conversion prints (link targets, attribute text) is cleaned like a text node
   const converted = vh ? stripInvisible(convertHtml(vh.html)) : undefined;
   const htmlText = converted?.text ?? "";

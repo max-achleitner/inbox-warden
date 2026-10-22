@@ -104,6 +104,8 @@ describe("withoutRemoteContent", () => {
     ["self-closing svg paths", "<svg>" + "<path/>".repeat(3100) + "</svg>"],
     ["unclosed paragraphs", "<p>x".repeat(3100)],
     ["unclosed list items", "<ul>" + "<li>x".repeat(3100) + "</ul>"],
+    ["unclosed table rows", "<table>" + "<tr><td>x".repeat(5000) + "</table>"],
+    ["1,000 nested table cells", "<td><table>".repeat(1000)],
   ])("accepts a flat document of %s", (_n, html) => {
     expect(() => withoutRemoteContent(html)).not.toThrow();
   });
@@ -111,6 +113,15 @@ describe("withoutRemoteContent", () => {
     const start = performance.now();
     expect(() => withoutRemoteContent(tag.repeat(200_000))).toThrow(/nested too deeply/);
     expect(performance.now() - start).toBeLessThan(500);
+  });
+  it.each([
+    ["stray closing tags", "<div></b>"],
+    ["stray paragraph ends in svg", "<svg></p>"],
+    ["svg contexts closed by their parent", "<div><svg></div>"],
+  ])("refuses 160k %s quickly, which htmlparser2 would need minutes for", (_n, piece) => {
+    const start = performance.now();
+    expect(() => withoutRemoteContent(piece.repeat(160_000))).toThrow(/nested too deeply.*Nothing was saved or sent/);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
   it("removes SVG elements with a remote href, ping attributes, and lists form targets", () => {
     const r = withoutRemoteContent('<svg><feImage href="https://evil.example/a"/><mpath xlink:href="//evil.example/b"/></svg><a href="/x" ping="https://evil.example/p">x</a><form action="https://shop.example/f"><button formaction="https://shop.example/g">go</button></form>');

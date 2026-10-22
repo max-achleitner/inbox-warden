@@ -1,6 +1,7 @@
 import { parseDocument, DomUtils } from "htmlparser2";
 import { Text, isTag, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { visibleAddress } from "./visible-text.js";
+import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
 
 /**
  * HTML that Claude writes for a draft: no remote content. A remote image reports when a draft is opened and can
@@ -12,9 +13,6 @@ export const LINK_TARGETS_MAX = 50;
 /** CSS beyond this size is dropped instead of parsed. */
 const CSS_MAX = 64 * 1024;
 const MAX_DEPTH = 500;
-/** htmlparser2 takes time quadratic in the nesting depth, so absurdly deep input is refused before it is parsed. */
-const NESTING_REFUSED = 3000;
-const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "param"]);
 
 export interface OutgoingHtml {
   html: string;
@@ -33,9 +31,6 @@ const REMOVED_ELEMENTS = new Set([
 ]);
 /** SVG elements that load a resource through href / xlink:href. */
 const SVG_HREF_ELEMENTS = new Set(["image", "use", "feimage", "mpath", "tref", "pattern", "lineargradient", "radialgradient", "filter"]);
-const INTEGRATION_ELEMENTS = new Set(["foreignobject", "desc", "title"]);
-/** Elements whose end tag htmlparser2 implies, so they do not nest. */
-const IMPLIED_END = new Set(["p", "li", "td", "th", "tr", "option", "dt", "dd"]);
 const URL_ATTRIBUTES = ["src", "background", "poster", "lowsrc", "dynsrc"];
 /** SVG presentation attributes whose value is CSS that can hold url(): cleaned like style, local url(#id) stays. */
 const SVG_URL_ATTRIBUTES = new Set(["fill", "stroke", "mask", "filter", "clip-path", "marker-start", "marker-mid", "marker-end", "cursor"]);
@@ -185,54 +180,6 @@ export function cleanCss(css: string, options: { allowFragment?: boolean } = {})
   return { css: out, removed };
 }
 
-/**
- * Rough peak nesting of the markup in one linear pass, following htmlparser2's rules: "/>" closes only inside
- * svg/math, some elements are closed implicitly. Comments over-count a little. Underestimates are harmless
- * beyond time; the 500-level cut after parsing still applies.
- */
-function peakNesting(html: string): number {
-  let depth = 0;
-  let peak = 0;
-  const foreign: boolean[] = [];
-  let gt = -1;
-  let i = html.indexOf("<");
-  while (i >= 0) {
-    const c = html.charCodeAt(i + 1);
-    const closing = c === 47;
-    const start = closing ? i + 2 : i + 1;
-    const first = html.charCodeAt(start);
-    if ((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) {
-      let j = start;
-      while (j < html.length && j - start <= 14 && /[A-Za-z0-9]/.test(html[j])) j++;
-      const name = html.slice(start, j).toLowerCase();
-      if (closing) {
-        depth = Math.max(0, depth - 1);
-        if (name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name)) foreign.shift();
-      } else {
-        if (gt < i) {
-          gt = html.indexOf(">", i);
-          // no ">" left: remember that, or every later "<" searches to the end again
-          if (gt < 0) gt = html.length;
-        }
-        const selfClosed = gt < html.length && gt > 0 && html.charCodeAt(gt - 1) === 47;
-        const special = name === "svg" || name === "math" || INTEGRATION_ELEMENTS.has(name);
-        const inForeign = foreign[0] === true;
-        if (VOID_ELEMENTS.has(name) || IMPLIED_END.has(name)) {
-          // no nesting
-        } else if (selfClosed && (inForeign || special)) {
-          // closed at once (an svg element that closes itself pushes no context)
-        } else {
-          depth++;
-          if (depth > peak) peak = depth;
-          if (special) foreign.unshift(name === "svg" || name === "math");
-        }
-      }
-    } else if (closing) depth = Math.max(0, depth - 1);
-    i = html.indexOf("<", i + 1);
-  }
-  return peak;
-}
-
 /** The serializer runs without its own encoding: text escapes & < >, attributes also ", everything else stays UTF-8. */
 const encodeText = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const encodeAttribute = (v: string) => encodeText(v).replace(/"/g, "&quot;");
@@ -300,7 +247,8 @@ class ChildEdits {
 }
 
 export function withoutRemoteContent(html: string): OutgoingHtml {
-  if (peakNesting(html) > NESTING_REFUSED) {
+  // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
+  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) {
     throw new Error("The html is nested too deeply to be checked for remote content. Nothing was saved or sent.");
   }
   const doc = parseDocument(html);
