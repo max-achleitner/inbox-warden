@@ -86,20 +86,13 @@ const INVISIBLE =
 /** Format characters that occur in ordinary text (soft hyphen, direction marks) and are removed without a report. */
 const COMMON_FORMAT = new Set([0x00ad, 0x200e, 0x200f, 0x061c]);
 
-export function stripInvisible(input: string): Visible {
-  const text0 = input.replace(PREHEADER_PADDING_GLOBAL, " ");
-  let payload = "";
-  let invisible = 0;
-  const text = text0.replace(INVISIBLE, (m, flag, zwj, tag, fmt) => {
-    if (flag || zwj) return m;
-    if (tag) {
-      const code = m.codePointAt(0)!;
-      if (code >= 0xe0020 && code <= 0xe007e) payload += String.fromCharCode(code - 0xe0000);
-      return "";
-    }
-    if (fmt && !COMMON_FORMAT.has(m.codePointAt(0)!)) invisible++;
-    return "";
-  });
+/** Tag characters U+E0020–E007E stand for ASCII; the rest (language tag, cancel tag) carry nothing. */
+function decodeTag(tag: string): string {
+  const code = tag.codePointAt(0)!;
+  return code >= 0xe0020 && code <= 0xe007e ? String.fromCharCode(code - 0xe0000) : "";
+}
+
+function report(text: string, payload: string, invisible: number): Visible {
   const kinds: HiddenKind[] = [];
   const chars = payload.replace(/\s/g, "").length;
   if (chars > 0) kinds.push("tag-characters");
@@ -108,6 +101,56 @@ export function stripInvisible(input: string): Visible {
   if (chars > 0 || kinds.length > 0) result.removed = { chars, kinds };
   return result;
 }
+
+export function stripInvisible(input: string): Visible {
+  const text0 = input.replace(PREHEADER_PADDING_GLOBAL, " ");
+  let payload = "";
+  let invisible = 0;
+  const text = text0.replace(INVISIBLE, (m, flag, zwj, tag, fmt) => {
+    if (flag || zwj) return m;
+    if (tag) {
+      payload += decodeTag(m);
+      return "";
+    }
+    if (fmt && !COMMON_FORMAT.has(m.codePointAt(0)!)) invisible++;
+    return "";
+  });
+  return report(text, payload, invisible);
+}
+
+const TAG_CHARACTERS = /(\u{1F3F4}[\u{E0061}-\u{E007A}]{2,6}\u{E007F})|[\u{E0000}-\u{E007F}]/gu;
+
+/**
+ * Removes Unicode tag characters only (subdivision flags kept) and decodes their payload. For values that must not
+ * change otherwise, such as Message-IDs and List-Unsubscribe; addresses stay untouched so look-alikes stay visible.
+ */
+export function stripTagCharacters(input: string): Visible {
+  let payload = "";
+  const text = input.replace(TAG_CHARACTERS, (m, flag) => {
+    if (flag) return m;
+    payload += decodeTag(m);
+    return "";
+  });
+  return report(text, payload, 0);
+}
+
+/** Link targets: tag characters are removed, other invisible characters percent-encoded, so `pay\u{200B}pal.com` stays recognisable. */
+function visibleUrl(input: string): Visible {
+  let payload = "";
+  const text = input.replace(INVISIBLE, (m, flag, zwj, tag) => {
+    if (flag || zwj) return m;
+    if (tag) {
+      payload += decodeTag(m);
+      return "";
+    }
+    return encodeURIComponent(m);
+  });
+  return report(text, payload, 0);
+}
+
+/** Quick test before an attribute is rewritten: any character `INVISIBLE` or the preheader padding could remove. */
+const HAS_INVISIBLE =
+  /[\u{00AD}\u{034F}\u{061C}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{180B}-\u{180F}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{206F}\u{3164}\u{FEFF}\u{FFA0}\u{FFF9}-\u{FFFB}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
 
 export function visibleString<T extends string | undefined>(text: T): T {
   return (text === undefined ? text : stripInvisible(text).text) as T;
@@ -469,6 +512,9 @@ function cssTexts(root: ParentNode): string[] {
 
 const NO_DECLS: Decls = new Map();
 
+/** Attributes holding a URL: invisible characters there are percent-encoded instead of removed. */
+const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "background", "action", "formaction", "poster", "cite", "xlink:href"]);
+
 export function visibleHtml(html: string): VisibleHtml {
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
@@ -485,6 +531,27 @@ export function visibleHtml(html: string): VisibleHtml {
     if (text.trim()) hidden.push(text);
     if (hiddenText) hidden.push(hiddenText);
     if (chars > 0) removals.push({ chars, kinds: [kind] });
+  };
+  const note = (v: Visible) => {
+    if (v.hiddenText) hidden.push(v.hiddenText);
+    if (v.removed) removals.push(v.removed);
+    return v.text;
+  };
+
+  /** Tag characters leave every attribute; other invisible characters are encoded in URLs and removed elsewhere. */
+  const cleanAttributes = (el: Element) => {
+    for (const [name, value] of Object.entries(el.attribs)) {
+      const nameDirty = HAS_INVISIBLE.test(name);
+      if (!nameDirty && !HAS_INVISIBLE.test(value)) continue;
+      const clean = note(URL_ATTRIBUTES.has(name) ? visibleUrl(value) : stripInvisible(value));
+      if (!nameDirty) {
+        el.attribs[name] = clean;
+        continue;
+      }
+      delete el.attribs[name];
+      const cleanName = note(stripInvisible(name)).trim();
+      if (cleanName && !(cleanName in el.attribs)) el.attribs[cleanName] = clean;
+    }
   };
 
   const declsOf = (el: Element): Decls => {
@@ -651,15 +718,19 @@ export function visibleHtml(html: string): VisibleHtml {
       // Too deep for the serialiser and html-to-text: the children move up into the enclosing kept element.
       stack.push({ src, i: 0, state, depth, kept: frame.kept });
     } else {
+      // Judged on the raw attributes (as a reader's mail program sees them), cleaned only once kept
+      cleanAttributes(node);
       frame.kept.push(node);
       stack.push({ src, i: 0, state, depth, kept: [], owner: node });
     }
   }
 
-  const removed = mergeRemoved(...removals);
+  // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
+  const markup = stripTagCharacters(DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }));
+  const removed = mergeRemoved(...removals, markup.removed);
   const result: VisibleHtml = {
-    html: DomUtils.getOuterHTML(doc, { encodeEntities: "utf8" }),
-    hiddenText: hidden.join("\n"),
+    html: markup.text,
+    hiddenText: (markup.hiddenText ? [...hidden, markup.hiddenText] : hidden).join("\n"),
   };
   if (removed) result.removed = removed;
   return result;

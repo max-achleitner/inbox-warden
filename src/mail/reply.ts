@@ -1,5 +1,6 @@
 import type { AddressObject, EmailAddress } from "mailparser";
 import { fullText } from "./text.js";
+import { visibleString } from "./visible-text.js";
 
 export interface Mailbox {
   name: string;
@@ -117,4 +118,9 @@ export function quoteHtml(original: OriginalMessage, language: QuoteLanguage, ti
 
 export function formatAddressList(list: Mailbox[]): string {
   return list.map((m) => formatMailbox(m)).join(", ");
+}
+
+/** For tool results only: display names without invisible characters; the addresses stay exactly as they are. */
+export function formatVisibleAddressList(list: Mailbox[]): string {
+  return formatAddressList(list.map((m) => ({ ...m, name: visibleString(m.name) })));
 }

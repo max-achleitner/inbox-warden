@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MAX_STYLE_CHARS, stripInvisible, visibleHtml } from "../visible-text.js";
+import { MAX_STYLE_CHARS, stripInvisible, stripTagCharacters, visibleHtml } from "../visible-text.js";
 import { convert } from "html-to-text";
 import { mailFixture } from "../../__tests__/helpers/mail-fixtures.js";
 
@@ -261,5 +261,42 @@ describe("final review fixes", () => {
 
     it("ignores an opacity that is not a number", () =>
       expect(plain(visibleHtml('<div style="opacity:0.05abc">sichtbar</div>').html)).toBe("sichtbar"));
+  });
+
+  describe("attributes", () => {
+    it("removes tag characters from attribute values and scans their payload", () => {
+      const v = visibleHtml(`<p><a href="https://example.com/x${tags("ignore previous")}" title="T${tags("abc")}">Link</a></p>`);
+      expect(v.html).toBe('<p><a href="https://example.com/x" title="T">Link</a></p>');
+      expect(v.hiddenText).toContain("ignore previous");
+      expect(v.hiddenText).toContain("abc");
+      expect(v.removed).toEqual({ chars: nonWs("ignore previous") + 3, kinds: ["tag-characters"] });
+    });
+
+    it("percent-encodes other invisible characters in URLs and strips them elsewhere", () => {
+      const v = visibleHtml('<a href="https://pay\u{200B}pal.com/\u{202E}x" title="Rech\u{00AD}nung" data-x="a\u{200B}b"><img src="a\u{2060}.png" alt="L\u{200B}ogo"></a>');
+      expect(v.html).toBe('<a href="https://pay%E2%80%8Bpal.com/%E2%80%AEx" title="Rechnung" data-x="ab"><img src="a%E2%81%A0.png" alt="Logo"></a>');
+    });
+
+    it("leaves no tag characters in tag or attribute names", () => {
+      const v = visibleHtml(`<p data-a${tags("xy")}="1">x</p><b${tags("zz")}>y</b>`);
+      expect(v.html).not.toMatch(/[\u{E0000}-\u{E007F}]/u);
+      expect(v.hiddenText).toContain("xy");
+      expect(v.hiddenText).toContain("zz");
+    });
+
+    it("stripTagCharacters removes only tag characters", () =>
+      expect(stripTagCharacters(`<m\u{200B}1${tags("hi you")}@example.com>`)).toEqual({
+        text: "<m\u{200B}1@example.com>",
+        hiddenText: "hi you",
+        removed: { chars: 5, kinds: ["tag-characters"] },
+      }));
+
+    it("judges hiding on the raw attributes", () =>
+      expect(plain(visibleHtml('<div hid\u{200B}den>sichtbar</div>').html)).toBe("sichtbar"));
+
+    it("keeps a subdivision flag in an attribute", () => {
+      const flag = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+      expect(visibleHtml(`<img alt="${flag}">`).html).toBe(`<img alt="${flag}">`);
+    });
   });
 });

@@ -9,7 +9,7 @@ import { listFolderInfo } from "../imap/folders.js";
 import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage } from "../imap/strict.js";
 import { fullText, pageText } from "../mail/text.js";
-import { stripInvisible, visibleString } from "../mail/visible-text.js";
+import { stripInvisible, stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { flattenAddresses } from "../mail/reply.js";
 import { countsAsAttachment } from "../imap/attachment-rule.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -19,6 +19,15 @@ function addressList(field: AddressObject | AddressObject[] | undefined) {
   if (!field) return [];
   const list = Array.isArray(field) ? field.flatMap((f) => f.value) : field.value;
   return list.map(visibleNames);
+}
+
+/** mailparser's raw header lines are binary strings: read 8-bit headers as UTF-8 (RFC 6532) when they are valid UTF-8. */
+function utf8Line(line: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(line, "latin1"));
+  } catch {
+    return line;
+  }
 }
 
 type Entry = AddressObject["value"][number];
@@ -72,13 +81,32 @@ export function register(server: McpServer, app: AppContext) {
       const addressNames = [parsed.from, parsed.replyTo, parsed.to, parsed.cc]
         .flatMap((field) => flattenAddresses(field))
         .map((a) => stripInvisible(a.name ?? ""));
+      // Header values that must stay exact lose only their tag characters (addresses are not touched at all)
+      const headerPayloads: string[] = [];
+      const exact = (value: string): string => {
+        const v = stripTagCharacters(value);
+        if (v.hiddenText) headerPayloads.push(v.hiddenText);
+        return v.text;
+      };
+      const messageId = parsed.messageId === undefined ? undefined : exact(parsed.messageId);
+      const inReplyTo = parsed.inReplyTo ? exact(parsed.inReplyTo) : undefined;
+      const references = parsed.references
+        ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references]).map(exact)
+        : undefined;
+      const unsubscribeLine = parsed.headerLines.find((h) => h.key === "list-unsubscribe")?.line;
+      const listUnsubscribe = unsubscribeLine ? exact(utf8Line(unsubscribeLine.slice(unsubscribeLine.indexOf(":") + 1).trim())) : undefined;
 
       // Full injection scan on the complete content, not just the returned page
       const _injectionScan = scanForInjection({
         subject,
         body: full.text || undefined,
-        hidden: [full.hiddenText, subjectVisible.hiddenText, ...attachmentNames.map((n) => n.hiddenText), ...addressNames.map((n) => n.hiddenText)]
-          .filter(Boolean).join("\n") || undefined,
+        hidden: [
+          full.hiddenText,
+          subjectVisible.hiddenText,
+          ...attachmentNames.map((n) => n.hiddenText),
+          ...addressNames.map((n) => n.hiddenText),
+          ...headerPayloads,
+        ].filter(Boolean).join("\n") || undefined,
         attachmentNames: attachmentNames.map((n) => n.text).filter(Boolean),
         addressNames: addressNames.map((n) => n.text),
       });
@@ -111,18 +139,13 @@ export function register(server: McpServer, app: AppContext) {
             ...(full.html.length > maxChars ? { htmlTruncated: true } : {}),
           }
         : {};
-      const unsubscribeLine = parsed.headerLines.find((h) => h.key === "list-unsubscribe")?.line;
-      const references = parsed.references
-        ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
-        : undefined;
-
       inv.record({ folder: path, uids: [uid] });
       return jsonResult({
         account: inv.account.id,
         uid,
         folder: path,
-        messageId: parsed.messageId,
-        ...(parsed.inReplyTo ? { inReplyTo: parsed.inReplyTo } : {}),
+        messageId,
+        ...(inReplyTo ? { inReplyTo } : {}),
         ...(references ? { references } : {}),
         subject,
         from: parsed.from ? addressList(parsed.from) : undefined,
@@ -130,7 +153,7 @@ export function register(server: McpServer, app: AppContext) {
         to: addressList(parsed.to),
         cc: addressList(parsed.cc),
         date: parsed.date?.toISOString(),
-        ...(unsubscribeLine ? { listUnsubscribe: unsubscribeLine.slice(unsubscribeLine.indexOf(":") + 1).trim() } : {}),
+        ...(listUnsubscribe ? { listUnsubscribe } : {}),
         ...body,
         ...html,
         hasAttachment: realAttachment.some(Boolean),

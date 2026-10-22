@@ -7,7 +7,8 @@ import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
-import { formatAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
+import { formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
+import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { senderShape } from "./create-draft.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -83,16 +84,17 @@ export function register(server: McpServer, app: AppContext) {
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
       inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to });
 
+      // The draft keeps the original's strings; the result shows them as a reader sees them (no invisible characters)
       return jsonResult({
         success: true,
         folder: draftsFolder,
         uid: draftUid,
         messageId: message.messageId,
-        to: formatAddressList(to),
-        ...(cc.length > 0 ? { cc: formatAddressList(cc) } : {}),
-        subject,
+        to: formatVisibleAddressList(to),
+        ...(cc.length > 0 ? { cc: formatVisibleAddressList(cc) } : {}),
+        subject: visibleString(subject),
         replyAll,
-        inReplyTo: original.messageId,
+        inReplyTo: original.messageId === undefined ? undefined : stripTagCharacters(original.messageId).text,
         originalFolder: path,
       });
     },

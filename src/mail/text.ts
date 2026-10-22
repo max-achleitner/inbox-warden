@@ -73,9 +73,11 @@ export function fullText(parsed: TextSource): FullText {
   const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
   const plainText = plain ? clean(plain.text) : "";
   const vh = parsed.html ? visibleHtml(parsed.html) : undefined;
-  const htmlText = vh ? clean(convertHtml(vh.html)) : "";
-  const hidden = mergeRemoved(vh?.removed, plain?.removed);
-  const hiddenText = [vh?.hiddenText, plain?.hiddenText].filter(Boolean).join("\n");
+  // Safety net: whatever the conversion prints (link targets, attribute text) is cleaned like a text node
+  const converted = vh ? stripInvisible(convertHtml(vh.html)) : undefined;
+  const htmlText = converted?.text ?? "";
+  const hidden = mergeRemoved(vh?.removed, converted?.removed, plain?.removed);
+  const hiddenText = [vh?.hiddenText, converted?.hiddenText, plain?.hiddenText].filter(Boolean).join("\n");
   const common = { hiddenText, ...(hidden ? { hidden } : {}), ...(vh ? { html: vh.html } : {}) };
 
   if (plainText && (!vh || htmlText.trim() === "" || !textPartDiffers(plainText, htmlText))) {

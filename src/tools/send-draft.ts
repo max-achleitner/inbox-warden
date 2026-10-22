@@ -10,7 +10,8 @@ import { resolvePolicyFolder } from "../policy/folder-access.js";
 import { markOriginalAnswered } from "../mail/answered.js";
 import { downloadMessage, safeExpunge, strictMove } from "../imap/strict.js";
 import { getHeader, removeHeaders, rfc5322Date, setHeader } from "../mail/headers.js";
-import { flattenAddresses, formatAddressList } from "../mail/reply.js";
+import { flattenAddresses, formatVisibleAddressList } from "../mail/reply.js";
+import { visibleString } from "../mail/visible-text.js";
 import { deliver, type DeliveryResult } from "../mail/send.js";
 import { operationDigest } from "../policy/confirm-state.js";
 import { guardOutbound } from "../policy/outbound.js";
@@ -130,7 +131,8 @@ export function register(server: McpServer, app: AppContext) {
         }
       }
       const originalMarkedAnswered = await markOriginalAnswered(client, parsed.inReplyTo, answeredFolders, scope);
-      const to = formatAddressList(flattenAddresses(parsed.to));
+      // As a reader sees them: the sent message itself is unchanged
+      const to = formatVisibleAddressList(flattenAddresses(parsed.to));
       inv.record({ folder: draftsFolder, uids: [uid], messageId, recipients });
       log.info("email.sent_draft", { account: inv.account.id, recipients: recipients.length, messageId });
 
@@ -169,7 +171,7 @@ export function register(server: McpServer, app: AppContext) {
         success: true,
         from: sender,
         to,
-        subject: parsed.subject,
+        subject: visibleString(parsed.subject),
         sentAt: new Date().toISOString(),
         ...result,
         confirmation: outbound.confirmation,

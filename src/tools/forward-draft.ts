@@ -8,6 +8,7 @@ import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { composeMessage, type OutgoingAttachment } from "../mail/compose.js";
 import { emlFilename, forwardInlineText, forwardSubject } from "../mail/forward.js";
 import { removeHeaders } from "../mail/headers.js";
+import { visibleString } from "../mail/visible-text.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { MAX_ATTACHMENT_TOTAL_BYTES, outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { senderShape } from "./create-draft.js";
@@ -98,15 +99,16 @@ export function register(server: McpServer, app: AppContext) {
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
 
       inv.record({ folder: path, uids: [uid], action: "forward_draft", messageId: message.messageId, recipients: message.envelope.to });
+      // The draft keeps the original's subject and file names; the result shows them without invisible characters
       return jsonResult({
         success: true,
         folder: draftsFolder,
         uid: draftUid,
         messageId: message.messageId,
         to,
-        subject,
+        subject: visibleString(subject),
         mode,
-        attachments: all.map((a) => a.filename),
+        attachments: all.map((a) => visibleString(a.filename)),
       });
     },
   );
