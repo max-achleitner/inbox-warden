@@ -1,4 +1,4 @@
-import { convert } from "html-to-text";
+import { compile, type FormatCallback } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 import { mergeRemoved, stripInvisible, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
 
@@ -45,17 +45,55 @@ export const HTML_TOO_COMPLEX_NOTE =
  */
 export const TEXT_PART_EXTRA_WORDS = 5;
 
-function convertHtml(html: string): string {
-  return convert(html, {
-    wordwrap: 120,
-    selectors: [
-      { selector: "a", options: { linkBrackets: ["[", "]"] } },
-      { selector: "img", format: "skip" },
-      { selector: "style", format: "skip" },
-      { selector: "script", format: "skip" },
-    ],
-  });
+/** Removes leading and trailing line breaks without a regex. */
+function trimLineBreaks(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text.charCodeAt(start) === 10) start++;
+  while (end > start && text.charCodeAt(end - 1) === 10) end--;
+  return text.slice(start, end);
 }
+
+/** Blockquotes open in the conversion running now; html-to-text calls formatters synchronously. */
+let quoteDepth = 0;
+
+/**
+ * html-to-text prefixes every line of a blockquote once per level, so 500 nested quotes turn 1 MB into 500 MB of work
+ * and text. Only the outermost quote is marked ("> " per line, which stripQuotedHistory drops); nested ones are blocks.
+ */
+const outerQuote: FormatCallback = (elem, walk, builder) => {
+  if (quoteDepth > 0) {
+    builder.openBlock({ leadingLineBreaks: 2 });
+    walk(elem.children, builder);
+    builder.closeBlock({ trailingLineBreaks: 2 });
+    return;
+  }
+  quoteDepth++;
+  try {
+    builder.openBlock({ leadingLineBreaks: 2, reservedLineLength: 2 });
+    walk(elem.children, builder);
+    builder.closeBlock({
+      trailingLineBreaks: 2,
+      blockTransform: (text) => trimLineBreaks(text).split("\n").map((line) => "> " + line).join("\n"),
+    });
+  } finally {
+    quoteDepth--;
+  }
+};
+
+const convertHtml = compile({
+  // Word wrap splits the growing last word again for every inline element that adds to it: quadratic on a long run of
+  // inline elements without whitespace (2 MB of "<td>x" took 25 s)
+  wordwrap: false,
+  formatters: { outerQuote },
+  selectors: [
+    { selector: "a", options: { linkBrackets: ["[", "]"] } },
+    { selector: "blockquote", format: "outerQuote" },
+    { selector: "img", format: "skip" },
+    { selector: "style", format: "skip" },
+    { selector: "script", format: "skip" },
+  ],
+});
 
 /**
  * Visible text of a raw HTML string (hidden elements and invisible characters removed). It cleans the HTML itself, so

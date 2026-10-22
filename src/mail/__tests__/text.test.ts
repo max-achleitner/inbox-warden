@@ -47,6 +47,12 @@ describe("fullText", () => {
     expect(fullText({ html: `<p>Hallo</p><div>${"&#847;&zwnj;&nbsp;".repeat(50)}</div><p>Welt</p>` }).text).not.toMatch(/[͏‌]/);
   });
 
+  it("marks quoted HTML once, however deeply it is nested, so the thread view can drop it", () => {
+    const f = fullText({ html: '<p>Danke!</p><blockquote type="cite"><p>Frage</p><blockquote><p>Alte Frage</p></blockquote></blockquote>' });
+    expect(f.text).toBe("Danke!\n\n> Frage\n> \n> Alte Frage");
+    expect(stripQuotedHistory(f.text).text).toBe("Danke!");
+  });
+
   it("returns an empty string for messages without a body", () => {
     expect(fullText({})).toEqual({ text: "", generated: false, hiddenText: "" });
   });

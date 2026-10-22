@@ -1,7 +1,8 @@
 import { parseDocument, DomUtils } from "htmlparser2";
 import { isComment, isDirective, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
-import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
+import { decodeHTML } from "entities";
+import { htmlParseCost, MAX_PARSE_WORK, startTagEnd } from "./html-cost.js";
 
 /**
  * What a human sees in a mail: HTML without hidden elements, text without invisible characters.
@@ -65,6 +66,8 @@ const INVISIBLE_REPORT_MIN = 3;
 const MAX_HTML_DEPTH = 500;
 /** html-to-text walks the cleaned HTML recursively and runs out of stack near 2,500 levels. */
 const MAX_REPARSE_DEPTH = 2 * MAX_HTML_DEPTH;
+/** Longer HTML (string length of the decoded part) is not parsed: it takes the same way as HTML too complex to parse. */
+export const MAX_HTML_BYTES = 5 * 1024 * 1024;
 /**
  * Style sheets (all `<style>` texts together, which caps each one too) longer than this are not evaluated at all: no
  * rule is applied and nothing is judged by CSS, because an unread rule could show any text a judgement would remove.
@@ -581,15 +584,59 @@ function textBetweenTags(html: string): string {
   return parts.join(" ");
 }
 
-/** Not parsed and not shown: all of its text goes to the scanner. */
-function tooComplex(html: string): VisibleHtml {
-  const text = stripInvisible(textBetweenTags(html));
-  return { html: "", hiddenText: [text.text, text.hiddenText].filter(Boolean).join("\n"), tooComplex: true };
+/** The text of markup for the scanner only: tags out, character references decoded, tag-character payloads too. */
+function scanText(html: string): string {
+  const text = stripInvisible(decodeHTML(textBetweenTags(html)));
+  return [text.text, text.hiddenText].filter(Boolean).join("\n");
 }
 
-export function visibleHtml(html: string): VisibleHtml {
+/** Not parsed and not shown: all of its text goes to the scanner. */
+function tooComplex(html: string): VisibleHtml {
+  return { html: "", hiddenText: scanText(html), tooComplex: true };
+}
+
+const FRAME_START = /<(iframe|noembed|noframes)[\t\n\f\r />]/gi;
+const FRAME_END: Record<string, RegExp> = {
+  iframe: /<\/iframe[\t\n\f\r />]/gi,
+  noembed: /<\/noembed[\t\n\f\r />]/gi,
+  noframes: /<\/noframes[\t\n\f\r />]/gi,
+};
+
+/**
+ * A browser reads the content of iframe, noembed and noframes as raw text up to their end tag and shows none of it.
+ * htmlparser2 parses it as markup and lets an ancestor's end tag close the element (`<div><iframe></div>text`), which
+ * would put the rest on show. So each such span, from the end of the start tag to `</iframe` (`</noembed`,
+ * `</noframes`) followed by whitespace, "/" or ">", or to the end of the input, is cut before parsing. Where a browser
+ * would not see a start tag (in a comment, an attribute value), visible text may go too: that fails closed.
+ */
+function cutFrameContent(html: string): { html: string; cut: string[] } {
+  const cut: string[] = [];
+  let out = "";
+  let from = 0;
+  FRAME_START.lastIndex = 0;
+  for (let m = FRAME_START.exec(html); m; m = FRAME_START.exec(html)) {
+    const name = m[1]!;
+    const startTag = startTagEnd(html, m.index + 1 + name.length);
+    // a start tag cut off by the end of the input: neither parser shows anything after it
+    if (!startTag) break;
+    const start = startTag.gt + 1;
+    const endTag = FRAME_END[name.toLowerCase()]!;
+    endTag.lastIndex = start;
+    const end = endTag.exec(html)?.index ?? html.length;
+    out += html.slice(from, start);
+    cut.push(html.slice(start, end));
+    from = end;
+    FRAME_START.lastIndex = end;
+  }
+  return { html: from === 0 ? html : out + html.slice(from), cut };
+}
+
+export function visibleHtml(input: string): VisibleHtml {
+  if (input.length > MAX_HTML_BYTES) return tooComplex(input);
+  const frames = cutFrameContent(input);
+  const html = frames.html;
   // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
-  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return tooComplex(html);
+  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return tooComplex(input);
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
   // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
@@ -597,7 +644,8 @@ export function visibleHtml(html: string): VisibleHtml {
   const hasStyle = styles.some((s) => (cssEvaluated ? stripCssComments(s) : s).trim() !== "");
   const winners = cssEvaluated ? parseRules(styles) : new Map<string, Map<string, Winner>>();
 
-  const hidden: string[] = [];
+  // what a browser would read as frame content: never shown, scanned
+  const hidden: string[] = frames.cut.map(scanText).filter((text) => text.trim() !== "");
   const removals: Array<HiddenContentRemoved | undefined> = [];
   const remove = (kind: HiddenKind, raw: string) => {
     const { text, hiddenText } = stripInvisible(raw);
@@ -809,7 +857,7 @@ export function visibleHtml(html: string): VisibleHtml {
   // <xmp> unescaped, so after "<xmp/>" a decoded "</xmp>" ends it early and the rest becomes elements. The copy must
   // pass the same gate.
   const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
-  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return tooComplex(html);
+  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return tooComplex(input);
   removals.push(markup.removed);
   const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {

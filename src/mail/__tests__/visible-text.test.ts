@@ -171,6 +171,30 @@ describe("fix round 1", () => {
     expect(plain(v.html)).toBe("Hallo");
   });
 
+  it.each([
+    ["an ancestor's end tag", "<div><iframe></div>SECRET</iframe><p>danach</p>"],
+    ["an implied end", "<p>Hallo<noembed></p>SECRET</noembed><p>danach</p>"],
+    ["a table end", "<table><tr><td><noframes></td></tr></table>SECRET</noframes><p>danach</p>"],
+    ["an unclosed frame", "<p>danach</p><IFRAME src=x>SECRET <p>more"],
+    ["a self-closed frame", "<p>danach</p><iframe/>SECRET</iframe >"],
+  ])("cuts frame content a browser reads as raw text, even past %s", (_name, html) => {
+    const v = visibleHtml(html);
+    expect(plain(v.html)).not.toContain("SECRET");
+    expect(v.hiddenText).toContain("SECRET");
+    expect(v.removed).toBeUndefined();
+  });
+
+  it("ends the frame where a browser does: a comment does not hide its end tag", () => {
+    const v = visibleHtml("<iframe><!-- </iframe> -->sichtbar</iframe>");
+    expect(plain(v.html)).toBe("-->sichtbar");
+  });
+
+  it("keeps what follows a frame's end tag", () => {
+    const v = visibleHtml("<IFrame title='a>b'><b>SECRET</b></iFrame\n><p>danach</p><noembed>x</noembed>y");
+    expect(plain(v.html)).toBe("danach\n\ny");
+    expect(v.hiddenText).toContain("SECRET");
+  });
+
   it("keeps <plaintext> text visible but escaped, so it never becomes markup", () => {
     const html = '<p>Hallo</p><plaintext>&lt;div style="display:none"&gt;x &amp; y' + "&lt;div&gt;".repeat(5_000) + "</plaintext>";
     const v = visibleHtml(html);
