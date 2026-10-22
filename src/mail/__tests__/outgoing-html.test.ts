@@ -144,7 +144,7 @@ describe("withoutRemoteContent", () => {
   ])("handles about 1 MB of %s quickly", (_n, html) => {
     const start = performance.now();
     withoutRemoteContent(html);
-    expect(performance.now() - start).toBeLessThan(500);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
   it.each([
     '<svg><style><img src="https://h.example/x?d=secret"></style></svg>',

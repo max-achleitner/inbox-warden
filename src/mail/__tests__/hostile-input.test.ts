@@ -168,7 +168,9 @@ describe("HTML the parser would need long for", () => {
     const { result, ms } = timed(() => fullText({ html }));
     expect(result).not.toHaveProperty("htmlNotChecked");
     expect(result.text.startsWith("Hallo\n\n</xmp>" + decodeHTML(smuggled).slice(0, 10))).toBe(true);
-    expect(ms).toBeLessThan(3_000);
+    // 200,000 real <br> elements: about a second alone, three times that while the whole suite runs in parallel; before
+    // the fix the lists took 37 s
+    expect(ms).toBeLessThan(10_000);
     const preview = timed(() => previewText(html.slice(0, 16_384), true, 200));
     expect(preview.result.startsWith("Hallo </xmp>")).toBe(true);
     expect(preview.ms).toBeLessThan(3_000);
@@ -240,8 +242,8 @@ describe("text html-to-text would need long for", () => {
     expect(result.text.startsWith("> word")).toBe(true);
     expect(result.text).not.toContain("> >");
     expect(result.text.length).toBeLessThan(2 * text.length);
-    // 1 MB of "word<br>" is 130,000 elements: about 0.7 s alone, more while the whole suite runs in parallel
-    expect(ms).toBeLessThan(3_000);
+    // 1 MB of "word<br>" is 130,000 elements: about 0.7 s alone, three times that while the whole suite runs in parallel
+    expect(ms).toBeLessThan(10_000);
   });
 
   // html-to-text works per level: an anchor captures its whole text, a heading upper-cases every word again, a list

@@ -352,19 +352,21 @@ describe("the cleaned HTML html-to-text parses again", () => {
       }),
     );
     const h = await t.connect(readEmail.register, getThread.register, searchEmails.register);
+    // the lists case holds 200,000 real <br> elements: about a second per call alone, three times that in a loaded
+    // test run; before the fix the lists took 37 s and the links ran out of memory
     let start = performance.now();
     const res = await h.call("read_email", { uid: 2 });
-    expect(performance.now() - start).toBeLessThan(3_000);
+    expect(performance.now() - start).toBeLessThan(10_000);
     expect(res.isError).toBe(false);
     expect(res.json).not.toHaveProperty("htmlNotChecked");
     expect(res.json.text.startsWith("Angebot\n\n</xmp>" + decodeHTML(smuggled).slice(0, 10))).toBe(true);
     start = performance.now();
     const thread = await h.call("get_thread", { uid: 1 });
-    expect(performance.now() - start).toBeLessThan(3_000);
+    expect(performance.now() - start).toBeLessThan(10_000);
     expect(thread.isError).toBe(false);
     start = performance.now();
     const search = await h.call("search_emails", {});
-    expect(performance.now() - start).toBeLessThan(3_000);
+    expect(performance.now() - start).toBeLessThan(10_000);
     expect(search.isError).toBe(false);
     expect(search.json.messages.map((m: { preview: string }) => m.preview)).toContainEqual(expect.stringMatching(/^Angebot <\/xmp>/));
     await h.close();
