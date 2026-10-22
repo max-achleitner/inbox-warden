@@ -37,14 +37,31 @@ export const PROVENANCE_MAX_PER_CALL = 5_000;
 
 /** Domains many unrelated people share: a link or address on them says nothing about other addresses there. */
 export const FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
-  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "icloud.com",
-  "me.com", "mac.com", "aol.com", "gmx.at", "gmx.de", "gmx.net", "gmx.ch", "web.de", "t-online.de", "proton.me",
-  "protonmail.com", "mail.com", "yandex.com", "zoho.com", "aon.at", "a1.net",
+  "gmail.com", "googlemail.com", "outlook.com", "outlook.de", "outlook.at", "hotmail.com", "hotmail.de", "hotmail.co.uk",
+  "live.com", "live.de", "live.at", "msn.com", "yahoo.com", "yahoo.de", "yahoo.co.uk", "ymail.com", "icloud.com", "me.com",
+  "mac.com", "aol.com", "gmx.at", "gmx.de", "gmx.net", "gmx.ch", "gmx.com", "gmx.org", "web.de", "t-online.de",
+  "freenet.de", "arcor.de", "posteo.de", "posteo.net", "mailbox.org", "tutanota.com", "tutanota.de", "tuta.io",
+  "proton.me", "protonmail.com", "protonmail.ch", "proton.ch", "pm.me", "mail.com", "yandex.com", "zoho.com", "zoho.eu",
+  "fastmail.com", "aon.at", "a1.net",
 ]);
 
 const MAX_LOCAL = 64;
 const MAX_DOMAIN = 253;
 const MAX_HOST_RUN = 300;
+
+const SPACE = /\s/;
+
+/**
+ * Removes whitespace and the given characters from both ends. A loop, because a trailing [...]+$ regex
+ * is quadratic on long runs of the trimmed characters.
+ */
+function trimChars(s: string, leading: string, trailing: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && (leading.includes(s[start]) || SPACE.test(s[start]))) start++;
+  while (end > start && (trailing.includes(s[end - 1]) || SPACE.test(s[end - 1]))) end--;
+  return start === 0 && end === s.length ? s : s.slice(start, end);
+}
 
 /**
  * Lower-case form of an address as it appears in mail: "mailto:" prefix, "?subject=…", angle brackets,
@@ -56,7 +73,7 @@ export function normalizeAddress(raw: string): string | null {
   if (s.slice(0, 7).toLowerCase() === "mailto:") s = s.slice(7);
   const query = s.indexOf("?");
   if (query >= 0) s = s.slice(0, query);
-  s = s.replace(/^[\s<>"'(\[]+/, "").replace(/[\s<>"')\]\.,;:]+$/, "");
+  s = trimChars(s, `<>"'([`, `<>"')].,;:`);
   const at = s.lastIndexOf("@");
   if (at <= 0 || at > MAX_LOCAL) return null;
   const local = s.slice(0, at);
@@ -96,21 +113,40 @@ function addressesIn(text: string, emit: (candidate: string) => boolean): void {
     while (end < text.length && end - at <= MAX_DOMAIN && isDomainChar(text, end)) end++;
     // a domain needs a dot: cheap rejection of "x@x@x@…" before any normalising
     if (start < at && end > at + 1 && text.slice(at + 1, end).includes(".")) {
-      if (!emit(text.slice(start, end).replace(/^[.'-]+/, ""))) return;
+      if (!emit(trimChars(text.slice(start, end), ".'-", ""))) return;
     }
     at = text.indexOf("@", at + 1);
   }
 }
 
-const HOST_END = /[\s\/?#<>"'\\)\]]/;
+/**
+ * Characters of "user:password@host:port" as links write them: letters and digits (any script), "." "-" "_" "~" "%"
+ * ":" "@". Anything else (a comma or quote after the link, a path) ends the host.
+ */
+function isHostRunChar(text: string, i: number): boolean {
+  const c = text.charCodeAt(i);
+  // . - _ ~ % : @
+  return c === 46 || c === 45 || c === 95 || c === 126 || c === 37 || c === 58 || c === 64 || isWord(c, text[i]);
+}
 
 function hostFrom(run: string): string | null {
   // user:password@host:port
-  const afterUser = run.slice(run.lastIndexOf("@") + 1);
-  return normalizeDomain(afterUser.replace(/:\d*$/, "").replace(/^\.+/, "").replace(/\.+$/, ""));
+  let host = run.slice(run.lastIndexOf("@") + 1);
+  const colon = host.lastIndexOf(":");
+  if (colon >= 0) {
+    let k = colon + 1;
+    while (k < host.length && host.charCodeAt(k) >= 48 && host.charCodeAt(k) <= 57) k++;
+    if (k === host.length) host = host.slice(0, colon);
+  }
+  host = trimChars(host, ".", ".");
+  // cheap rejection before IDNA: a host needs a dot
+  return host.includes(".") ? normalizeDomain(host) : null;
 }
 
-/** Hosts of http(s):// and www. links in free text. */
+/**
+ * Hosts of http(s):// and www. links in free text. Each search resumes after the run it just read, so overlapping
+ * markers ("www.www.www.…") cost nothing extra; a host inside a run is a suffix of the run's host anyway.
+ */
 function linkHostsIn(text: string, emit: (host: string) => boolean): void {
   const lower = text.toLowerCase();
   for (const marker of ["http://", "https://", "www."]) {
@@ -118,12 +154,31 @@ function linkHostsIn(text: string, emit: (host: string) => boolean): void {
     while (from !== -1) {
       const start = from + (marker === "www." ? 0 : marker.length);
       let end = start;
-      while (end < lower.length && end - start < MAX_HOST_RUN && !HOST_END.test(lower[end])) end++;
+      while (end < lower.length && end - start < MAX_HOST_RUN && isHostRunChar(lower, end)) end++;
       const host = hostFrom(lower.slice(start, end));
       if (host && !emit(host)) return;
-      from = lower.indexOf(marker, from + marker.length);
+      from = lower.indexOf(marker, Math.max(end, from + marker.length));
     }
   }
+}
+
+/** Compatibility forms that can spell an address or host: fullwidth and small forms, the one-dot leader. */
+const COMPATIBILITY_FORM = /[\u{2024}\u{FE50}-\u{FE6F}\u{FF00}-\u{FFEF}]/u;
+const COMPATIBILITY_FORMS = new RegExp(COMPATIBILITY_FORM.source, "gu");
+const compatibilityForm = new Map<string, string>();
+
+/**
+ * NFKC for the compatibility forms, so a fullwidth or small at sign (U+FF20, U+FE6B) counts as "@" and a fullwidth
+ * full stop (U+FF0E) as ".". Character by character and only when such a form occurs: NFKC on the whole text
+ * could make it up to 18 times longer (U+FDFA).
+ */
+function withCompatibilityForms(text: string): string {
+  if (!COMPATIBILITY_FORM.test(text)) return text;
+  return text.replace(COMPATIBILITY_FORMS, (ch) => {
+    let mapped = compatibilityForm.get(ch);
+    if (mapped === undefined) compatibilityForm.set(ch, (mapped = ch.normalize("NFKC")));
+    return mapped;
+  });
 }
 
 /** The headers of one message, split into who the mail came from and what it merely names. */
@@ -194,8 +249,9 @@ export class ProvenanceStore implements ProvenanceChannel {
         const address = normalizeAddress(raw);
         if (address) take(named, address);
       }
-      for (const text of s.texts ?? []) {
-        if (!text) continue;
+      for (const original of s.texts ?? []) {
+        if (!original) continue;
+        const text = withCompatibilityForms(original);
         if (!addressesFull) {
           addressesIn(text, (raw) => {
             if (rawSeen.has(raw)) return true;

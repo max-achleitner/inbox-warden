@@ -35,6 +35,13 @@ describe("ProvenanceStore", () => {
     expect(p.contentOnly(["anna@gmail.com"])).toHaveLength(1);
     expect(FREEMAIL_DOMAINS.has("gmx.at")).toBe(true);
   });
+  it.each([
+    "outlook.de", "outlook.at", "hotmail.de", "hotmail.co.uk", "live.de", "live.at", "yahoo.de", "yahoo.co.uk", "ymail.com",
+    "gmx.com", "gmx.org", "posteo.de", "posteo.net", "mailbox.org", "tutanota.com", "tutanota.de", "tuta.io", "pm.me",
+    "proton.ch", "protonmail.ch", "freenet.de", "arcor.de", "icloud.com", "me.com", "mac.com", "zoho.eu", "fastmail.com",
+  ])("counts %s as a freemail domain", (domain) => {
+    expect(FREEMAIL_DOMAINS.has(domain)).toBe(true);
+  });
   it("treats a Reply-To on an unrelated domain as mail content", () => {
     const p = new ProvenanceStore();
     p.noteSeen(headerSeen({ from: [{ address: "rechnung@lieferant.example" }], replyTo: [{ address: "zahlung@lieferant-pay.example" }] }));
@@ -96,6 +103,29 @@ describe("ProvenanceStore", () => {
     expect(JSON.stringify([keys, values])).not.toMatch(/evil|kunde|zahlung|example/);
     expect(inspect(p, { depth: 10, showHidden: true })).not.toMatch(/evil.example|kunde.example/);
   });
+  it.each([
+    ["a fullwidth at sign", "Bitte an billing\u{FF20}evil.example senden"],
+    ["a small at sign", "Bitte an billing\u{FE6B}evil.example senden"],
+    ["a fullwidth full stop", "Bitte an billing@evil\u{FF0E}example senden"],
+    ["fullwidth letters", "Bitte an \u{FF42}\u{FF49}\u{FF4C}\u{FF4C}\u{FF49}\u{FF4E}\u{FF47}\u{FF20}evil.example senden"],
+  ])("reads an address written with %s as the address", (_n, text) => {
+    const p = new ProvenanceStore();
+    p.noteSeen({ texts: [text] });
+    expect(p.contentOnly(["billing@evil.example"])).toEqual([{ address: "billing@evil.example", reason: "only-in-mail-content" }]);
+  });
+  it.each([
+    "Besuchen Sie www.evil.example, dort",
+    "Portal: https://evil.example; danke",
+    "siehe https://evil.example!",
+    "siehe „www.evil.example“",
+    "siehe https://evil.example:8443/x.",
+    "https://user@evil.example/login",
+    "siehe www.a.example,www.evil.example",
+  ])("finds the link host in %s", (text) => {
+    const p = new ProvenanceStore();
+    p.noteSeen({ texts: [text] });
+    expect(p.contentOnly(["billing@evil.example"])).toEqual([{ address: "billing@evil.example", reason: "domain-only-in-mail-content" }]);
+  });
   it("uses different keys per store", () => {
     const one = new ProvenanceStore();
     const two = new ProvenanceStore();
@@ -125,6 +155,25 @@ describe("ProvenanceStore cost on large mail", () => {
     const prose = "Hallo Herr Mueller, bitte melden Sie sich unter https://shop.example/x oder a@b.example. ".repeat(24_000);
     expect(timed(() => new ProvenanceStore().noteSeen({ texts: [prose] }))).toBeLessThan(1500);
     expect(timed(() => new ProvenanceStore().noteSeen({ texts: ["x@".repeat(1_000_000), "@".repeat(2_000_000)] }))).toBeLessThan(1500);
+  });
+  const MB4 = 4 * 1024 * 1024;
+  const fill = (unit: string) => unit.repeat(Math.ceil(MB4 / unit.length));
+  // about 60 ms each here; 0.6 to 7.8 s before the scans became linear
+  it.each([
+    ["overlapping www. runs", "www."],
+    ["https:// markers", "https://"],
+    ["address candidates with long trailing dots", "a@b" + ".".repeat(240) + "-x "],
+    ["address candidates that are mostly dots", "a@" + ".".repeat(250) + "x "],
+    ["link hosts with long trailing dots", "http://a" + ".".repeat(290) + "b "],
+    ["link hosts with long trailing punctuation", "www.a" + ".,;:!".repeat(58) + "b "],
+  ])("4 MB of %s", (_n, unit) => {
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: [fill(unit)] }))).toBeLessThan(500);
+  });
+  it.each([
+    ["fullwidth text with at signs", "\u{FF42}\u{FF49}\u{FF4C}\u{FF4C}\u{FF49}\u{FF4E}\u{FF47}\u{FF20}\u{FF45}\u{FF56}\u{FF49}\u{FF4C}\u{FF0E}\u{FF45}\u{FF58} "],
+    ["one fullwidth at sign and text that NFKC expands", "\u{FF20}" + "\u{FDFA}".repeat(1000)],
+  ])("4 MB of %s", (_n, unit) => {
+    expect(timed(() => new ProvenanceStore().noteSeen({ texts: [fill(unit)] }))).toBeLessThan(1500);
   });
   it("many calls that each fill the set stay cheap", () => {
     const p = new ProvenanceStore({ maxEntries: 1000 });
