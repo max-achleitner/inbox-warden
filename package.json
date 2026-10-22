@@ -1,6 +1,6 @@
 {
   "name": "inbox-warden",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Email for Claude and other AI assistants: search, read, organise, draft and send via IMAP/SMTP, with permission tiers, an audit log and prompt-injection screening.",
   "type": "module",
   "main": "dist/server.js",

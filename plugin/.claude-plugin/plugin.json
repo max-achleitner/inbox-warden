@@ -1,7 +1,7 @@
 {
   "name": "inbox-warden",
   "displayName": "Inbox Warden",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Let Claude search, read, sort and draft your email: Gmail, GMX, Web.de, IONOS, iCloud or your own mail server, plus skills for inbox triage, reply drafting and clean-up.",
   "author": {
     "name": "Max Achleitner",
@@ -10,6 +10,12 @@
   "homepage": "https://github.com/max-achleitner/inbox-warden#readme",
   "repository": "https://github.com/max-achleitner/inbox-warden",
   "license": "MIT",
-  "keywords": ["email", "imap", "smtp", "inbox", "mcp"],
-  "mcpServers": "https://github.com/max-achleitner/inbox-warden/releases/download/v0.6.0/inbox-warden-0.6.0.mcpb"
+  "keywords": [
+    "email",
+    "imap",
+    "smtp",
+    "inbox",
+    "mcp"
+  ],
+  "mcpServers": "https://github.com/max-achleitner/inbox-warden/releases/download/v0.7.0/inbox-warden-0.7.0.mcpb"
 }

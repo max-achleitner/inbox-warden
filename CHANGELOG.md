@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+
 ### Security
 - `create_draft` and `reply_draft` remove remote images, external style sheets, scripts and similar remote content from the HTML Claude writes: a remote image can report when a draft is opened and carry data in its address. The result counts what was removed (`remoteContentRemoved`) and lists the link targets (`linkTargets`) for you to check. Your signature and the quoted original are not changed.
 - Sending to a recipient that appears only inside a received email and was never written to always needs the confirmation dialog, also in `direct` mode, and the dialog says why; a client that cannot show the dialog cannot send it. `policy.untrustedRecipients: "refuse"` refuses the send.
