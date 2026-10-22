@@ -85,6 +85,11 @@ describe("replyToMismatch", () => {
     expect(replyToMismatch(original)).toBeNull();
   });
 
+  it("fails closed with an unknown sender", () => {
+    const original = { replyTo: { value: [{ address: "a@evil.example", name: "" }], html: "", text: "" } } as never;
+    expect(replyToMismatch(original)).toEqual({ replyTo: "a@evil.example", from: null });
+  });
+
   it("is null without a Reply-To", async () => {
     const original = await parse({ from: "a@example.com", to: "max@firma.example", subject: "x", text: "y" });
     expect(replyToMismatch(original)).toBeNull();

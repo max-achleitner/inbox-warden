@@ -244,6 +244,18 @@ describe("guardOutbound", () => {
     ]);
   });
 
+  it("recipientWarnings shows an invisible character in the address as a percent-encoded one in the text", async () => {
+    const t = setup();
+    const store = new ProvenanceStore();
+    const address = "bil​ling@evil.example";
+    store.noteSeen({ texts: [`Bitte an ${address}`] });
+    const account = { policy: t.policy, getClient: async () => { throw new Error("offline"); } };
+    const [warning] = await recipientWarnings({ provenance: store, account }, [address]);
+    expect(warning.address).toBe(address);
+    expect(warning.message).toContain("bil%E2%80%8Bling@evil.example");
+    expect(warning.message).not.toContain("​");
+  });
+
   it("highestRisk picks the maximum", () => {
     expect(highestRisk(["low", undefined, "high", "medium"])).toBe("high");
     expect(highestRisk([])).toBe("none");

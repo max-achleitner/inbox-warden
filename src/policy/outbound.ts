@@ -7,6 +7,7 @@ import { PolicyDeniedError, type PolicyEngine, type RiskLevel } from "./engine.j
 import { CONFIRM_KEY, requireConfirmation } from "./confirm.js";
 import type { ProvenanceChannel, RecipientWarningReason } from "./provenance.js";
 import * as log from "../logging/logger.js";
+import { visibleAddress } from "../mail/visible-text.js";
 
 export interface OutboundRequest {
   action: "send_email" | "send_draft";
@@ -87,7 +88,8 @@ export interface RecipientWarning {
   message: string;
 }
 
-function warningMessage(address: string, reason: RecipientWarningReason): string {
+function warningMessage(rawAddress: string, reason: RecipientWarningReason): string {
+  const address = visibleAddress(rawAddress);
   switch (reason) {
     case "only-in-mail-content":
       return `${address} appears only inside a received email (its text, a link or its Reply-To), never as its sender or recipient, and this mailbox has never written to it.`;
@@ -134,11 +136,11 @@ function confirmationMessage(
   const lines = [
     request.action === "send_draft" ? "Send this draft now?" : "Send this email now?",
     `From: ${request.from}`,
-    `Recipients: ${recipients.join(", ")}`,
+    `Recipients: ${recipients.map(visibleAddress).join(", ")}`,
     `Subject: ${request.subject || "(no subject)"}`,
   ];
   if (request.attachmentCount > 0) lines.push(`Attachments: ${request.attachmentCount}`);
-  if (newRecipients.length > 0) lines.push(`Never emailed before: ${newRecipients.join(", ")}`);
+  if (newRecipients.length > 0) lines.push(`Never emailed before: ${newRecipients.map(visibleAddress).join(", ")}`);
   for (const w of warnings.slice(0, MAX_WARNING_LINES)) lines.push(`Check recipient: ${w.message}`);
   if (warnings.length > MAX_WARNING_LINES) {
     lines.push(`…and ${warnings.length - MAX_WARNING_LINES} more recipients that appear only inside received email.`);
@@ -205,7 +207,7 @@ export async function guardOutbound(
       const answered = inv.sdk.mcpReq.inputResponses !== undefined && CONFIRM_KEY in inv.sdk.mcpReq.inputResponses;
       if (warnings.length > 0 && !answered) {
         throw new PolicyDeniedError(
-          `${outcome.reason} The confirmation is required because these recipients appear only inside a received email: ${warnings.map((w) => w.address).join(", ")}.`,
+          `${outcome.reason} The confirmation is required because these recipients appear only inside a received email: ${warnings.map((w) => visibleAddress(w.address)).join(", ")}.`,
           "send.untrustedRecipients",
         );
       }

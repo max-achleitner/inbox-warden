@@ -10,6 +10,7 @@ import { folderAllowed } from "./folder-rules.js";
 import { LabelLock } from "./label-lock.js";
 import { domainOf, evaluateRecipients } from "./recipients.js";
 import { SendCounter } from "./rate-limit.js";
+import { visibleAddress } from "../mail/visible-text.js";
 import { SERVER_NAME } from "../version.js";
 import type { RecipientWarning } from "./outbound.js";
 import { FREEMAIL_DOMAINS } from "./provenance.js";
@@ -104,7 +105,7 @@ export class PolicyEngine {
     if (this.policy.untrustedRecipients !== "refuse" || warnings.length === 0) return;
     const none = outcome === "draft" ? "No draft was created." : "Nothing was sent.";
     throw new PolicyDeniedError(
-      `These recipients appear only inside a received email and this mailbox has never written to them: ${warnings.map((w) => w.address).join(", ")}. ` +
+      `These recipients appear only inside a received email and this mailbox has never written to them: ${warnings.map((w) => visibleAddress(w.address)).join(", ")}. ` +
         `This mailbox's settings refuse such recipients (policy.untrustedRecipients). ${none} If an address is right, write to it from your mail program.`,
       "untrustedRecipients",
     );

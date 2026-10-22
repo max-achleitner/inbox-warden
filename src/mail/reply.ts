@@ -1,7 +1,7 @@
 import type { AddressObject, EmailAddress } from "mailparser";
 import { domainOf, relatedDomains } from "../policy/recipients.js";
 import { fullText } from "./text.js";
-import { visibleString } from "./visible-text.js";
+import { visibleAddress, visibleString } from "./visible-text.js";
 
 export interface Mailbox {
   name: string;
@@ -66,13 +66,14 @@ export function replyRecipients(
  * reply really goes to the Reply-To address, i.e. the original has one, and one of its addresses is on a
  * domain unrelated to the From address's domain.
  */
-export function replyToMismatch(original: OriginalMessage): { replyTo: string; from: string } | null {
+export function replyToMismatch(original: OriginalMessage): { replyTo: string; from: string | null } | null {
   const from = flattenAddresses(original.from)[0]?.address;
   const fromDomain = from === undefined ? null : domainOf(from);
-  if (from === undefined || fromDomain === null) return null;
   for (const m of flattenAddresses(original.replyTo)) {
+    if (from === undefined || fromDomain === null) return { replyTo: m.address, from: null };
     const d = domainOf(m.address);
-    if (d === null || !relatedDomains(d, fromDomain)) return { replyTo: m.address, from };
+    // an invisible character in the address (IDNA ignores it in the domain) is a look-alike trick, never a match
+    if (d === null || visibleAddress(m.address) !== m.address || !relatedDomains(d, fromDomain)) return { replyTo: m.address, from };
   }
   return null;
 }

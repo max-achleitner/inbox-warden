@@ -56,6 +56,14 @@ describe("reply_draft", () => {
     expect(JSON.stringify(res.json.recipientWarnings)).toContain("zahlung@lieferant-pay.example");
   });
 
+  it("shows a look-alike Reply-To with its invisible character encoded", async () => {
+    // the message builder drops the invisible character, so it is put into the raw header afterwards
+    const built = await buildRaw({ from: "rechnung@paypal.example", replyTo: "zahlung@paxypal.example", to: ME, subject: "x", text: "y" });
+    imap.addMessage("INBOX", Buffer.from(built.toString("utf8").replace("paxypal", "pay\u200Bpal"), "utf8"));
+    const res = await h.call("reply_draft", { uid: 1, body: "ok" });
+    expect(res.json.replyToNote).toContain("pay%E2%80%8Bpal.example");
+  });
+
   it("no note for a Reply-To on the sender's domain", async () => {
     imap.addMessage("INBOX", await buildRaw({ from: "news@shop.example", replyTo: "service@mail.shop.example", to: ME, subject: "x", text: "y" }));
     const res = await h.call("reply_draft", { uid: 1, body: "ok" });

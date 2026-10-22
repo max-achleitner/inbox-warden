@@ -157,6 +157,11 @@ function visibleUrl(input: string): Visible {
 const HAS_INVISIBLE =
   /[\u{00AD}\u{034F}\u{061C}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{180B}-\u{180F}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{206F}\u{3164}\u{FEFF}\u{FFA0}\u{FFF9}-\u{FFFB}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
 
+/** An address for people to read: every invisible character (tag characters too) is percent-encoded, so an address with a zero-width space cannot pass for the plain one. Plain addresses are unchanged. */
+export function visibleAddress(address: string): string {
+  return address.replace(INVISIBLE, (m) => encodeURIComponent(m));
+}
+
 export function visibleString<T extends string | undefined>(text: T): T {
   return (text === undefined ? text : stripInvisible(text).text) as T;
 }

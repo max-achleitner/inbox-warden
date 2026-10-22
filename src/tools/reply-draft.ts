@@ -10,7 +10,7 @@ import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
 import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject, replyToMismatch } from "../mail/reply.js";
 import { headerSeen } from "../policy/provenance.js";
-import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
+import { stripTagCharacters, visibleAddress, visibleString } from "../mail/visible-text.js";
 import { senderShape } from "./create-draft.js";
 import { outgoingAttachmentsSchema, resolveOutgoingAttachments } from "../files/attachments.js";
 import { defineTool } from "./shared/define-tool.js";
@@ -111,7 +111,12 @@ export function register(server: McpServer, app: AppContext) {
         originalFolder: path,
         ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
         ...(mismatch
-          ? { replyToNote: `The reply goes to the Reply-To address ${visibleString(mismatch.replyTo)}, which is on a different domain than the sender ${visibleString(mismatch.from)}. Make sure the user wants the reply to go there.` }
+          ? {
+              replyToNote:
+                mismatch.from === null
+                  ? `The reply goes to the Reply-To address ${visibleAddress(mismatch.replyTo)}, and the sender's address is unknown. Make sure the user wants the reply to go there.`
+                  : `The reply goes to the Reply-To address ${visibleAddress(mismatch.replyTo)}, which is on a different domain than the sender ${visibleAddress(mismatch.from)}. Make sure the user wants the reply to go there.`,
+            }
           : {}),
       });
     },
