@@ -519,11 +519,11 @@ interface Frame {
   /** Kept nodes; the array of the enclosing frame when this frame unwraps an over-deep element. */
   kept: ChildNode[];
   owner?: ParentNode;
-  /** Text kept here goes into a `<plaintext>` or `<xmp>`, which the serializer writes unescaped: it is escaped beforehand. */
+  /** Text kept here goes into a `<plaintext>`, which the serializer writes unescaped: it is escaped beforehand. */
   escapeText?: boolean;
   /**
-   * Inside an `<xmp>` or `<textarea>`, which htmlparser2 reads as raw text up to its end tag: elements are unwrapped, as
-   * an attribute value holding that end tag (the serializer does not escape "<" there) would end it early.
+   * Inside a `<textarea>`, which htmlparser2 reads as raw text up to its end tag: elements are unwrapped, as an attribute
+   * value holding that end tag (the serializer does not escape "<" there) would end it early.
    */
   rawText?: boolean;
   /** Kept ancestors of each kind html-to-text works on per level. */
@@ -928,6 +928,9 @@ export function visibleHtml(html: string): VisibleHtml {
       node.name = "p";
       kind = undefined;
     }
+    // A kept xmp is written as pre (as browsers lay it out): the serializer writes xmp text unescaped and html-to-text
+    // would read it as raw text again, ended by a decoded "</xmp>" or by an attribute value holding one
+    if (node.name === "xmp") node.name = "pre";
     // html-to-text's parser reads these as raw text up to the end tag of another element (`<tmp>` up to `</xmp`)
     const raw = rawTextElement(node.name);
     if (
@@ -948,7 +951,7 @@ export function visibleHtml(html: string): VisibleHtml {
       if (node.name === "ol") orderedLists.push(node);
       frame.kept.push(node);
       const nesting = kind === undefined ? frame.nesting : { ...frame.nesting, [kind]: frame.nesting[kind] + 1 };
-      const escapeText = node.name === "plaintext" || node.name === "xmp";
+      const escapeText = node.name === "plaintext";
       stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText, rawText: raw !== undefined, nesting });
     }
   }

@@ -3,6 +3,7 @@ import { MAX_HTML_BYTES, stripInvisible, visibleHtml } from "../visible-text.js"
 import { fullText } from "../text.js";
 import { previewText } from "../preview.js";
 import { nestedNewsletter } from "../../__tests__/helpers/newsletter.js";
+import { decodeHTML } from "entities";
 
 /** Generous budget: these inputs took seconds to minutes before the regexes and the rule matching were made linear. */
 const BUDGET_MS = 500;
@@ -153,7 +154,7 @@ describe("HTML the parser would need long for", () => {
 
   // After "<xmp/>" htmlparser2 decodes the text ("&lt;" is "<"); dom-serializer wrote xmp text unescaped, and html-to-text
   // reads "<xmp>" as raw text again up to the decoded "</xmp>", so the rest became elements past every cap (490 links
-  // around 1 MB took 6.5 s and 3.4 GB, 200 roman lists 31 s, start=50000 threw). xmp text is escaped now.
+  // around 1 MB took 6.5 s and 3.4 GB, 200 roman lists 31 s, start=50000 threw). A kept xmp is written as pre now.
   it.each([
     ["deep", "&lt;div&gt;".repeat(5_000)],
     ["slow", "&lt;div&gt;&lt;/b&gt;".repeat(90_000)],
@@ -166,10 +167,10 @@ describe("HTML the parser would need long for", () => {
     const html = "<p>Hallo</p><xmp/>&lt;/xmp&gt;" + smuggled;
     const { result, ms } = timed(() => fullText({ html }));
     expect(result).not.toHaveProperty("htmlNotChecked");
-    expect(result.text.startsWith("Hallo\n\n&lt;/xmp&gt;" + smuggled.slice(0, 20))).toBe(true);
+    expect(result.text.startsWith("Hallo\n\n</xmp>" + decodeHTML(smuggled).slice(0, 10))).toBe(true);
     expect(ms).toBeLessThan(3_000);
     const preview = timed(() => previewText(html.slice(0, 16_384), true, 200));
-    expect(preview.result.startsWith("Hallo &lt;/xmp&gt;")).toBe(true);
+    expect(preview.result.startsWith("Hallo </xmp>")).toBe(true);
     expect(preview.ms).toBeLessThan(3_000);
   }, 30_000);
 

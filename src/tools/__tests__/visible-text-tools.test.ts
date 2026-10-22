@@ -10,6 +10,7 @@ import { nestedNewsletter } from "../../__tests__/helpers/newsletter.js";
 import * as readEmail from "../read-email.js";
 import * as getThread from "../get-thread.js";
 import { THREAD_HTML_BUDGET } from "../get-thread.js";
+import { decodeHTML } from "entities";
 import * as replyDraft from "../reply-draft.js";
 import * as forwardDraft from "../forward-draft.js";
 import * as saveAttachment from "../save-attachment.js";
@@ -356,7 +357,7 @@ describe("the cleaned HTML html-to-text parses again", () => {
     expect(performance.now() - start).toBeLessThan(3_000);
     expect(res.isError).toBe(false);
     expect(res.json).not.toHaveProperty("htmlNotChecked");
-    expect(res.json.text.startsWith("Angebot\n\n&lt;/xmp&gt;" + smuggled.slice(0, 20))).toBe(true);
+    expect(res.json.text.startsWith("Angebot\n\n</xmp>" + decodeHTML(smuggled).slice(0, 10))).toBe(true);
     start = performance.now();
     const thread = await h.call("get_thread", { uid: 1 });
     expect(performance.now() - start).toBeLessThan(3_000);
@@ -365,7 +366,7 @@ describe("the cleaned HTML html-to-text parses again", () => {
     const search = await h.call("search_emails", {});
     expect(performance.now() - start).toBeLessThan(3_000);
     expect(search.isError).toBe(false);
-    expect(search.json.messages.map((m: { preview: string }) => m.preview)).toContainEqual(expect.stringMatching(/^Angebot &lt;\/xmp&gt;/));
+    expect(search.json.messages.map((m: { preview: string }) => m.preview)).toContainEqual(expect.stringMatching(/^Angebot <\/xmp>/));
     await h.close();
   }, 60_000);
 
