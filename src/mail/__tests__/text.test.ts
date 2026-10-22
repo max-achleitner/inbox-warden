@@ -47,6 +47,10 @@ describe("fullText", () => {
     expect(fullText({ html: `<p>Hallo</p><div>${"&#847;&zwnj;&nbsp;".repeat(50)}</div><p>Welt</p>` }).text).not.toMatch(/[͏‌]/);
   });
 
+  it("does not wrap lines (word wrap is quadratic on long runs of inline elements)", () => {
+    expect(fullText({ html: `<p>${"wort ".repeat(100)}</p>` }).text).toBe("wort ".repeat(100).trim());
+  });
+
   it("marks quoted HTML once, however deeply it is nested, so the thread view can drop it", () => {
     const f = fullText({ html: '<p>Danke!</p><blockquote type="cite"><p>Frage</p><blockquote><p>Alte Frage</p></blockquote></blockquote>' });
     expect(f.text).toBe("Danke!\n\n> Frage\n> \n> Alte Frage");

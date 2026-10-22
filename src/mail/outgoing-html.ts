@@ -1,6 +1,6 @@
 import { parseDocument, DomUtils } from "htmlparser2";
 import { Text, isTag, type ChildNode, type Element, type ParentNode } from "domhandler";
-import { visibleAddress } from "./visible-text.js";
+import { MAX_HTML_BYTES, visibleAddress } from "./visible-text.js";
 import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
 
 /**
@@ -247,6 +247,9 @@ class ChildEdits {
 }
 
 export function withoutRemoteContent(html: string): OutgoingHtml {
+  if (html.length > MAX_HTML_BYTES) {
+    throw new Error("The html is too large to be checked for remote content. Nothing was saved or sent.");
+  }
   // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
   if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) {
     throw new Error("The html is nested too deeply to be checked for remote content. Nothing was saved or sent.");

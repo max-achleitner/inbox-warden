@@ -143,7 +143,7 @@ const enum Attr {
  * The ">" that ends the start tag whose name ends at `from`, and whether it is written "/>"; `undefined` when the input
  * ends first. Quotes count only around attribute values, as in htmlparser2.
  */
-export function startTagEnd(html: string, from: number): { gt: number; selfClosing: boolean } | undefined {
+function startTagEnd(html: string, from: number): { gt: number; selfClosing: boolean } | undefined {
   let state = Attr.BeforeName;
   for (let i = from; i < html.length; i++) {
     const c = html.charCodeAt(i);

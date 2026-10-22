@@ -114,13 +114,17 @@ describe("withoutRemoteContent", () => {
     expect(() => withoutRemoteContent(tag.repeat(200_000))).toThrow(/nested too deeply/);
     expect(performance.now() - start).toBeLessThan(500);
   });
+  it("refuses HTML over 2 MB", () => {
+    expect(() => withoutRemoteContent("<p>x</p>".repeat(300_000))).toThrow(/too large.*Nothing was saved or sent/);
+  });
   it.each([
     ["stray closing tags", "<div></b>"],
     ["stray paragraph ends in svg", "<svg></p>"],
     ["svg contexts closed by their parent", "<div><svg></div>"],
-  ])("refuses 160k %s quickly, which htmlparser2 would need minutes for", (_n, piece) => {
+  ])("refuses 120k %s quickly, which htmlparser2 would need minutes for", (_n, piece) => {
     const start = performance.now();
-    expect(() => withoutRemoteContent(piece.repeat(160_000))).toThrow(/nested too deeply.*Nothing was saved or sent/);
+    // 120k stay under the 2 MB that is refused for its size alone
+    expect(() => withoutRemoteContent(piece.repeat(120_000))).toThrow(/nested too deeply.*Nothing was saved or sent/);
     expect(performance.now() - start).toBeLessThan(1000);
   });
   it("removes SVG elements with a remote href, ping attributes, and lists form targets", () => {

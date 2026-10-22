@@ -2,7 +2,7 @@ import { parseDocument, DomUtils } from "htmlparser2";
 import { isComment, isDirective, isTag, isText, type ChildNode, type Element, type ParentNode } from "domhandler";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
 import { decodeHTML } from "entities";
-import { htmlParseCost, MAX_PARSE_WORK, startTagEnd } from "./html-cost.js";
+import { htmlParseCost, MAX_PARSE_WORK } from "./html-cost.js";
 
 /**
  * What a human sees in a mail: HTML without hidden elements, text without invisible characters.
@@ -47,15 +47,15 @@ export interface Visible {
   removed?: HiddenContentRemoved;
 }
 
+/** Why HTML was not checked for hidden text, and so is not shown at all. */
+export type HtmlNotChecked = "too-large" | "too-complex" | "contains-frames" | "thread-budget";
+
 export interface VisibleHtml {
   html: string;
   hiddenText: string;
   removed?: HiddenContentRemoved;
-  /**
-   * Parsing the HTML (or the cleaned copy html-to-text parses again) would take too long (see html-cost.ts): it was not
-   * checked, `html` is empty and `hiddenText` holds all of its text, for the scanner only.
-   */
-  tooComplex?: true;
+  /** Set when the HTML was not checked: `html` is empty and `hiddenText` holds all of its text, for the scanner only. */
+  notChecked?: HtmlNotChecked;
 }
 
 const HIDDEN_FONT_MAX_PX = 1;
@@ -66,8 +66,11 @@ const INVISIBLE_REPORT_MIN = 3;
 const MAX_HTML_DEPTH = 500;
 /** html-to-text walks the cleaned HTML recursively and runs out of stack near 2,500 levels. */
 const MAX_REPARSE_DEPTH = 2 * MAX_HTML_DEPTH;
-/** Longer HTML (string length of the decoded part) is not parsed: it takes the same way as HTML too complex to parse. */
-export const MAX_HTML_BYTES = 5 * 1024 * 1024;
+/**
+ * Longer HTML (string length of the decoded part) is not checked: checking takes time linear in it, about 1.5 s per
+ * 2 MB of small elements. Gmail clips HTML at about 100 KB, so real mail rarely comes near.
+ */
+export const MAX_HTML_BYTES = 2 * 1024 * 1024;
 /**
  * Style sheets (all `<style>` texts together, which caps each one too) longer than this are not evaluated at all: no
  * rule is applied and nothing is judged by CSS, because an unread rule could show any text a judgement would remove.
@@ -517,13 +520,51 @@ interface Frame {
   owner?: ParentNode;
   /** Text kept here goes into a `<plaintext>`, which the serializer writes unescaped: it is escaped beforehand. */
   escapeText?: boolean;
+  /** Kept ancestors of each kind html-to-text works on per level. */
+  nesting: Nesting;
+}
+
+/**
+ * html-to-text does work per nesting level for these, so deep nesting multiplies its time or its output: an anchor
+ * collects all the text inside it, a heading upper-cases every word again, a quote or a list prefixes or indents
+ * every line again. Beyond these levels they are unwrapped: the children move up, the text stays.
+ */
+type Nested = "anchor" | "heading" | "quote" | "list";
+type Nesting = Readonly<Record<Nested, number>>;
+const NESTED_MAX: Nesting = { anchor: 1, heading: 1, quote: 5, list: 8 };
+const NO_NESTING: Nesting = { anchor: 0, heading: 0, quote: 0, list: 0 };
+const NESTED_KIND = new Map<string, Nested>([
+  ["a", "anchor"],
+  ...["h1", "h2", "h3", "h4", "h5", "h6"].map((name): [string, Nested] => [name, "heading"]),
+  ["blockquote", "quote"],
+  ...["ul", "ol", "menu", "dl"].map((name): [string, Nested] => [name, "list"]),
+]);
+
+const LIST_TYPES = new Set(["1", "a", "A", "i", "I"]);
+const ORDINAL = /^-?\d{1,6}$/;
+/** html-to-text numbers ordered lists from these attributes; values it cannot use are dropped (some made it throw). */
+function cleanListAttributes(el: Element): void {
+  for (const name of ["start", "value"]) {
+    const value = el.attribs[name];
+    if (value !== undefined && !(ORDINAL.test(value) && Math.abs(Number(value)) <= 100_000)) delete el.attribs[name];
+  }
+  if (el.attribs.type !== undefined && !LIST_TYPES.has(el.attribs.type)) delete el.attribs.type;
+}
+
+/** html-to-text writes roman numbers only up to 3999 (from 10,000 on it throws): other lists are numbered in digits. */
+function romanFits(ol: Element): boolean {
+  const start = ol.attribs.start === undefined ? 1 : Number(ol.attribs.start);
+  let items = 0;
+  for (const child of ol.children) if (isTag(child) && child.name === "li") items++;
+  return start >= 1 && start + items - 1 <= 3999;
 }
 
 const REMOVED_SILENTLY = new Set(["script", "template", "title", "style"]);
 /**
  * Elements whose content no reader sees (a browser shows the frame's document or the embedded object instead): removed,
  * their text is scanned but not reported. The serializer would also write their text unescaped, so html-to-text would
- * read markup spelled with entities there as elements.
+ * read markup spelled with entities there as elements. HTML with frames is not even parsed (`contains-frames`); they
+ * stay here as a second line of defence.
  */
 const NEVER_SHOWN = new Set(["noscript", "iframe", "noembed", "noframes"]);
 const escapeMarkup = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -590,53 +631,23 @@ function scanText(html: string): string {
   return [text.text, text.hiddenText].filter(Boolean).join("\n");
 }
 
-/** HTML that is not checked (too complex, too large, over a budget): not parsed, not shown; all of its text is scanned. */
-export function uncheckedHtml(html: string): VisibleHtml {
-  return { html: "", hiddenText: scanText(html), tooComplex: true };
+/** HTML that is not checked: not parsed and not shown; all of its text is scanned. */
+export function uncheckedHtml(html: string, reason: HtmlNotChecked): VisibleHtml {
+  return { html: "", hiddenText: scanText(html), notChecked: reason };
 }
-
-const FRAME_START = /<(iframe|noembed|noframes)[\t\n\f\r />]/gi;
-const FRAME_END: Record<string, RegExp> = {
-  iframe: /<\/iframe[\t\n\f\r />]/gi,
-  noembed: /<\/noembed[\t\n\f\r />]/gi,
-  noframes: /<\/noframes[\t\n\f\r />]/gi,
-};
 
 /**
- * A browser reads the content of iframe, noembed and noframes as raw text up to their end tag and shows none of it.
- * htmlparser2 parses it as markup and lets an ancestor's end tag close the element (`<div><iframe></div>text`), which
- * would put the rest on show. So each such span, from the end of the start tag to `</iframe` (`</noembed`,
- * `</noframes`) followed by whitespace, "/" or ">", or to the end of the input, is cut before parsing. Where a browser
- * would not see a start tag (in a comment, an attribute value), visible text may go too: that fails closed.
+ * A browser reads the content of iframe, noembed and noframes as raw text and never shows it; htmlparser2 parses it as
+ * markup and lets an ancestor's end tag close the element (`<div><iframe></div>text`). Telling the two apart needs a
+ * browser's parser, so HTML that mentions them anywhere (in a comment or an attribute value too) is not checked.
  */
-function cutFrameContent(html: string): { html: string; cut: string[] } {
-  const cut: string[] = [];
-  let out = "";
-  let from = 0;
-  FRAME_START.lastIndex = 0;
-  for (let m = FRAME_START.exec(html); m; m = FRAME_START.exec(html)) {
-    const name = m[1]!;
-    const startTag = startTagEnd(html, m.index + 1 + name.length);
-    // a start tag cut off by the end of the input: neither parser shows anything after it
-    if (!startTag) break;
-    const start = startTag.gt + 1;
-    const endTag = FRAME_END[name.toLowerCase()]!;
-    endTag.lastIndex = start;
-    const end = endTag.exec(html)?.index ?? html.length;
-    out += html.slice(from, start);
-    cut.push(html.slice(start, end));
-    from = end;
-    FRAME_START.lastIndex = end;
-  }
-  return { html: from === 0 ? html : out + html.slice(from), cut };
-}
+const FRAMES = /<(?:iframe|noembed|noframes)/i;
 
-export function visibleHtml(input: string): VisibleHtml {
-  if (input.length > MAX_HTML_BYTES) return uncheckedHtml(input);
-  const frames = cutFrameContent(input);
-  const html = frames.html;
+export function visibleHtml(html: string): VisibleHtml {
+  if (html.length > MAX_HTML_BYTES) return uncheckedHtml(html, "too-large");
+  if (FRAMES.test(html)) return uncheckedHtml(html, "contains-frames");
   // htmlparser2 needs time quadratic in the nesting depth and in closing tags it cannot match
-  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return uncheckedHtml(input);
+  if (htmlParseCost(html, MAX_PARSE_WORK).work > MAX_PARSE_WORK) return uncheckedHtml(html, "too-complex");
   const doc = parseDocument(html);
   const styles = cssTexts(doc);
   // Over the cap no CSS is judged at all: unread rules could show anything an inline style or a read rule hides.
@@ -644,8 +655,7 @@ export function visibleHtml(input: string): VisibleHtml {
   const hasStyle = styles.some((s) => (cssEvaluated ? stripCssComments(s) : s).trim() !== "");
   const winners = cssEvaluated ? parseRules(styles) : new Map<string, Map<string, Winner>>();
 
-  // what a browser would read as frame content: never shown, scanned
-  const hidden: string[] = frames.cut.map(scanText).filter((text) => text.trim() !== "");
+  const hidden: string[] = [];
   const removals: Array<HiddenContentRemoved | undefined> = [];
   const remove = (kind: HiddenKind, raw: string) => {
     const { text, hiddenText } = stripInvisible(raw);
@@ -780,7 +790,8 @@ export function visibleHtml(input: string): VisibleHtml {
   };
 
   const initial: State = { visibilityHidden: false, fontPx: 16, color: undefined, background: undefined };
-  const stack: Frame[] = [{ src: [...doc.children], i: 0, state: initial, depth: 0, kept: [], owner: doc }];
+  const stack: Frame[] = [{ src: [...doc.children], i: 0, state: initial, depth: 0, kept: [], owner: doc, nesting: NO_NESTING }];
+  const orderedLists: Element[] = [];
 
   while (stack.length > 0) {
     const frame = stack[stack.length - 1]!;
@@ -819,7 +830,7 @@ export function visibleHtml(input: string): VisibleHtml {
       if ("children" in node) {
         // CDATA and similar containers: unwrap
         const children = [...(node as ParentNode).children];
-        stack.push({ src: children, i: 0, state: frame.state, depth: frame.depth, kept: frame.kept, escapeText: frame.escapeText });
+        stack.push({ ...frame, src: children, i: 0, owner: undefined });
       } else frame.kept.push(node);
       continue;
     }
@@ -840,15 +851,23 @@ export function visibleHtml(input: string): VisibleHtml {
     const state = nextState(node, decls, frame.state);
     const depth = frame.depth + 1;
     const src = [...node.children];
-    if (depth > MAX_HTML_DEPTH) {
-      // Too deep for the serialiser and html-to-text: the children move up into the enclosing kept element.
-      stack.push({ src, i: 0, state, depth, kept: frame.kept, escapeText: frame.escapeText });
+    const kind = NESTED_KIND.get(node.name);
+    if (depth > MAX_HTML_DEPTH || (kind !== undefined && frame.nesting[kind] >= NESTED_MAX[kind])) {
+      // Too deep for the serialiser and html-to-text, or for html-to-text's work on this kind of element: the
+      // children move up into the enclosing kept element.
+      stack.push({ src, i: 0, state, depth, kept: frame.kept, escapeText: frame.escapeText, nesting: frame.nesting });
     } else {
       // Judged on the raw attributes (as a reader's mail program sees them), cleaned only once kept
       cleanAttributes(node);
+      if (node.name === "ol" || node.name === "li") cleanListAttributes(node);
+      if (node.name === "ol") orderedLists.push(node);
       frame.kept.push(node);
-      stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText: node.name === "plaintext" });
+      const nesting = kind === undefined ? frame.nesting : { ...frame.nesting, [kind]: frame.nesting[kind] + 1 };
+      stack.push({ src, i: 0, state, depth, kept: [], owner: node, escapeText: node.name === "plaintext", nesting });
     }
+  }
+  for (const ol of orderedLists) {
+    if ((ol.attribs.type === "i" || ol.attribs.type === "I") && !romanFits(ol)) delete ol.attribs.type;
   }
 
   // Safety net: tag characters anywhere else in the markup (tag or attribute names) never reach the model either
@@ -857,7 +876,7 @@ export function visibleHtml(input: string): VisibleHtml {
   // <xmp> unescaped, so after "<xmp/>" a decoded "</xmp>" ends it early and the rest becomes elements. The copy must
   // pass the same gate.
   const reparse = htmlParseCost(markup.text, MAX_PARSE_WORK);
-  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return uncheckedHtml(input);
+  if (reparse.work > MAX_PARSE_WORK || reparse.depth > MAX_REPARSE_DEPTH) return uncheckedHtml(html, "too-complex");
   removals.push(markup.removed);
   const removed = mergeRemovedList(removals);
   const result: VisibleHtml = {

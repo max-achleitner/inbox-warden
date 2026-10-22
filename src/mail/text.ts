@@ -1,6 +1,8 @@
 import { compile, type FormatCallback } from "html-to-text";
 import { PREHEADER_PADDING_GLOBAL } from "../security/patterns.js";
-import { mergeRemoved, stripInvisible, uncheckedHtml, visibleHtml, type HiddenContentRemoved } from "./visible-text.js";
+import { mergeRemoved, stripInvisible, uncheckedHtml, visibleHtml, type HiddenContentRemoved, type HtmlNotChecked } from "./visible-text.js";
+
+export type { HtmlNotChecked } from "./visible-text.js";
 
 export interface TextSource {
   text?: string;
@@ -28,16 +30,26 @@ export interface FullText {
   hiddenText: string;
   /** Cleaned HTML when the message has an HTML part that could be checked. */
   html?: string;
-  /**
-   * The HTML part would take the parser too long, so it was not checked for hidden text: `text` is the text part (or
-   * empty), the HTML's text is only scanned.
-   */
-  htmlTooComplex?: true;
+  /** Why the HTML part was not checked for hidden text: `text` is the text part (or empty), the HTML's text is only scanned. */
+  htmlNotChecked?: HtmlNotChecked;
 }
 
-/** Tool results carry this with `htmlTooComplex`. */
-export const HTML_TOO_COMPLEX_NOTE =
-  "The HTML of this email is nested too deeply to check it for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.";
+/** Tool results carry the note for `htmlNotChecked`. */
+export const HTML_NOT_CHECKED_NOTES: Readonly<Record<HtmlNotChecked, string>> = {
+  "too-large":
+    "This email's HTML is too large to check for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.",
+  "too-complex":
+    "This email's HTML is nested too deeply to check for hidden text, so it is not shown; Claude sees only its plain-text part, if it has one.",
+  "contains-frames":
+    "This email's HTML contains frames, whose content mail programs do not show, so it is not shown; Claude sees only its plain-text part, if it has one.",
+  "thread-budget":
+    "This thread has more HTML than one call checks, so this message's HTML is not shown; Claude sees only its plain-text part, if it has one. Read it with read_email.",
+};
+
+/** `htmlNotChecked` and its note, for a tool result. */
+export function htmlNotCheckedFields(full: FullText): { htmlNotChecked?: HtmlNotChecked; note?: string } {
+  return full.htmlNotChecked ? { htmlNotChecked: full.htmlNotChecked, note: HTML_NOT_CHECKED_NOTES[full.htmlNotChecked] } : {};
+}
 
 /**
  * A text part that has at least this many distinct words the visible HTML lacks, or lacks this many of the visible
@@ -132,22 +144,22 @@ export function textPartDiffers(plain: string, visibleHtmlText: string): boolean
  * The message text a reader sees. Hidden HTML and invisible characters are removed; the text part is used unless it
  * differs from the visible HTML text (then the HTML text is shown, `textPartDiffers` is set and the dropped text part
  * goes to `hiddenText` for the scanner). An empty visible HTML text keeps the text part. Preheader padding is dropped.
- * HTML too costly to parse is never shown (`htmlTooComplex`): then only the text part is. `parseHtml: false` takes that
- * way without looking at the HTML (for a caller's time budget).
+ * HTML that cannot be checked (too large, too complex, with frames) is never shown (`htmlNotChecked`): then only the text
+ * part is. `skipHtml` takes that way without parsing the HTML, for a caller's own reason (a time budget).
  */
-export function fullText(parsed: TextSource, options: { parseHtml?: boolean } = {}): FullText {
+export function fullText(parsed: TextSource, options: { skipHtml?: HtmlNotChecked } = {}): FullText {
   const clean = (text: string) => text.replace(PREHEADER_PADDING_GLOBAL, " ");
   const plain = parsed.text ? stripInvisible(parsed.text) : undefined;
   const plainText = plain ? clean(plain.text) : "";
-  const vh = parsed.html ? (options.parseHtml === false ? uncheckedHtml(parsed.html) : visibleHtml(parsed.html)) : undefined;
-  if (vh?.tooComplex) {
+  const vh = parsed.html ? (options.skipHtml ? uncheckedHtml(parsed.html, options.skipHtml) : visibleHtml(parsed.html)) : undefined;
+  if (vh?.notChecked) {
     // Fail closed: the unchecked HTML shows nothing, the text part is all a reader can be shown
     return {
       text: plainText,
       generated: false,
       hiddenText: [vh.hiddenText, plain?.hiddenText].filter(Boolean).join("\n"),
       ...(plain?.removed ? { hidden: plain.removed } : {}),
-      htmlTooComplex: true,
+      htmlNotChecked: vh.notChecked,
     };
   }
   // Safety net: whatever the conversion prints (link targets, attribute text) is cleaned like a text node
