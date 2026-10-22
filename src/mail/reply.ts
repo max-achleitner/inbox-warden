@@ -64,12 +64,15 @@ export function replyRecipients(
 /**
  * A Reply-To on a different domain than the sender (a common invoice-fraud trick). Non-null only when the
  * reply really goes to the Reply-To address, i.e. the original has one, and one of its addresses is on a
- * domain unrelated to the From address's domain.
+ * domain unrelated to the From address's domain. The mailbox's own addresses are skipped, as replyRecipients
+ * skips them, so the note never names an address the reply does not go to.
  */
-export function replyToMismatch(original: OriginalMessage): { replyTo: string; from: string | null } | null {
+export function replyToMismatch(original: OriginalMessage, ownAddresses: string[]): { replyTo: string; from: string | null } | null {
+  const own = new Set(ownAddresses.map((a) => a.toLowerCase()));
   const from = flattenAddresses(original.from)[0]?.address;
   const fromDomain = from === undefined ? null : domainOf(from);
   for (const m of flattenAddresses(original.replyTo)) {
+    if (own.has(m.address.toLowerCase())) continue;
     if (from === undefined || fromDomain === null) return { replyTo: m.address, from: null };
     const d = domainOf(m.address);
     // an invisible character in the address (IDNA ignores it in the domain) is a look-alike trick, never a match

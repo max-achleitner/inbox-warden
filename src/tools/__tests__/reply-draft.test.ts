@@ -64,6 +64,17 @@ describe("reply_draft", () => {
     expect(res.json.replyToNote).toContain("pay%E2%80%8Bpal.example");
   });
 
+  it("no note for the mailbox's own Reply-To address, which the reply does not go to", async () => {
+    const t = createTestApp([{ identities: [{ email: ME }, { email: "max@privat.example" }] }]);
+    const h2 = await t.connect(replyDraft.register);
+    t.imap().addMessage("INBOX", await buildRaw({ from: "max@privat.example", replyTo: ME, to: "kunde@kunde.example", subject: "x", text: "y" }));
+    const res = await h2.call("reply_draft", { uid: 1, body: "ok" });
+    expect(res.isError).toBe(false);
+    expect(res.json.to).toBe("kunde@kunde.example");
+    expect(res.json.replyToNote).toBeUndefined();
+    await h2.close();
+  });
+
   it("no note for a Reply-To on the sender's domain", async () => {
     imap.addMessage("INBOX", await buildRaw({ from: "news@shop.example", replyTo: "service@mail.shop.example", to: ME, subject: "x", text: "y" }));
     const res = await h.call("reply_draft", { uid: 1, body: "ok" });

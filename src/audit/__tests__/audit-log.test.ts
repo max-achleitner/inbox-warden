@@ -135,6 +135,37 @@ describe("AuditLog", () => {
     expect(record.details).toEqual({ recipientsCount: 2, recipientsDomains: ["x.com", "y.org"], password: "[REDACTED]" });
   });
 
+  it("minimal level reduces addresses in the error text to their domain", async () => {
+    const error =
+      'Error: These recipients appear only inside a received email: billing@evil.example, a.b+c%E2%80%8B@sub.evil.example. "x@y.example" is not valid; <Kasse@Evil.Example>.';
+    const minimal = new AuditLog({ ...options(), level: "minimal" });
+    await minimal.onToolCall(event({ outcome: "denied", error }));
+    expect(readRecords(dir)[0].error).toBe(
+      'Error: These recipients appear only inside a received email: …@evil.example, …@sub.evil.example. "…@y.example" is not valid; <…@Evil.Example>.',
+    );
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), "imap-mcp-audit-"));
+    const standard = new AuditLog({ ...options(), dir: other });
+    await standard.onToolCall(event({ outcome: "denied", error }));
+    expect(readRecords(other)[0].error).toBe(error);
+  });
+
+  it("reduces addresses before the error text is cut, so no local part is left over", async () => {
+    const audit = new AuditLog({ ...options(), level: "minimal" });
+    const error = "x".repeat(490) + " billing@evil.example";
+    await audit.onToolCall(event({ outcome: "denied", error }));
+    expect(readRecords(dir)[0].error).not.toMatch(/bil/);
+  });
+
+  it("reduces addresses in long hostile error texts quickly", async () => {
+    const audit = new AuditLog({ ...options(), level: "minimal" });
+    for (const error of ["a@".repeat(500_000), "a".repeat(1_000_000) + "@b.example", "@".repeat(1_000_000), ".@".repeat(500_000)]) {
+      const start = performance.now();
+      await audit.onToolCall(event({ outcome: "denied", error }));
+      expect(performance.now() - start).toBeLessThan(500);
+    }
+    for (const record of readRecords(dir)) expect(record.error).not.toMatch(/[a.]@/);
+  });
+
   it("minimal level reduces untrustedRecipients like recipients", async () => {
     const audit = new AuditLog({ ...options(), level: "minimal" });
     await audit.onToolCall(event({ details: { untrustedRecipients: ["a@x.com", "b@x.com"] } }));

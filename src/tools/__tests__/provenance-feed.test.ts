@@ -15,6 +15,7 @@ import * as organizeByFilter from "../organize-by-filter.js";
 import * as summarizeSenders from "../summarize-senders.js";
 import * as replyDraft from "../reply-draft.js";
 import * as forwardDraft from "../forward-draft.js";
+import * as createDraft from "../create-draft.js";
 
 const NEWS = "Date: Thu, 15 Jan 2026 10:00:00 +0000\r\nMessage-ID: <n1@shop.example>\r\n";
 function raw(from: string, subject: string, body: string): string {
@@ -30,6 +31,40 @@ describe("provenance feed", () => {
     expect(res.isError).toBe(false);
     expect(t.app.provenance.contentOnly(["billing@evil.example"])).toHaveLength(1);
     expect(t.app.provenance.contentOnly(["news@shop.example"])).toEqual([]);
+    await h.close();
+  });
+
+  it("read_email with includeHtml feeds addresses that only the HTML attributes carry", async () => {
+    const html =
+      '<p>Hallo, bitte siehe unten.</p><img src="cid:logo" alt="Zahlungen bitte an kasse@evil.example">' +
+      '<p title="Rechnung an billing@evil2.example">Danke</p>';
+    const t = createTestApp();
+    t.imap().addMessage(
+      "INBOX",
+      `From: news@shop.example\r\nTo: max@firma.example\r\nSubject: Info\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${html}`,
+    );
+    const h = await t.connect(readEmail.register, createDraft.register);
+    const res = await h.call("read_email", { uid: 1, includeHtml: true });
+    expect(res.json.html).toContain("kasse@evil.example");
+    const draft = await h.call("create_draft", { to: "kasse@evil.example, billing@evil2.example", subject: "x", body: "y" });
+    expect(draft.isError).toBe(false);
+    expect(draft.json.recipientWarnings.map((w: { address: string }) => w.address)).toEqual(["kasse@evil.example", "billing@evil2.example"]);
+    await h.close();
+  });
+
+  it("read_email feeds the List-Unsubscribe header it returns", async () => {
+    const t = createTestApp();
+    t.imap().addMessage(
+      "INBOX",
+      `From: news@shop.example\r\nTo: max@firma.example\r\nList-Unsubscribe: <mailto:abmelden@evil.example?subject=stop>, <https://unsub.evil3.example/x>\r\n${NEWS}Subject: News\r\n\r\nHallo`,
+    );
+    const h = await t.connect(readEmail.register);
+    const res = await h.call("read_email", { uid: 1 });
+    expect(res.json.listUnsubscribe).toContain("abmelden@evil.example");
+    expect(t.app.provenance.contentOnly(["abmelden@evil.example", "kasse@evil3.example"]).map((w) => w.reason)).toEqual([
+      "only-in-mail-content",
+      "domain-only-in-mail-content",
+    ]);
     await h.close();
   });
 

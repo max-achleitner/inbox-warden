@@ -228,6 +228,41 @@ describe("guardOutbound", () => {
     expect(await findNewRecipients(imap.asClient(), ["partner@partner.example"], UNSCOPED)).toEqual([]);
   });
 
+  it("guardOutbound looks each recipient up in Sent only once", async () => {
+    const t = setup({ send: { mode: "direct" } }, { elicitation: { form: {} } });
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    const decision = await guardOutbound(t.inv, request);
+    expect(decision.proceed).toBe(false);
+    expect(t.imap.callsTo("search")).toHaveLength(1);
+    expect(t.recorded).toMatchObject({ newRecipients: ["kunde@example.com"], untrustedRecipients: ["kunde@example.com"] });
+  });
+
+  it("guardOutbound still checks a candidate the new-recipient check did not look up", async () => {
+    const t = setup({ send: { mode: "direct", flagNewRecipients: false } }, { elicitation: { form: {} } });
+    t.imap.addMessage("Sent", await buildRaw({ from: "max@firma.example", to: "kunde@example.com", subject: "x", text: "y" }));
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    expect(await guardOutbound(t.inv, request)).toMatchObject({ proceed: true, confirmation: "not-required", recipientWarnings: [] });
+  });
+
+  it.each([
+    [6, "…and 1 more recipient that appears only inside received email."],
+    [7, "…and 2 more recipients that appear only inside received email."],
+  ])("the dialog sums up warnings beyond five (%i recipients)", async (count, line) => {
+    const t = setup({}, { elicitation: { form: {} } });
+    const recipients = Array.from({ length: count }, (_, i) => `r${i}@evil.example`);
+    t.provenance.noteSeen({ texts: [recipients.join(" ")] });
+    const decision = await guardOutbound(t.inv, { ...request, recipients });
+    expect(decision.proceed).toBe(false);
+    if (!decision.proceed) expect(JSON.stringify(decision.result)).toContain(line);
+  });
+
+  it("records the recipients before refusing untrusted ones in refuse mode", async () => {
+    const t = setup({ untrustedRecipients: "refuse" });
+    t.provenance.noteSeen({ texts: ["Bitte an kunde@example.com"] });
+    await expect(guardOutbound(t.inv, request)).rejects.toThrow(/refuse such recipients/);
+    expect(t.recorded).toMatchObject({ recipients: ["kunde@example.com"], untrustedRecipients: ["kunde@example.com"] });
+  });
+
   it("recipientWarnings does not touch IMAP when nothing is flagged", async () => {
     const t = setup();
     const account = { policy: t.policy, getClient: async () => { throw new Error("must not be called"); } };

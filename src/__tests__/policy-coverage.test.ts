@@ -128,7 +128,8 @@ describe("policy coverage of tool sources", () => {
     it("the bulk runner, the new-recipient check and the answered marker use the scope", () => {
       expect(source("bulk/run.ts").match(/\.messageScope\(/g)).toHaveLength(2);
       expect(source("policy/outbound.ts")).toMatch(/visibleUids\(client, hits/);
-      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(await inv\.account\.getClient\(\), recipients, policy\.messageScope\(\)\)/);
+      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(await inv\.account\.getClient\(\), recipients, policy\.messageScope\(\)[,)]/);
+      expect(source("policy/outbound.ts")).toMatch(/findNewRecipients\(client, unknown, policy\.messageScope\(\)[,)]/);
       expect(source("mail/answered.ts")).toMatch(/visibleUids\(client, await strictSearch/);
     });
 

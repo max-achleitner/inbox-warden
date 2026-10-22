@@ -73,9 +73,11 @@ export function register(server: McpServer, app: AppContext) {
         attachments: resolvedAttachments,
       });
       const warnings = await recipientWarnings(inv, message.envelope.to);
+      // recorded before a refusal, so a refused draft is audited like a refused send
+      inv.record({ recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
       inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
+      inv.record({ folder: draftsFolder, messageId: message.messageId });
 
       return jsonResult({ success: true, folder: draftsFolder, uid, messageId: message.messageId, from: identity.email, to, subject, ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}), ...htmlFields(cleaned) });
     },

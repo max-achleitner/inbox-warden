@@ -82,16 +82,6 @@ export function register(server: McpServer, app: AppContext) {
       const addressNames = [parsed.from, parsed.replyTo, parsed.to, parsed.cc]
         .flatMap((field) => flattenAddresses(field))
         .map((a) => stripInvisible(a.name ?? ""));
-      // What this call returns, for recipient provenance (visible strings, never the hidden text)
-      inv.provenance.noteSeen({
-        ...headerSeen({
-          from: flattenAddresses(parsed.from),
-          replyTo: flattenAddresses(parsed.replyTo),
-          to: flattenAddresses(parsed.to),
-          cc: flattenAddresses(parsed.cc),
-        }),
-        texts: [full.text, subject ?? "", ...addressNames.map((n) => n.text), ...attachmentNames.map((n) => n.text)],
-      });
       // Header values that must stay exact lose only their tag characters (addresses are not touched at all)
       const headerPayloads: string[] = [];
       const exact = (value: string): string => {
@@ -106,6 +96,25 @@ export function register(server: McpServer, app: AppContext) {
         : undefined;
       const unsubscribeLine = parsed.headerLines.find((h) => h.key === "list-unsubscribe")?.line;
       const listUnsubscribe = unsubscribeLine ? exact(utf8Line(unsubscribeLine.slice(unsubscribeLine.indexOf(":") + 1).trim())) : undefined;
+
+      // What this call returns, for recipient provenance (visible strings, never the hidden text). The HTML keeps
+      // attributes (alt, title, link targets) that the plain text drops.
+      inv.provenance.noteSeen({
+        ...headerSeen({
+          from: flattenAddresses(parsed.from),
+          replyTo: flattenAddresses(parsed.replyTo),
+          to: flattenAddresses(parsed.to),
+          cc: flattenAddresses(parsed.cc),
+        }),
+        texts: [
+          full.text,
+          includeHtml && full.html ? full.html : "",
+          listUnsubscribe ?? "",
+          subject ?? "",
+          ...addressNames.map((n) => n.text),
+          ...attachmentNames.map((n) => n.text),
+        ],
+      });
 
       // Full injection scan on the complete content, not just the returned page
       const _injectionScan = scanForInjection({

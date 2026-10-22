@@ -93,11 +93,13 @@ export function register(server: McpServer, app: AppContext) {
         references: references.length > 0 ? references : undefined,
         attachments: resolvedAttachments,
       });
-      const mismatch = replyToMismatch(original);
+      const mismatch = replyToMismatch(original, inv.account.ownAddresses);
       const warnings = await recipientWarnings(inv, message.envelope.to);
+      // recorded before a refusal, so a refused draft is audited like a refused send
+      inv.record({ recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
       inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-      inv.record({ folder: draftsFolder, messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
+      inv.record({ folder: draftsFolder, messageId: message.messageId });
 
       // The draft keeps the original's strings; the result shows them as a reader sees them (no invisible characters)
       return jsonResult({

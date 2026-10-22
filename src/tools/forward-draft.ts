@@ -108,10 +108,11 @@ export function register(server: McpServer, app: AppContext) {
         attachments: all.length > 0 ? all : undefined,
       });
       const warnings = await recipientWarnings(inv, message.envelope.to);
+      // recorded before a refusal, so a refused draft is audited like a refused send
+      inv.record({ folder: path, uids: [uid], action: "forward_draft", recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
       inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
-
-      inv.record({ folder: path, uids: [uid], action: "forward_draft", messageId: message.messageId, recipients: message.envelope.to, untrustedRecipients: warnings.map((w) => w.address) });
+      inv.record({ messageId: message.messageId });
       // The draft keeps the original's subject and file names; the result shows them without invisible characters
       return jsonResult({
         success: true,

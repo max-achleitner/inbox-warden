@@ -56,12 +56,13 @@ async function sentToExactly(client: ImapFlow, uids: number[], address: string):
 /**
  * Recipients that never appear in To/Cc/Bcc of the Sent folder. Lookups are capped; no Sent folder → none flagged.
  * Sent mail that `scope` hides does not count, so an address only written to there counts as new (the safe side).
+ * `checked` collects the addresses that were really looked up, so a later check can reuse the answer.
  */
 export async function findNewRecipients(
   client: ImapFlow,
   recipients: string[],
   scope: MessageScope,
-  options: { assumeNew?: boolean } = {},
+  options: { assumeNew?: boolean; checked?: Set<string> } = {},
 ): Promise<string[]> {
   const sent = await findSpecialFolder(client, "\\Sent");
   if (!sent) return options.assumeNew ? [...recipients] : [];
@@ -73,6 +74,7 @@ export async function findNewRecipients(
       const hits = await strictSearch(client, { or: [{ to: address }, { cc: address }, { bcc: address }] });
       const shown = await visibleUids(client, hits.slice(-MAX_VERIFIED_HITS), scope);
       if (!(await sentToExactly(client, shown, address))) fresh.push(address);
+      options.checked?.add(address);
     }
     // beyond the cap nothing was checked: with assumeNew those count as new
     if (options.assumeNew) fresh.push(...recipients.slice(MAX_NEW_RECIPIENT_LOOKUPS));
@@ -100,24 +102,39 @@ function warningMessage(rawAddress: string, reason: RecipientWarningReason): str
   }
 }
 
+/** A Sent lookup already done for these recipients: which were looked up, and which of those were never written to. */
+export interface SentLookup {
+  checked: ReadonlySet<string>;
+  fresh: ReadonlySet<string>;
+}
+
 /**
  * Recipients that mail content named but no correspondence backs, and that this mailbox never wrote to.
- * Fail closed: when Sent cannot be checked, every candidate stays flagged.
+ * Fail closed: when Sent cannot be checked, every candidate stays flagged. Candidates `known` already
+ * looked up are not looked up again.
  */
 export async function recipientWarnings(
   inv: { provenance: ProvenanceChannel; account: OutboundAccount },
   recipients: string[],
+  known?: SentLookup,
 ): Promise<RecipientWarning[]> {
   const policy = inv.account.policy;
   const candidates = inv.provenance.contentOnly(recipients).filter((c) => !policy.isOwnDomain(c.address));
   if (candidates.length === 0) return [];
-  let fresh: Set<string>;
-  try {
-    const client = await inv.account.getClient();
-    fresh = new Set(await findNewRecipients(client, candidates.map((c) => c.address), policy.messageScope(), { assumeNew: true }));
-  } catch {
-    log.warn("provenance.sent_lookup_failed", { account: policy.accountId });
-    fresh = new Set(candidates.map((c) => c.address));
+  const fresh = new Set<string>();
+  const unknown: string[] = [];
+  for (const { address } of candidates) {
+    if (!known?.checked.has(address)) unknown.push(address);
+    else if (known.fresh.has(address)) fresh.add(address);
+  }
+  if (unknown.length > 0) {
+    try {
+      const client = await inv.account.getClient();
+      for (const address of await findNewRecipients(client, unknown, policy.messageScope(), { assumeNew: true })) fresh.add(address);
+    } catch {
+      log.warn("provenance.sent_lookup_failed", { account: policy.accountId });
+      for (const address of unknown) fresh.add(address);
+    }
   }
   return candidates
     .filter((c) => fresh.has(c.address))
@@ -142,9 +159,9 @@ function confirmationMessage(
   if (request.attachmentCount > 0) lines.push(`Attachments: ${request.attachmentCount}`);
   if (newRecipients.length > 0) lines.push(`Never emailed before: ${newRecipients.map(visibleAddress).join(", ")}`);
   for (const w of warnings.slice(0, MAX_WARNING_LINES)) lines.push(`Check recipient: ${w.message}`);
-  if (warnings.length > MAX_WARNING_LINES) {
-    lines.push(`…and ${warnings.length - MAX_WARNING_LINES} more recipients that appear only inside received email.`);
-  }
+  const more = warnings.length - MAX_WARNING_LINES;
+  if (more === 1) lines.push("…and 1 more recipient that appears only inside received email.");
+  else if (more > 1) lines.push(`…and ${more} more recipients that appear only inside received email.`);
   if (escalation) {
     lines.push(
       `Warning: an email read in this session looked like a manipulation attempt (risk: ${escalation}). ` +
@@ -173,11 +190,13 @@ export async function guardOutbound(
   }
   const recipients = policy.checkRecipients(request.recipients);
   policy.checkRate();
+  const checked = new Set<string>();
   const newRecipients = policy.policy.send.flagNewRecipients
-    ? await findNewRecipients(await inv.account.getClient(), recipients, policy.messageScope())
+    ? await findNewRecipients(await inv.account.getClient(), recipients, policy.messageScope(), { checked })
     : [];
-  const warnings = await recipientWarnings(inv, recipients);
-  policy.checkUntrustedRecipients(warnings, "send");
+  // the new-recipient check already searched Sent for these recipients; only the others are looked up again
+  const warnings = await recipientWarnings(inv, recipients, { checked, fresh: new Set(newRecipients) });
+  // recorded before a refusal, so a refused send is audited with its recipients
   inv.record({
     recipients,
     subject: request.subject,
@@ -185,6 +204,7 @@ export async function guardOutbound(
     ...(newRecipients.length > 0 ? { newRecipients } : {}),
     ...(warnings.length > 0 ? { untrustedRecipients: warnings.map((w) => w.address) } : {}),
   });
+  policy.checkUntrustedRecipients(warnings, "send");
 
   const escalation = policy.injectionEscalation();
   // In confirm mode a finding only adds a warning to the dialog; in direct mode it forces one.
@@ -202,7 +222,7 @@ export async function guardOutbound(
   switch (outcome.status) {
     case "pending":
       return { proceed: false, result: outcome.result };
-    case "refused":
+    case "refused": {
       // only when no dialog could be shown; an answered (declined, mismatched) dialog keeps its own result
       const answered = inv.sdk.mcpReq.inputResponses !== undefined && CONFIRM_KEY in inv.sdk.mcpReq.inputResponses;
       if (warnings.length > 0 && !answered) {
@@ -212,6 +232,7 @@ export async function guardOutbound(
         );
       }
       throw new PolicyDeniedError(outcome.reason, forced ? "send.injectionEscalation" : "send.confirmation");
+    }
     case "confirmed":
       inv.record({ confirmation: "elicitation", ...(escalation ? { injectionEscalation: escalation } : {}) });
       return { proceed: true, confirmation: "elicitation", recipients, newRecipients, recipientWarnings: warnings };

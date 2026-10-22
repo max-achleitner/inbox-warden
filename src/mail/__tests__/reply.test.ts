@@ -77,26 +77,38 @@ describe("quotePlain", () => {
 describe("replyToMismatch", () => {
   it("reports a Reply-To on an unrelated domain", async () => {
     const original = await parse({ from: "rechnung@lieferant.example", replyTo: "zahlung@lieferant-pay.example", to: "max@firma.example", subject: "x", text: "y" });
-    expect(replyToMismatch(original)).toEqual({ replyTo: "zahlung@lieferant-pay.example", from: "rechnung@lieferant.example" });
+    expect(replyToMismatch(original, [])).toEqual({ replyTo: "zahlung@lieferant-pay.example", from: "rechnung@lieferant.example" });
   });
 
   it("accepts a Reply-To on a subdomain of the sender's domain", async () => {
     const original = await parse({ from: "news@shop.example", replyTo: "service@mail.shop.example", to: "max@firma.example", subject: "x", text: "y" });
-    expect(replyToMismatch(original)).toBeNull();
+    expect(replyToMismatch(original, [])).toBeNull();
   });
 
   it("fails closed with an unknown sender", () => {
     const original = { replyTo: { value: [{ address: "a@evil.example", name: "" }], html: "", text: "" } } as never;
-    expect(replyToMismatch(original)).toEqual({ replyTo: "a@evil.example", from: null });
+    expect(replyToMismatch(original, [])).toEqual({ replyTo: "a@evil.example", from: null });
   });
 
   it("is null without a Reply-To", async () => {
     const original = await parse({ from: "a@example.com", to: "max@firma.example", subject: "x", text: "y" });
-    expect(replyToMismatch(original)).toBeNull();
+    expect(replyToMismatch(original, [])).toBeNull();
   });
 
   it("is null when the Reply-To equals the sender", async () => {
     const original = await parse({ from: "a@example.com", replyTo: "a@example.com", to: "max@firma.example", subject: "x", text: "y" });
-    expect(replyToMismatch(original)).toBeNull();
+    expect(replyToMismatch(original, [])).toBeNull();
+  });
+
+  it("ignores the mailbox's own Reply-To addresses, which the reply does not go to", async () => {
+    const original = await parse({ from: "me@gmail.com", replyTo: "Me@Firma.example", to: "kunde@kunde.example", subject: "x", text: "y" });
+    const own = ["me@gmail.com", "me@firma.example"];
+    expect(replyRecipients(original, own, false).to.map((m) => m.address)).toEqual(["kunde@kunde.example"]);
+    expect(replyToMismatch(original, own)).toBeNull();
+  });
+
+  it("names the Reply-To the reply goes to when an own address comes first", async () => {
+    const original = await parse({ from: "rechnung@lieferant.example", replyTo: "me@firma.example, zahlung@lieferant-pay.example", to: "me@firma.example", subject: "x", text: "y" });
+    expect(replyToMismatch(original, ["me@firma.example"])).toEqual({ replyTo: "zahlung@lieferant-pay.example", from: "rechnung@lieferant.example" });
   });
 });

@@ -209,6 +209,80 @@ describe("untrusted recipients in drafts", () => {
     expect(file).not.toContain("billing@");
     await h.close();
   });
+
+  async function auditedSetup(policy: Record<string, unknown>, sendTools = false, connectOptions: Record<string, unknown> = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "imap-mcp-audit-"));
+    const t = createTestApp([{ policy }], { audit: { path: dir, level: "minimal" } });
+    setupAudit(t.app);
+    t.imap().addMessage("INBOX", MAIL);
+    const h = sendTools
+      ? await t.connectWith(connectOptions, readEmail.register, sendEmail.register)
+      : await t.connect(...registers);
+    expect((await h.call("read_email", { uid: 1 })).isError).toBe(false);
+    const records = (tool: string) =>
+      listAuditFiles(dir)
+        .flatMap((f) => fs.readFileSync(path.join(dir, f), "utf8").trim().split("\n"))
+        .map((l) => JSON.parse(l))
+        .filter((r) => r.tool === tool);
+    const fileText = () => listAuditFiles(dir).map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("");
+    return { t, h, records, fileText };
+  }
+
+  it.each(["create_draft", "forward_draft", "reply_draft"] as const)(
+    "a %s refused in refuse mode is audited with reduced recipients and no address, at level minimal",
+    async (tool) => {
+      const { t, h, records, fileText } = await auditedSetup({ untrustedRecipients: "refuse" });
+      if (tool === "reply_draft") {
+        t.imap().addMessage(
+          "INBOX",
+          "From: rechnung@lieferant.example\r\nReply-To: zahlung@lieferant-pay.example\r\nTo: max@firma.example\r\nSubject: Zahlung\r\n\r\nx",
+        );
+      }
+      const args =
+        tool === "create_draft" ? draftArgs(EVIL) : tool === "forward_draft" ? { uid: 1, to: EVIL } : { uid: 2, body: "ok" };
+      const res = await h.call(tool, args);
+      expect(res.isError).toBe(true);
+      const [record] = records(tool);
+      expect(record.outcome).toBe("denied");
+      const domain = tool === "reply_draft" ? "lieferant-pay.example" : "evil.example";
+      expect(record.details).toMatchObject({ recipientsCount: 1, untrustedRecipientsCount: 1, untrustedRecipientsDomains: [domain] });
+      expect(record.error).toContain(`…@${domain}`);
+      expect(fileText()).not.toMatch(/billing@|zahlung@/);
+      await h.close();
+    },
+  );
+
+  it("a draft that is created is recorded once, with its folder and reduced recipients", async () => {
+    const { h, records } = await auditedSetup({});
+    expect((await h.call("create_draft", draftArgs(EVIL))).isError).toBe(false);
+    const list = records("create_draft");
+    expect(list).toHaveLength(1);
+    expect(list[0].details).toMatchObject({ folder: "Drafts", recipientsCount: 1, untrustedRecipientsCount: 1, untrustedRecipientsDomains: ["evil.example"] });
+    await h.close();
+  });
+
+  it("a send refused without a dialog leaves no address in the minimal audit log", async () => {
+    const { h, records, fileText } = await auditedSetup({}, true);
+    const res = await h.call("send_email", { to: EVIL, subject: "Rechnung", body: "Hallo" });
+    expect(res.isError).toBe(true);
+    const [record] = records("send_email");
+    expect(record.outcome).toBe("denied");
+    expect(record.details).toMatchObject({ untrustedRecipientsCount: 1, untrustedRecipientsDomains: ["evil.example"] });
+    expect(record.error).toContain("…@evil.example");
+    expect(fileText()).not.toContain("billing@");
+    await h.close();
+  });
+
+  it("a send refused in refuse mode is audited with reduced recipients and no address", async () => {
+    const { h, records, fileText } = await auditedSetup({ untrustedRecipients: "refuse" }, true);
+    const res = await h.call("send_email", { to: EVIL, subject: "Rechnung", body: "Hallo" });
+    expect(res.isError).toBe(true);
+    const [record] = records("send_email");
+    expect(record.outcome).toBe("denied");
+    expect(record.details).toMatchObject({ recipientsCount: 1, untrustedRecipientsCount: 1, untrustedRecipientsDomains: ["evil.example"] });
+    expect(fileText()).not.toContain("billing@");
+    await h.close();
+  });
 });
 
 describe("untrusted recipients when sending", () => {
