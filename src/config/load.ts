@@ -200,7 +200,7 @@ function readJson(file: string): unknown {
   } catch (err) {
     if (err instanceof SyntaxError) {
       // JSON.parse quotes part of the file in its message; a corrupt config may hold a password, so keep only the location.
-      const where = /line \d+ column \d+|position \d+/.exec(err.message)?.[0];
+      const where = /\bline \d+ column \d+|\bposition \d+/.exec(err.message)?.[0];
       throw new ConfigError(`Could not read ${file}: it is not valid JSON${where ? ` (${where})` : ""}.`);
     }
     throw new ConfigError(`Could not read ${file}: ${(err as Error).message}`);
