@@ -1,4 +1,5 @@
 import type { AddressObject, EmailAddress } from "mailparser";
+import { domainOf, relatedDomains } from "../policy/recipients.js";
 import { fullText } from "./text.js";
 import { visibleString } from "./visible-text.js";
 
@@ -58,6 +59,22 @@ export function replyRecipients(
   if (to.length === 0) to = take(flattenAddresses(original.to));
   const cc = replyAll ? take([...flattenAddresses(original.to), ...flattenAddresses(original.cc)]) : [];
   return { to, cc };
+}
+
+/**
+ * A Reply-To on a different domain than the sender (a common invoice-fraud trick). Non-null only when the
+ * reply really goes to the Reply-To address, i.e. the original has one, and one of its addresses is on a
+ * domain unrelated to the From address's domain.
+ */
+export function replyToMismatch(original: OriginalMessage): { replyTo: string; from: string } | null {
+  const from = flattenAddresses(original.from)[0]?.address;
+  const fromDomain = from === undefined ? null : domainOf(from);
+  if (from === undefined || fromDomain === null) return null;
+  for (const m of flattenAddresses(original.replyTo)) {
+    const d = domainOf(m.address);
+    if (d === null || !relatedDomains(d, fromDomain)) return { replyTo: m.address, from };
+  }
+  return null;
 }
 
 /** "Re: " unless the subject already carries a reply prefix (Re, AW, Antw, SV, VS). */

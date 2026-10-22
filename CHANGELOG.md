@@ -29,6 +29,7 @@ All notable changes to this project are documented here. The format follows
 - Gmail: a message that carries a locked label is hidden in every folder it shows up in (Inbox, Sent, other labels) and in every tool. It is not listed, counted, read, changed or replied to, and asking for its UID gets the same answer as a message that does not exist. Before, mail filed under a locked label stayed readable through any visible label it also carried. On such an account `get_email_count` counts by reading labels (up to 20,000 messages per call), and searches check the newest 20,000 matches.
 
 ### Added
+- `reply_draft` says when the reply goes to a Reply-To address on another domain than the sender (`replyToNote`) — a common trick in invoice fraud.
 - The extension has an icon (envelope with a shield).
 - Filter `{"all": true}` selects every email in a folder; it cannot be combined with other filters.
 - Folder locks for the Claude Desktop extension and the Claude Code plugin: the setting "Folders Claude must not see" (`IMAP_MCP_DENY_FOLDERS`, comma-separated, wildcards such as `_NDA_*`). Before, only a hand-edited `config.json` could lock folders.

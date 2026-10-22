@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { simpleParser } from "mailparser";
 import { buildRaw } from "../../__tests__/helpers/messages.js";
-import { quotePlain, replyRecipients, replySubject } from "../reply.js";
+import { quotePlain, replyRecipients, replySubject, replyToMismatch } from "../reply.js";
 
 async function parse(opts: Parameters<typeof buildRaw>[0]) {
   return simpleParser(await buildRaw(opts));
@@ -71,5 +71,27 @@ describe("quotePlain", () => {
   it("falls back to the HTML body converted to text", async () => {
     const original = await parse({ from: "a@example.com", to: "b@example.com", subject: "x", html: "<p>Hallo <b>Welt</b></p>" });
     expect(quotePlain(original, "en", "UTC")).toContain("> Hallo Welt");
+  });
+});
+
+describe("replyToMismatch", () => {
+  it("reports a Reply-To on an unrelated domain", async () => {
+    const original = await parse({ from: "rechnung@lieferant.example", replyTo: "zahlung@lieferant-pay.example", to: "max@firma.example", subject: "x", text: "y" });
+    expect(replyToMismatch(original)).toEqual({ replyTo: "zahlung@lieferant-pay.example", from: "rechnung@lieferant.example" });
+  });
+
+  it("accepts a Reply-To on a subdomain of the sender's domain", async () => {
+    const original = await parse({ from: "news@shop.example", replyTo: "service@mail.shop.example", to: "max@firma.example", subject: "x", text: "y" });
+    expect(replyToMismatch(original)).toBeNull();
+  });
+
+  it("is null without a Reply-To", async () => {
+    const original = await parse({ from: "a@example.com", to: "max@firma.example", subject: "x", text: "y" });
+    expect(replyToMismatch(original)).toBeNull();
+  });
+
+  it("is null when the Reply-To equals the sender", async () => {
+    const original = await parse({ from: "a@example.com", replyTo: "a@example.com", to: "max@firma.example", subject: "x", text: "y" });
+    expect(replyToMismatch(original)).toBeNull();
   });
 });

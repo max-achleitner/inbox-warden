@@ -47,6 +47,21 @@ describe("reply_draft", () => {
     expect(draft.text).toContain("> Wann kommt die Ware?");
   });
 
+  it("notes a Reply-To on another domain", async () => {
+    imap.addMessage("INBOX", await buildRaw({ from: "rechnung@lieferant.example", replyTo: "zahlung@lieferant-pay.example", to: ME, subject: "Rechnung", text: "Bitte zahlen" }));
+    const res = await h.call("reply_draft", { uid: 1, body: "ok" });
+    expect(res.isError).toBe(false);
+    expect(res.json.replyToNote).toContain("zahlung@lieferant-pay.example");
+    expect(res.json.replyToNote).toContain("rechnung@lieferant.example");
+    expect(JSON.stringify(res.json.recipientWarnings)).toContain("zahlung@lieferant-pay.example");
+  });
+
+  it("no note for a Reply-To on the sender's domain", async () => {
+    imap.addMessage("INBOX", await buildRaw({ from: "news@shop.example", replyTo: "service@mail.shop.example", to: ME, subject: "x", text: "y" }));
+    const res = await h.call("reply_draft", { uid: 1, body: "ok" });
+    expect(res.json.replyToNote).toBeUndefined();
+  });
+
   it("can skip the quote", async () => {
     imap.addMessage("INBOX", await buildRaw({ from: "a@example.com", to: ME, subject: "x", text: "original" }));
     const res = await h.call("reply_draft", { uid: 1, body: "kurz", quoteOriginal: false });

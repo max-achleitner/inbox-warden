@@ -8,7 +8,7 @@ import { downloadMessage, strictAppend } from "../imap/strict.js";
 import { recipientWarnings } from "../policy/outbound.js";
 import { composeMessage } from "../mail/compose.js";
 import { fromHeader, withSignature } from "../mail/identity.js";
-import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject } from "../mail/reply.js";
+import { flattenAddresses, formatVisibleAddressList, quoteHtml, quotePlain, replyRecipients, replySubject, replyToMismatch } from "../mail/reply.js";
 import { headerSeen } from "../policy/provenance.js";
 import { stripTagCharacters, visibleString } from "../mail/visible-text.js";
 import { senderShape } from "./create-draft.js";
@@ -25,7 +25,7 @@ export function register(server: McpServer, app: AppContext) {
       title: "Create reply draft",
       description:
         "Create a reply draft to an existing email with threading headers (In-Reply-To, References). " +
-        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft.",
+        "Honors the Reply-To header and quotes the original message below your text and signature. Saves to Drafts. If the result has recipientWarnings, tell the user before they send the draft. If the result has replyToNote, tell the user.",
       tier: "write",
       input: {
         folder: z.string().default("INBOX").describe("Folder containing the original email"),
@@ -91,6 +91,7 @@ export function register(server: McpServer, app: AppContext) {
         references: references.length > 0 ? references : undefined,
         attachments: resolvedAttachments,
       });
+      const mismatch = replyToMismatch(original);
       const warnings = await recipientWarnings(inv, message.envelope.to);
       inv.account.policy.checkUntrustedRecipients(warnings, "draft");
       const { uid: draftUid } = await strictAppend(client, draftsFolder, message.raw, ["\\Draft", "\\Seen"]);
@@ -109,6 +110,9 @@ export function register(server: McpServer, app: AppContext) {
         inReplyTo: original.messageId === undefined ? undefined : stripTagCharacters(original.messageId).text,
         originalFolder: path,
         ...(warnings.length > 0 ? { recipientWarnings: warnings } : {}),
+        ...(mismatch
+          ? { replyToNote: `The reply goes to the Reply-To address ${visibleString(mismatch.replyTo)}, which is on a different domain than the sender ${visibleString(mismatch.from)}. Make sure the user wants the reply to go there.` }
+          : {}),
       });
     },
   );
