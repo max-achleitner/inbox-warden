@@ -67,7 +67,7 @@
     "@modelcontextprotocol/server": "^2.3.1",
     "@napi-rs/keyring": "^2.1.1",
     "domhandler": "^5.0.3",
-    "entities": "7.0.1",
+    "entities": "8.1.0",
     "html-to-text": "^10.0.1",
     "htmlparser2": "~10.1.0",
     "imapflow": "^2.4.2",
