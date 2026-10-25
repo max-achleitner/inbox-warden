@@ -11,7 +11,7 @@ const D5_KEYS = [
   "attachment_dirs", "download_dir", "imap_host", "smtp_host", "username", "skip_server_lookup",
 ];
 const D5_TITLES = [
-  "Email address",
+  "Email address (leave empty for mailboxes from setup)",
   "Password (Gmail: app password)",
   "Your name (optional)",
   "Claude may send email",
@@ -55,6 +55,13 @@ describe("mcpb/manifest.json", () => {
   it("titles explain themselves (Claude Code shows titles only)", () => {
     expect(Object.values(template.user_config).map((field) => field.title)).toEqual(D5_TITLES);
     for (const field of Object.values(template.user_config)) expect(field.title).not.toContain("/");
+  });
+
+  it("leaves the address optional: empty means the mailboxes set up with the command-line version", () => {
+    expect(template.user_config.email).toMatchObject({ type: "string", required: false });
+    expect(template.user_config.email.default).toBeUndefined();
+    expect(template.user_config.email.description).toMatch(/[Ll]eave it empty.*inbox-warden setup.*switches.*locked folders apply to every mailbox/s);
+    expect(template.long_description).toMatch(/[Ss]everal mailboxes.*leave the email address empty/s);
   });
 
   it("passes the switches, not the old choice fields", () => {

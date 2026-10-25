@@ -25,7 +25,9 @@ darf, und standardmäßig versenden Sie Entwürfe selbst.
    die Datei funktioniert nicht. Claude Desktop öffnet einen Installationsdialog. Klicken Sie auf **Installieren**
    (englisch: Install).
 3. Füllen Sie das Formular aus. Die Feldtitel sind englisch; nötig sind nur E-Mail-Adresse und Passwort:
-   - **Email address** — Ihre E-Mail-Adresse.
+   - **Email address (leave empty for mailboxes from setup)** — Ihre E-Mail-Adresse. Leer lassen Sie das Feld
+     nur, wenn Sie mehrere Postfächer mit der Kommandozeilen-Version eingerichtet haben
+     ([mehrere Postfächer](#mehrere-postfächer-eigener-mailserver)).
    - **Password (Gmail: app password)** — Ihr Passwort; bei Gmail, Yahoo und iCloud ein App-Passwort (siehe unten).
    - **Your name (optional)** — so erscheinen Sie bei Empfängern, z. B. „Maximilian Achleitner“.
    - **Claude may send email** (Schalter, aus) — einschalten, wenn Claude E-Mails senden darf. Claude fragt Sie
@@ -100,8 +102,8 @@ Administrator für Ihre Organisation angelegt hat. Private Gmail-Konten verwende
 
 ## Mehrere Postfächer, eigener Mailserver
 
-Für mehrere Postfächer in einer Installation oder einen Server mit selbstsigniertem Zertifikat installieren Sie
-die Kommandozeilen-Version (benötigt Node.js 20.19 oder neuer):
+Mehrere Postfächer in einer Installation oder einen Server mit selbstsigniertem Zertifikat richten Sie einmal mit
+der Kommandozeilen-Version ein (benötigt Node.js 20.19 oder neuer):
 
 ```bash
 npm install -g inbox-warden
@@ -110,8 +112,24 @@ inbox-warden setup
 
 Der Assistent erkennt Ihren Anbieter, öffnet bei Microsoft 365 und Google Workspace den Browser zur Anmeldung,
 testet die Verbindung, zeigt bei selbstsignierten Zertifikaten den Fingerabdruck zum Bestätigen und speichert
-Geheimnisse im Schlüsselbund Ihres Betriebssystems. Danach in Claude Desktop unter Einstellungen → Entwickler →
-Konfiguration bearbeiten eintragen:
+Geheimnisse im Schlüsselbund Ihres Betriebssystems.
+
+**In der Claude-Desktop-Erweiterung oder im Claude-Code-Plugin verwenden:** Öffnen Sie die Einstellungen (Profil →
+Einstellungen → Erweiterungen → Inbox Warden → **Konfigurieren**; Claude Code: `/plugin` → Installed → Inbox Warden
+→ Configure), lassen Sie **Email address** leer und speichern Sie. Claude verwendet dann alle eingerichteten
+Postfächer:
+
+- Passwort, Name und die Felder mit **Advanced** werden nicht verwendet.
+- Die beiden Schalter sind eine Obergrenze für jedes Postfach. Aus heißt aus für alle; an erlaubt, was die
+  Einstellung des jeweiligen Postfachs erlaubt (`inbox-warden accounts edit <id> --allow delete`).
+- **Locked folders (comma-separated)** sind in jedem Postfach gesperrt, zusätzlich zu den mit `--lock-folder`
+  gesperrten Ordnern.
+- Anhang- und Download-Ordner aus dem Formular gelten für alle Postfächer.
+- Am Mac fragt macOS eventuell einmal, ob `security` den Schlüsselbund-Eintrag „imap-mcp“ verwenden darf: wählen
+  Sie **Immer erlauben**.
+
+**Ohne Erweiterung:** Tragen Sie in Claude Desktop unter Einstellungen → Entwickler → Konfiguration bearbeiten
+Folgendes ein, statt der Erweiterung (mit beiden sieht Claude jedes Werkzeug doppelt):
 
 ```json
 { "mcpServers": { "email": { "command": "inbox-warden", "args": ["serve"] } } }
@@ -127,7 +145,9 @@ Konfiguration bearbeiten eintragen:
 | `delete` | in den Papierkorb verschieben – endgültig gelöscht wird nie; den Papierkorb leeren Sie in Ihrem eigenen Mailprogramm | aus |
 
 In der Claude-Desktop-Erweiterung sind `read` und `write` immer an. Die beiden Schalter **Claude may send email**
-und **Claude may move email to Trash** (beide aus) fügen `send` und `delete` hinzu.
+und **Claude may move email to Trash** (beide aus) fügen `send` und `delete` hinzu. Mit den eingerichteten
+Postfächern (Adresse leer) sind die Schalter eine Obergrenze: Ein Postfach darf nur senden oder löschen, wenn
+seine eigene Einstellung und der Schalter es beide erlauben.
 
 In der Kommandozeilen-Version ändern Sie Rechte später mit `inbox-warden accounts edit <id> --allow send` bzw.
 `--deny delete`. Dort lassen sich auch das Standard-Postfach (`--default`), das Limit für Massenaktionen
@@ -158,7 +178,8 @@ nicht, und jeder Zugriff darauf wird abgelehnt.
    - **Claude-Desktop-Erweiterung:** unten links auf Ihr Profil klicken, dann **Einstellungen → Erweiterungen →
      Inbox Warden → Konfigurieren** (englisch: Settings → Extensions → Inbox Warden → Configure). Den Ordner im
      Feld **Locked folders (comma-separated)** eintragen und speichern. Fehlt das Feld, aktualisieren Sie die
-     Erweiterung auf die neueste Version.
+     Erweiterung auf die neueste Version. Mit den eingerichteten Postfächern (Adresse leer) sperrt das Feld den
+     Ordner in jedem Postfach; nur in einem Postfach sperren Sie ihn mit `--lock-folder` (unten).
    - **Claude-Code-Plugin:** `/plugin` → **Installed** → **Inbox Warden** → **Configure**, dasselbe Feld.
    - **Kommandozeilen-Version:**
 
@@ -305,6 +326,7 @@ In Claude Desktop finden Sie die Protokolle unter **Einstellungen → Erweiterun
 |---|---|
 | „Authentication failed“ / „Anmeldung fehlgeschlagen“ | Passwort falsch oder App-Passwort nötig (siehe oben). Microsoft 365: die Kommandozeilen-Version verwenden (`inbox-warden setup`). |
 | „Inbox Warden is not set up correctly …“ | Claude nennt das Problem. Öffnen Sie Einstellungen → Erweiterungen → Inbox Warden → **Konfigurieren** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), korrigieren Sie das genannte Feld, speichern Sie und öffnen Sie einen neuen Chat. |
+| „No configuration found at …“ | Die E-Mail-Adresse in den Einstellungen der Erweiterung ist leer, deshalb sucht Inbox Warden mit der Kommandozeilen-Version eingerichtete Postfächer und findet keine. Tragen Sie Adresse und Passwort ein oder führen Sie `inbox-warden setup` aus ([mehrere Postfächer](#mehrere-postfächer-eigener-mailserver)). |
 | „Cannot connect to the extension server“ | Meist ist **Advanced: don't look up servers online** eingeschaltet, obwohl Inbox Warden die Adresse nicht kennt: ausschalten oder beide Serverfelder ausfüllen. Ab 0.7.0 erklärt Claude die Ursache im Chat. |
 | „Not signed in yet — ask me to run sign_in“ | Nur Kommandozeilen-Version: Claude schreiben *„Bitte melde mich an.“* oder `inbox-warden accounts login <id>` ausführen. Der Browser öffnet sich. |
 | „No Microsoft application (client) ID is configured …“ | Kommandozeilen-Version: die OAuth client ID von Ihrem Administrator in `inbox-warden setup` eintragen. |

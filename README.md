@@ -14,7 +14,7 @@ iCloud, Yahoo, or your own mail server.
 | Password / app password (Gmail, GMX, IONOS, iCloud, own server …) | ✓ | ✓ | ✓ |
 | Microsoft 365 sign-in (preview) | — | — | ✓ |
 | Google Workspace sign-in (your organisation's OAuth client) | — | — | ✓ |
-| Several mailboxes in one installation | — | — | ✓ |
+| Several mailboxes in one installation | ✓ (set up with the command line) | ✓ (set up with the command line) | ✓ |
 | Own server with a self-signed certificate (pinned) | — | — | ✓ |
 | Needs Node.js on the computer | no | no | yes (20.19+) |
 
@@ -30,7 +30,9 @@ and the Microsoft sign-in has not yet been tested against a real Microsoft 365 t
 3. Enter your email address and your password; Gmail, Yahoo and iCloud need an
    [app password](docs/guide/en/README.md#app-passwords). Leave the server fields empty; they are detected from your
    address. Microsoft 365 and Google Workspace sign-in is not in this form: use the command-line version
-   ([steps](docs/guide/en/README.md#microsoft-365-and-google-workspace)). To change a setting later, open
+   ([steps](docs/guide/en/README.md#microsoft-365-and-google-workspace)). Several mailboxes: set them up with the
+   [command-line version](#command-line-several-mailboxes-own-certificates) and leave the email address empty
+   ([details](docs/guide/en/README.md#several-mailboxes-your-own-mail-server)). To change a setting later, open
    Profile → Settings → Extensions → Inbox Warden → **Configure**, save and start a new chat.
 4. Start a new chat: *"What's new in my inbox?"*
 

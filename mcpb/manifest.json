@@ -4,7 +4,7 @@
   "display_name": "Inbox Warden",
   "version": "0.0.0",
   "description": "Let Claude search, read, sort and draft your email: Gmail, GMX, Web.de, IONOS, iCloud or your own mail server.",
-  "long_description": "Connects Claude to one mailbox over IMAP and SMTP.\n\n**Safe by default:** Claude searches, reads, sorts and writes drafts; you send them. Sending and moving mail to the Trash stay off until you switch them on, and nothing is ever deleted permanently.\n\n**Locked folders** (for example mail under an NDA) are invisible to Claude, with all their subfolders.\n\nGmail, iCloud and Yahoo need an app password. Several mailboxes, Microsoft 365 or Google Workspace sign-in: use the command-line version (see Documentation).",
+  "long_description": "Connects Claude to your mailbox over IMAP and SMTP.\n\n**Safe by default:** Claude searches, reads, sorts and writes drafts; you send them. Sending and moving mail to the Trash stay off until you switch them on, and nothing is ever deleted permanently.\n\n**Locked folders** (for example mail under an NDA) are invisible to Claude, with all their subfolders.\n\nGmail, iCloud and Yahoo need an app password. Several mailboxes, Microsoft 365 or Google Workspace sign-in: set them up once with the command-line version and leave the email address empty (see Documentation).",
   "author": {
     "name": "Max Achleitner",
     "url": "https://github.com/max-achleitner"
@@ -67,9 +67,9 @@
   "user_config": {
     "email": {
       "type": "string",
-      "title": "Email address",
-      "description": "The mailbox Claude may use, e.g. office@your-company.at.",
-      "required": true
+      "title": "Email address (leave empty for mailboxes from setup)",
+      "description": "The mailbox Claude may use, e.g. office@your-company.at. Leave it empty to use every mailbox set up with the command-line version (inbox-warden setup); the password, name and Advanced fields are then not used, and the two switches and the locked folders apply to every mailbox.",
+      "required": false
     },
     "password": {
       "type": "string",

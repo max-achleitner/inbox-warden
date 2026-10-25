@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- The Claude Desktop extension and the Claude Code plugin can use several mailboxes: set them up with the command-line version (`inbox-warden setup`) and leave the email address in the extension's settings empty. The password, name and Advanced fields are then not used, the two switches are an upper limit for every mailbox, and the locked folders apply to every mailbox.
+- `IMAP_MCP_MAX_PERMISSIONS` caps the permissions of every mailbox in a config file: a mailbox keeps a permission only if its own setting and the list both allow it.
+
+### Changed
+- With a config file, `serve` and `serve --http` now also apply `IMAP_MCP_DENY_FOLDERS` (added to every mailbox's locked folders), `IMAP_MCP_ATTACHMENT_DIRS` and `IMAP_MCP_DOWNLOAD_DIR` (replace the file's folders when set). Admin commands still show and save the file as it is.
+- On Windows, the extension reads and writes passwords and sign-ins in the Windows Credential Manager, where the command-line version keeps them. Secrets an older extension stored in `~/.imap-mcp/secrets` are still read.
+
 ## [0.7.0] - 2026-10-22
 
 ### Security

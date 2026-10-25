@@ -22,7 +22,8 @@ reply drafts. You stay in control: you choose what Claude may do, and by default
 2. Open Claude Desktop, click your profile (bottom left) and choose **Settings → Extensions**. Drag the file into
    the field there. Do not double-click it. Claude Desktop shows an install dialog. Click **Install**.
 3. Fill in the form. Only the email address and the password are required:
-   - **Email address**.
+   - **Email address (leave empty for mailboxes from setup)**: your address. Leave it empty only if you set up
+     several mailboxes with the command-line version ([several mailboxes](#several-mailboxes-your-own-mail-server)).
    - **Password (Gmail: app password)** — for Gmail, Yahoo and iCloud an app password (see below).
    - **Your name (optional)** — how recipients see you, e.g. "Maximilian Achleitner".
    - **Claude may send email** (switch, off): turn it on if Claude may send. Claude then asks you before every
@@ -94,8 +95,8 @@ created for your organisation. Personal Gmail accounts use an app password inste
 
 ## Several mailboxes, your own mail server
 
-For several mailboxes in one installation, or a server with a self-signed certificate, install the command-line
-version (needs Node.js 20.19 or newer):
+For several mailboxes in one installation, or a server with a self-signed certificate, set them up once with the
+command-line version (needs Node.js 20.19 or newer):
 
 ```bash
 npm install -g inbox-warden
@@ -104,7 +105,22 @@ inbox-warden setup
 
 The wizard detects your provider, opens the browser for Microsoft 365 and Google Workspace sign-in, tests the
 connection, shows the fingerprint of self-signed certificates for you to confirm, and stores secrets in your
-operating system's keychain. Then add this in Claude Desktop under Settings → Developer → Edit Config:
+operating system's keychain.
+
+**Use them in the Claude Desktop extension or the Claude Code plugin:** open the settings (Profile → Settings →
+Extensions → Inbox Warden → **Configure**; Claude Code: `/plugin` → Installed → Inbox Warden → Configure), leave
+**Email address** empty and save. Claude then uses every mailbox from the setup:
+
+- The password, name and **Advanced** fields are not used.
+- The two switches are an upper limit for every mailbox. Off means off for all of them; on allows what each
+  mailbox's own setting allows (`inbox-warden accounts edit <id> --allow delete`).
+- **Locked folders (comma-separated)** are locked in every mailbox, in addition to the folders locked with
+  `--lock-folder`.
+- The attachment and download folders from the form apply to every mailbox.
+- On a Mac, macOS may ask once whether `security` may use the keychain item "imap-mcp": choose **Always Allow**.
+
+**Without the extension:** add this in Claude Desktop under Settings → Developer → Edit Config, instead of the
+extension (with both, Claude sees every tool twice):
 
 ```json
 { "mcpServers": { "email": { "command": "inbox-warden", "args": ["serve"] } } }
@@ -120,7 +136,9 @@ operating system's keychain. Then add this in Claude Desktop under Settings → 
 | `delete` | move to Trash — nothing is ever deleted permanently; you empty the Trash in your own mail program | off |
 
 In the Claude Desktop extension, `read` and `write` are always on. The two switches **Claude may send email**
-and **Claude may move email to Trash** (both off) add `send` and `delete`.
+and **Claude may move email to Trash** (both off) add `send` and `delete`. With the mailboxes from the setup
+(address left empty), the switches are an upper limit: a mailbox may send or delete only if its own setting and
+the switch both allow it.
 
 With the command-line version, change permissions later with `inbox-warden accounts edit <id> --allow send` or
 `--deny delete`. The same command changes the default mailbox (`--default`), the limit for bulk actions
@@ -147,7 +165,8 @@ that you lock a folder: Claude does not see it or its subfolders, and every atte
 2. Enter the folder, depending on how you installed Inbox Warden:
    - **Claude Desktop extension:** click your profile (bottom left), then **Settings → Extensions → Inbox Warden
      → Configure**. Enter the folder in the field **Locked folders (comma-separated)** and save. If the field is
-     missing, update the extension to the latest version.
+     missing, update the extension to the latest version. With the mailboxes from the setup (address left empty),
+     the field locks the folder in every mailbox; to lock it in one mailbox only, use `--lock-folder` below.
    - **Claude Code plugin:** `/plugin` → **Installed** → **Inbox Warden** → **Configure**, same field.
    - **Command-line version:**
 
@@ -287,6 +306,7 @@ In Claude Desktop, logs are under **Settings → Extensions → Inbox Warden** o
 |---|---|
 | "Authentication failed" | Wrong password or an app password is required (see above). Microsoft 365: use the command-line version (`inbox-warden setup`). |
 | "Inbox Warden is not set up correctly …" | Claude names the problem. Open Settings → Extensions → Inbox Warden → **Configure** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), correct the named field, save, then open a new chat. |
+| "No configuration found at …" | The email address in the extension's settings is empty, so Inbox Warden looks for mailboxes set up with the command-line version and found none. Enter your address and password, or run `inbox-warden setup` ([several mailboxes](#several-mailboxes-your-own-mail-server)). |
 | "Cannot connect to the extension server" | Most often **Advanced: don't look up servers online** is on with an address Inbox Warden does not know: turn it off, or fill in both server fields. 0.7.0 explains the cause in the chat. |
 | "Not signed in yet — ask me to run sign_in" | Command-line version only: tell Claude *"Please sign me in."* or run `inbox-warden accounts login <id>`. Your browser opens. |
 | "No Microsoft application (client) ID is configured …" | Command-line version: enter the OAuth client ID from your administrator in `inbox-warden setup`. |
