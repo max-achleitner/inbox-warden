@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { SecretStoreUnavailableError } from "../keyring-store.js";
+import { KeyringSecretStore, SecretStoreUnavailableError } from "../keyring-store.js";
 import { createKeychainStore } from "../keychain.js";
 import {
   MacSecurityStore,
   SecretToolStore,
+  WindowsCredentialStore,
   WindowsDpapiStore,
   runCommand,
   type CommandResult,
@@ -111,6 +112,126 @@ describe("WindowsDpapiStore", () => {
   }, 30_000);
 });
 
+describe("WindowsCredentialStore", () => {
+  const utf16 = (value: string) => Buffer.from(value, "utf16le").toString("base64");
+  const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "credman-"));
+  /** The script of a call: passed as -EncodedCommand (UTF-16LE base64), so quotes in it survive Windows argument quoting. */
+  const script = (call: Call) => Buffer.from(call.args[3], "base64").toString("utf16le");
+
+  it("reads the generic credential <id>:<key>.imap-mcp via PowerShell and decodes UTF-16LE", async () => {
+    const run = scriptedRun([{ code: 0, stdout: utf16(SECRET) }]);
+    const store = new WindowsCredentialStore(tempDir(), run, "powershell.exe");
+    expect(await store.get("main", "password")).toBe(SECRET);
+    expect(run.calls[0].command).toBe("powershell.exe");
+    expect(run.calls[0].args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    expect(script(run.calls[0])).toContain("CredReadW");
+    expect(run.calls[0].input?.split("\n")[0]).toBe("main:password.imap-mcp");
+  });
+
+  it("writes UTF-16LE with the target and user name @napi-rs/keyring uses, secret only on stdin", async () => {
+    const run = scriptedRun([{ code: 0 }]);
+    const store = new WindowsCredentialStore(tempDir(), run, "powershell.exe");
+    await store.set("main", "password", SECRET);
+    expect(run.calls).toHaveLength(1);
+    expect(script(run.calls[0])).toContain("CredWriteW");
+    expect(script(run.calls[0])).toContain("Persist = 3");
+    expect(run.calls[0].input?.split("\n").slice(0, 3)).toEqual(["main:password.imap-mcp", "main:password", utf16(SECRET)]);
+    const commandLine = run.calls[0].args.join(" ") + script(run.calls[0]);
+    expect(commandLine).not.toContain(utf16(SECRET));
+    expect(commandLine).not.toContain(SECRET);
+  });
+
+  it("maps 'not found' to null and falls back to a legacy DPAPI file", async () => {
+    const dir = tempDir();
+    expect(await new WindowsCredentialStore(dir, scriptedRun([{ code: 3 }]), "powershell.exe").get("main", "password")).toBeNull();
+
+    fs.writeFileSync(path.join(dir, "main.password.dpapi"), "QkxPQg==");
+    const run = scriptedRun([{ code: 3 }, { code: 0, stdout: Buffer.from(SECRET).toString("base64") }]);
+    expect(await new WindowsCredentialStore(dir, run, "powershell.exe").get("main", "password")).toBe(SECRET);
+    expect(run.calls[1].args[3]).toContain("ProtectedData]::Unprotect");
+    expect(run.calls[1].input).toBe("QkxPQg==");
+  });
+
+  it("removes the legacy DPAPI file after writing and deletes both", async () => {
+    const dir = tempDir();
+    const legacy = path.join(dir, "main.password.dpapi");
+    fs.writeFileSync(legacy, "QkxPQg==");
+    const run = scriptedRun([{ code: 0 }, { code: 3 }]);
+    const store = new WindowsCredentialStore(dir, run, "powershell.exe");
+    await store.set("main", "password", SECRET);
+    expect(fs.existsSync(legacy)).toBe(false);
+
+    fs.writeFileSync(legacy, "QkxPQg==");
+    await store.delete("main", "password");
+    expect(script(run.calls[1])).toContain("CredDeleteW");
+    expect(run.calls[1].input?.split("\n")[0]).toBe("main:password.imap-mcp");
+    expect(fs.existsSync(legacy)).toBe(false);
+  });
+
+  it("refuses an odd-length blob and a secret over 1,280 UTF-16 units", async () => {
+    const odd = new WindowsCredentialStore(tempDir(), scriptedRun([{ code: 0, stdout: Buffer.from([0x41]).toString("base64") }]), "powershell.exe");
+    await expect(odd.get("main", "password")).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+
+    const run = scriptedRun([{ code: 0 }]);
+    const store = new WindowsCredentialStore(tempDir(), run, "powershell.exe");
+    await expect(store.set("main", "oauthRefreshToken", "x".repeat(1281))).rejects.toBeInstanceOf(SecretStoreUnavailableError);
+    expect(run.calls).toHaveLength(0);
+    await store.set("main", "oauthRefreshToken", "x".repeat(1280));
+    expect(run.calls).toHaveLength(1);
+  });
+
+  it("reports a blocked PowerShell without quoting the secret", async () => {
+    const stderr = "Cannot invoke method. Method invocation is supported only on core types in this language mode.";
+    const store = new WindowsCredentialStore(tempDir(), scriptedRun([{ code: 1, stderr }, { code: 1, stderr }]), "powershell.exe");
+    await expect(store.get("main", "password")).rejects.toThrow(/language mode/);
+    const failure = await store.set("main", "password", SECRET).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(SecretStoreUnavailableError);
+    expect((failure as Error).message).toContain("language mode");
+    expect((failure as Error).message).not.toContain(SECRET);
+    expect((failure as Error).message).not.toContain(utf16(SECRET));
+  });
+
+  it("writes PowerShell failures as plain text, not as CLIXML (redirected PowerShell serialises its error stream)", async () => {
+    const run = scriptedRun([{ code: 3 }, { code: 0 }, { code: 0 }]);
+    const store = new WindowsCredentialStore(tempDir(), run, "powershell.exe");
+    await store.get("main", "password");
+    await store.set("main", "password", "pw");
+    await store.delete("main", "password");
+    for (const call of run.calls) {
+      expect(script(call)).toContain("$ProgressPreference = 'SilentlyContinue'");
+      expect(script(call)).toMatch(/^try \{\n[\s\S]*\n\} catch \{ \[Console\]::Error\.Write\(\$_\.Exception\.Message\); exit 1 \}$/m);
+    }
+  });
+
+  it("writes in UTF-8, so umlauts in localised Windows messages survive", async () => {
+    const run = scriptedRun([{ code: 3 }]);
+    await new WindowsCredentialStore(tempDir(), run, "powershell.exe").get("main", "password");
+    expect(script(run.calls[0])).toMatch(/^try \{\n\[Console\]::OutputEncoding = \[System\.Text\.UTF8Encoding\]::new\(\$false\)\n/m);
+  });
+
+  it.skipIf(process.platform !== "win32" || process.env.IMAP_MCP_KEYCHAIN_IT !== "1")(
+    "shares entries with @napi-rs/keyring in both directions",
+    async () => {
+      const value = "Dümmy€😀 'q' \"x\"";
+      const id = `iw-it-${Date.now()}`;
+      const keyring = new KeyringSecretStore();
+      const store = new WindowsCredentialStore(tempDir(), runCommand);
+      try {
+        await keyring.set(id, "password", value);
+        expect(await store.get(id, "password")).toBe(value);
+        await store.set(id, "oauthRefreshToken", value);
+        expect(await keyring.get(id, "oauthRefreshToken")).toBe(value);
+        await store.delete(id, "password");
+        expect(await keyring.get(id, "password")).toBeNull();
+      } finally {
+        await keyring.delete(id, "password");
+        await keyring.delete(id, "oauthRefreshToken");
+      }
+    },
+    30_000,
+  );
+});
+
 describe("SecretToolStore", () => {
   it("stores via stdin with the same attributes as @napi-rs/keyring", async () => {
     const run = scriptedRun([{ code: 0 }]);
@@ -158,5 +279,19 @@ describe("createKeychainStore", () => {
     });
     expect(await store.get("main", "password")).toBe("from-security");
     expect(run.calls[0].command).toBe("/usr/bin/security");
+  });
+
+  it("reads the Windows Credential Manager, where the command-line version stores secrets, without the native module", async () => {
+    const run = scriptedRun([{ code: 0, stdout: Buffer.from("from-credman", "utf16le").toString("base64") }]);
+    const store = createKeychainStore({
+      platform: "win32",
+      secretsDir: fs.mkdtempSync(path.join(os.tmpdir(), "credman-")),
+      loadKeyring: async () => {
+        throw new SecretStoreUnavailableError("native module could not be loaded");
+      },
+      run,
+    });
+    expect(await store.get("main", "password")).toBe("from-credman");
+    expect(Buffer.from(run.calls[0].args[3], "base64").toString("utf16le")).toContain("CredReadW");
   });
 });

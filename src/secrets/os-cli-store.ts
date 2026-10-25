@@ -144,6 +144,156 @@ export class WindowsDpapiStore implements SecretStore {
   }
 }
 
+// Generic credentials exactly as @napi-rs/keyring writes them on Windows: target "<account>.<service>",
+// user name "<account>", the secret as UTF-16LE, Persist 3 (CRED_PERSIST_ENTERPRISE). Status codes:
+// 0 done, 1168 not found, anything else a Win32 error.
+const CREDENTIAL_TYPE = `
+using System;
+using System.Runtime.InteropServices;
+public static class InboxWardenCredential {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct CREDENTIAL {
+    public uint Flags; public uint Type; public string TargetName; public string Comment;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+    public uint CredentialBlobSize; public IntPtr CredentialBlob; public uint Persist;
+    public uint AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName;
+  }
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool CredReadW(string target, uint type, uint flags, out IntPtr credential);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool CredWriteW(ref CREDENTIAL credential, uint flags);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool CredDeleteW(string target, uint type, uint flags);
+  [DllImport("advapi32.dll")]
+  static extern void CredFree(IntPtr credential);
+
+  public static int Read(string target, out string blob) {
+    blob = null;
+    IntPtr found;
+    if (!CredReadW(target, 1, 0, out found)) return Marshal.GetLastWin32Error();
+    try {
+      CREDENTIAL c = (CREDENTIAL)Marshal.PtrToStructure(found, typeof(CREDENTIAL));
+      byte[] bytes = new byte[c.CredentialBlobSize];
+      if (bytes.Length > 0) Marshal.Copy(c.CredentialBlob, bytes, 0, bytes.Length);
+      blob = Convert.ToBase64String(bytes);
+      Array.Clear(bytes, 0, bytes.Length);
+      return 0;
+    } finally { CredFree(found); }
+  }
+
+  public static int Write(string target, string user, string blob) {
+    byte[] bytes = Convert.FromBase64String(blob);
+    CREDENTIAL c = new CREDENTIAL();
+    c.Type = 1;
+    c.Persist = 3;
+    c.TargetName = target;
+    c.UserName = user;
+    c.CredentialBlobSize = (uint)bytes.Length;
+    c.CredentialBlob = Marshal.AllocHGlobal(Math.Max(bytes.Length, 1));
+    try {
+      Marshal.Copy(bytes, 0, c.CredentialBlob, bytes.Length);
+      return CredWriteW(ref c, 0) ? 0 : Marshal.GetLastWin32Error();
+    } finally {
+      for (int i = 0; i < bytes.Length; i++) Marshal.WriteByte(c.CredentialBlob, i, 0);
+      Marshal.FreeHGlobal(c.CredentialBlob);
+      Array.Clear(bytes, 0, bytes.Length);
+    }
+  }
+
+  public static int Delete(string target) {
+    return CredDeleteW(target, 1, 0) ? 0 : Marshal.GetLastWin32Error();
+  }
+}`;
+
+/**
+ * One script per operation; its stdin lines are the target (then user name and base64 blob for
+ * writing). With redirected streams PowerShell writes its own errors as CLIXML, so every failure
+ * (e.g. Add-Type refused in Constrained Language Mode) is caught and written as plain text.
+ */
+function credentialScript(call: string): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    "try {",
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    `Add-Type -TypeDefinition '${CREDENTIAL_TYPE}'`,
+    "$l = @([Console]::In.ReadToEnd().Split([char]10) | ForEach-Object { $_.Trim() })",
+    call,
+    "} catch { [Console]::Error.Write($_.Exception.Message); exit 1 }",
+    "if ($r -eq 0) { exit 0 }",
+    "if ($r -eq 1168) { exit 3 }",
+    "[Console]::Error.Write('Win32 error ' + $r)",
+    "exit 1",
+  ].join("\n");
+}
+
+const READ_CREDENTIAL = credentialScript(
+  "$blob = $null; $r = [InboxWardenCredential]::Read($l[0], [ref]$blob); if ($r -eq 0) { [Console]::Out.Write($blob) }",
+);
+const WRITE_CREDENTIAL = credentialScript("$r = [InboxWardenCredential]::Write($l[0], $l[1], $l[2])");
+const DELETE_CREDENTIAL = credentialScript("$r = [InboxWardenCredential]::Delete($l[0])");
+const CREDENTIAL_NOT_FOUND = 3;
+/** CRED_MAX_CREDENTIAL_BLOB_SIZE (5 × 512 bytes): 1,280 UTF-16 code units. */
+const MAX_CREDENTIAL_BLOB_BYTES = 2560;
+
+/**
+ * Windows Credential Manager through PowerShell, for the MCPB bundle (no native modules): the same
+ * entries @napi-rs/keyring reads and writes, so the bundle sees what `setup` stored. Secrets and
+ * target names travel on stdin; the script goes as -EncodedCommand, which no argument quoting can
+ * break. DPAPI files of older bundles are still read, and removed once the secret is written here.
+ */
+export class WindowsCredentialStore implements SecretStore {
+  private readonly legacy: WindowsDpapiStore;
+
+  constructor(
+    secretsDir: string,
+    private readonly run: RunCommand = runCommand,
+    private readonly powershell: string = POWERSHELL,
+  ) {
+    this.legacy = new WindowsDpapiStore(secretsDir, run, powershell);
+  }
+
+  /** The finished command, or null when the credential does not exist. */
+  private async credential(script: string, lines: string[], what: string): Promise<CommandResult | null> {
+    const encoded = Buffer.from(script, "utf16le").toString("base64");
+    const result = await this.run(this.powershell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], `${lines.join("\n")}\n`);
+    if (result.code === CREDENTIAL_NOT_FOUND) return null;
+    if (result.code !== 0) throw unavailable(what, result);
+    return result;
+  }
+
+  async get(accountId: string, key: SecretKey): Promise<string | null> {
+    const found = await this.credential(READ_CREDENTIAL, [credentialTarget(accountId, key)], "Reading the Windows Credential Manager");
+    if (found === null) return this.legacy.get(accountId, key);
+    const blob = Buffer.from(found.stdout.trim(), "base64");
+    if (blob.length % 2 !== 0) {
+      throw new SecretStoreUnavailableError("Reading the Windows Credential Manager failed: the stored value is not UTF-16 text.");
+    }
+    return blob.toString("utf16le");
+  }
+
+  async set(accountId: string, key: SecretKey, value: string): Promise<void> {
+    const blob = Buffer.from(value, "utf16le");
+    if (blob.length > MAX_CREDENTIAL_BLOB_BYTES) {
+      throw new SecretStoreUnavailableError(
+        `the secret is longer than the Windows Credential Manager allows (${MAX_CREDENTIAL_BLOB_BYTES / 2} characters); nothing was saved`,
+      );
+    }
+    const lines = [credentialTarget(accountId, key), keychainAccount(accountId, key), blob.toString("base64")];
+    await this.credential(WRITE_CREDENTIAL, lines, "Saving to the Windows Credential Manager");
+    await this.legacy.delete(accountId, key);
+  }
+
+  async delete(accountId: string, key: SecretKey): Promise<void> {
+    await this.credential(DELETE_CREDENTIAL, [credentialTarget(accountId, key)], "Deleting from the Windows Credential Manager");
+    await this.legacy.delete(accountId, key);
+  }
+}
+
+function credentialTarget(accountId: string, key: SecretKey): string {
+  return `${keychainAccount(accountId, key)}.${KEYCHAIN_SERVICE}`;
+}
+
 /**
  * Linux Secret Service via `secret-tool` (package libsecret-tools). Attributes service/username
  * match @napi-rs/keyring, so both backends see the same entries. The secret goes in on stdin.
@@ -183,6 +333,6 @@ export class SecretToolStore implements SecretStore {
 
 export function createCliSecretStore(opts: { platform: NodeJS.Platform; secretsDir: string; run?: RunCommand }): SecretStore {
   if (opts.platform === "darwin") return new MacSecurityStore(opts.run);
-  if (opts.platform === "win32") return new WindowsDpapiStore(opts.secretsDir, opts.run);
+  if (opts.platform === "win32") return new WindowsCredentialStore(opts.secretsDir, opts.run);
   return new SecretToolStore(opts.run);
 }
