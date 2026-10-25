@@ -71,6 +71,12 @@ describe("setup-problem server", () => {
     expect(text).toContain("Reconnect");
   });
 
+  it("also points to the form field a setup-mode problem names, e.g. quoted locked folders", async () => {
+    const client = await connect("Locked folders (IMAP_MCP_DENY_FOLDERS): [\"_NDA_Inbox\"] contains quotation marks.", { IMAP_MCP_FORM: "setup" });
+    const text = ((await client.callTool({ name: "health_check", arguments: {} })).content as Array<{ text: string }>)[0]!.text;
+    expect(text).toContain("If the problem names a field of the settings, correct that field");
+  });
+
   it("never repeats a secret", () => {
     const problem = startupProblem({ IMAP_MCP_PASSWORD: "hunter2", IMAP_MCP_EMAIL: "a@gmail.com", IMAP_MCP_IMAP_PORT: "99999" });
     expect(problem).toContain("IMAP port");
