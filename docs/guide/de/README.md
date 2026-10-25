@@ -72,7 +72,8 @@ Details zu allen Anbietern: [Anbieterhinweise](../providers.md).
 *Die Unterstützung für Microsoft 365 ist eine Vorschau: Sie wurde noch nicht mit einem echten Microsoft-365-Mandanten getestet.*
 
 Microsoft 365 erlaubt keine Anmeldung mit Passwort mehr; Sie melden sich im Browser an. Die Claude-Desktop-Erweiterung
-bietet diese Anmeldung nicht an. Verwenden Sie die Kommandozeilen-Version (benötigt Node.js 20.19 oder neuer):
+bietet diese Anmeldung im Formular nicht an. Richten Sie sie mit der Kommandozeilen-Version ein (benötigt Node.js 20.19 oder
+neuer):
 
 1. Installieren Sie sie und starten Sie den Assistenten:
 
@@ -125,8 +126,8 @@ Postfächer:
 - **Locked folders (comma-separated)** sind in jedem Postfach gesperrt, zusätzlich zu den mit `--lock-folder`
   gesperrten Ordnern.
 - Anhang- und Download-Ordner aus dem Formular gelten für alle Postfächer.
-- Am Mac fragt macOS eventuell einmal, ob `security` den Schlüsselbund-Eintrag „imap-mcp“ verwenden darf: wählen
-  Sie **Immer erlauben**.
+- Am Mac fragt macOS eventuell einmal pro Postfach, ob `security` den Schlüsselbund-Eintrag „imap-mcp“ verwenden
+  darf: wählen Sie **Immer erlauben**.
 
 **Ohne Erweiterung:** Tragen Sie in Claude Desktop unter Einstellungen → Entwickler → Konfiguration bearbeiten
 Folgendes ein, statt der Erweiterung (mit beiden sieht Claude jedes Werkzeug doppelt):
@@ -326,9 +327,10 @@ In Claude Desktop finden Sie die Protokolle unter **Einstellungen → Erweiterun
 |---|---|
 | „Authentication failed“ / „Anmeldung fehlgeschlagen“ | Passwort falsch oder App-Passwort nötig (siehe oben). Microsoft 365: die Kommandozeilen-Version verwenden (`inbox-warden setup`). |
 | „Inbox Warden is not set up correctly …“ | Claude nennt das Problem. Öffnen Sie Einstellungen → Erweiterungen → Inbox Warden → **Konfigurieren** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), korrigieren Sie das genannte Feld, speichern Sie und öffnen Sie einen neuen Chat. |
+| „The operating system's credential store could not be used (… Windows Credential Manager …)“ | Die Erweiterung kann die Passwörter der eingerichteten Postfächer nicht lesen, z. B. weil Ihre Organisation PowerShell einschränkt. Tragen Sie Adresse und Passwort eines Postfachs in den Einstellungen der Erweiterung ein oder verwenden Sie die Kommandozeilen-Version ohne Erweiterung ([mehrere Postfächer](#mehrere-postfächer-eigener-mailserver)). |
 | „No configuration found at …“ | Die E-Mail-Adresse in den Einstellungen der Erweiterung ist leer, deshalb sucht Inbox Warden mit der Kommandozeilen-Version eingerichtete Postfächer und findet keine. Tragen Sie Adresse und Passwort ein oder führen Sie `inbox-warden setup` aus ([mehrere Postfächer](#mehrere-postfächer-eigener-mailserver)). |
 | „Cannot connect to the extension server“ | Meist ist **Advanced: don't look up servers online** eingeschaltet, obwohl Inbox Warden die Adresse nicht kennt: ausschalten oder beide Serverfelder ausfüllen. Ab 0.7.0 erklärt Claude die Ursache im Chat. |
-| „Not signed in yet — ask me to run sign_in“ | Nur Kommandozeilen-Version: Claude schreiben *„Bitte melde mich an.“* oder `inbox-warden accounts login <id>` ausführen. Der Browser öffnet sich. |
+| „Not signed in yet — ask me to run sign_in“ | Kommandozeilen-Version oder Erweiterung mit den eingerichteten Postfächern: Claude schreiben *„Bitte melde mich an.“* oder `inbox-warden accounts login <id>` ausführen. Der Browser öffnet sich. |
 | „No Microsoft application (client) ID is configured …“ | Kommandozeilen-Version: die OAuth client ID von Ihrem Administrator in `inbox-warden setup` eintragen. |
 | „Microsoft 365 has SMTP sending disabled for this mailbox …“ | Ihr Administrator muss „Authentifiziertes SMTP“ aktivieren ([Anbieterhinweise](../providers.md)). |
 | „needs Node.js 20 or newer“ | Claude Desktop aktualisieren. |

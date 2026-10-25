@@ -66,7 +66,7 @@ Details for every provider: [provider notes](../providers.md).
 *Microsoft 365 support is a preview: it has not yet been tested against a real Microsoft 365 tenant.*
 
 Microsoft 365 no longer accepts passwords from mail programs; you sign in in your browser. The Claude Desktop
-extension does not offer this sign-in. Use the command-line version (needs Node.js 20.19 or newer):
+extension's form does not offer this sign-in. Set it up with the command-line version (needs Node.js 20.19 or newer):
 
 1. Install it and start the wizard:
 
@@ -117,7 +117,8 @@ Extensions → Inbox Warden → **Configure**; Claude Code: `/plugin` → Instal
 - **Locked folders (comma-separated)** are locked in every mailbox, in addition to the folders locked with
   `--lock-folder`.
 - The attachment and download folders from the form apply to every mailbox.
-- On a Mac, macOS may ask once whether `security` may use the keychain item "imap-mcp": choose **Always Allow**.
+- On a Mac, macOS may ask once per mailbox whether `security` may use the keychain item "imap-mcp": choose
+  **Always Allow**.
 
 **Without the extension:** add this in Claude Desktop under Settings → Developer → Edit Config, instead of the
 extension (with both, Claude sees every tool twice):
@@ -306,9 +307,10 @@ In Claude Desktop, logs are under **Settings → Extensions → Inbox Warden** o
 |---|---|
 | "Authentication failed" | Wrong password or an app password is required (see above). Microsoft 365: use the command-line version (`inbox-warden setup`). |
 | "Inbox Warden is not set up correctly …" | Claude names the problem. Open Settings → Extensions → Inbox Warden → **Configure** (Claude Code: `/plugin` → Installed → Inbox Warden → Configure), correct the named field, save, then open a new chat. |
+| "The operating system's credential store could not be used (… Windows Credential Manager …)" | The extension cannot read the passwords of the mailboxes from the setup, e.g. because your organisation restricts PowerShell. Enter the address and password of one mailbox in the extension's settings, or use the command-line version without the extension ([several mailboxes](#several-mailboxes-your-own-mail-server)). |
 | "No configuration found at …" | The email address in the extension's settings is empty, so Inbox Warden looks for mailboxes set up with the command-line version and found none. Enter your address and password, or run `inbox-warden setup` ([several mailboxes](#several-mailboxes-your-own-mail-server)). |
 | "Cannot connect to the extension server" | Most often **Advanced: don't look up servers online** is on with an address Inbox Warden does not know: turn it off, or fill in both server fields. 0.7.0 explains the cause in the chat. |
-| "Not signed in yet — ask me to run sign_in" | Command-line version only: tell Claude *"Please sign me in."* or run `inbox-warden accounts login <id>`. Your browser opens. |
+| "Not signed in yet — ask me to run sign_in" | Command-line version, or the extension with the mailboxes from the setup: tell Claude *"Please sign me in."* or run `inbox-warden accounts login <id>`. Your browser opens. |
 | "No Microsoft application (client) ID is configured …" | Command-line version: enter the OAuth client ID from your administrator in `inbox-warden setup`. |
 | "Microsoft 365 has SMTP sending disabled for this mailbox …" | Your administrator must enable Authenticated SMTP ([provider notes](../providers.md)). |
 | "needs Node.js 20 or newer" | Update Claude Desktop. |

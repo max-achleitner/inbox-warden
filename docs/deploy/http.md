@@ -67,7 +67,7 @@ The image's entry point is `node dist/bin.js`, so `docker compose run --rm mcp <
 "files": { "attachmentDirs": ["/files/angebote"], "downloadDir": "/files/eingang" }
 ```
 
-`save_attachment` stays available in remote mode (write tier): it writes into the mounted download folder **on the server**, not onto the caller's computer, with the same sandbox rules as locally (no path traversal, blocked executable and macro types, no overwriting). The container runs as uid 65532, so give that user write access: `sudo chown 65532:65532 /srv/firma/eingang`. In env-only mode use `IMAP_MCP_ATTACHMENT_DIRS` and `IMAP_MCP_DOWNLOAD_DIR`.
+`save_attachment` stays available in remote mode (write tier): it writes into the mounted download folder **on the server**, not onto the caller's computer, with the same sandbox rules as locally (no path traversal, blocked executable and macro types, no overwriting). The container runs as uid 65532, so give that user write access: `sudo chown 65532:65532 /srv/firma/eingang`. You can also set `IMAP_MCP_ATTACHMENT_DIRS` and `IMAP_MCP_DOWNLOAD_DIR`; with a config file they replace its `files` folders. `IMAP_MCP_MAX_PERMISSIONS` (e.g. `read,write`) caps the permissions of every mailbox, and `IMAP_MCP_DENY_FOLDERS` adds locked folders to every mailbox.
 
 Keep the download folder outside the attachment folders when tokens or users are limited to different mailboxes: otherwise an attachment saved from one mailbox can be attached to mail sent from another. `serve --http` warns about this overlap.
 
