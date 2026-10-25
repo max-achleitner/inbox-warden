@@ -1,5 +1,5 @@
 import { setupAudit } from "../audit/setup.js";
-import { loadConfig } from "../config/load.js";
+import { loadServeConfig } from "../config/load.js";
 import { createAppContext } from "../context.js";
 import * as log from "../logging/logger.js";
 import { withDetectedEndpoints } from "../onboarding/autoconfig.js";
@@ -31,7 +31,7 @@ export async function startServeHttp(argv: string[], env: NodeJS.ProcessEnv = pr
   const secrets = createRuntimeSecretStore(env);
   // Env-only accounts only carry address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 limits it to the built-in provider table).
   const configEnv = await withDetectedEndpoints(env);
-  const config = await loadConfig(configEnv, { secrets });
+  const config = await loadServeConfig(configEnv, { secrets });
   const http = resolveHttpConfig(config, env, parseFlags(argv));
   const runtime = buildHttpRuntime(config, http, { secrets, createAppContext, createServer: createRemoteServer });
 

@@ -48,11 +48,11 @@ function parseConfig(raw: unknown, source: string): AppConfig {
 
 const TIERS: PermissionTier[] = ["read", "write", "send", "delete"];
 
-function parsePermissions(value: string | undefined): Record<PermissionTier, boolean> {
+function parsePermissions(value: string | undefined, variable = "IMAP_MCP_PERMISSIONS"): Record<PermissionTier, boolean> {
   const listed = (value ?? "read,write").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   for (const item of listed) {
     if (!TIERS.includes(item as PermissionTier)) {
-      throw new ConfigError(`IMAP_MCP_PERMISSIONS contains "${item}". Allowed: ${TIERS.join(", ")}.`);
+      throw new ConfigError(`${variable} contains "${item}". Allowed: ${TIERS.join(", ")}.`);
     }
   }
   return { read: listed.includes("read"), write: listed.includes("write"), send: listed.includes("send"), delete: listed.includes("delete") };
@@ -103,6 +103,49 @@ export function denyFoldersFromEnv(env: NodeJS.ProcessEnv): string[] {
   const checked = FolderPolicySchema.safeParse({ deny });
   if (!checked.success) throw problem(`${checked.error.issues.map((issue) => issue.message).join("; ")}.`);
   return checked.data.deny;
+}
+
+/**
+ * Limits from the environment for a config file: the extension's form when its address is left
+ * empty, or a container. IMAP_MCP_MAX_PERMISSIONS caps every account (a tier stays on only if both
+ * allow it), IMAP_MCP_DENY_FOLDERS is added to every account's locked folders, and attachment or
+ * download folders that are set replace the file's. Permissions and locks only ever get stricter.
+ */
+export function applyEnvLimits(config: AppConfig, env: NodeJS.ProcessEnv): AppConfig {
+  const maxValue = nonEmpty(env.IMAP_MCP_MAX_PERMISSIONS);
+  const max = maxValue === undefined ? undefined : parsePermissions(maxValue, "IMAP_MCP_MAX_PERMISSIONS");
+  const deny = denyFoldersFromEnv(env);
+  return {
+    ...config,
+    files: { ...config.files, ...filesFromEnv(env) },
+    accounts: config.accounts.map((account) => ({
+      ...account,
+      permissions: max
+        ? (Object.fromEntries(TIERS.map((tier) => [tier, account.permissions[tier] && max[tier]])) as Record<PermissionTier, boolean>)
+        : account.permissions,
+      policy:
+        deny.length === 0
+          ? account.policy
+          : { ...account.policy, folders: { ...account.policy.folders, deny: [...new Set([...account.policy.folders.deny, ...deny])] } },
+    })),
+  };
+}
+
+/**
+ * The configuration a server runs with: loadConfig plus the environment limits for a config file.
+ * Admin commands use loadConfig, because they save the file again and must not write the limits into it.
+ */
+export async function loadServeConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: Parameters<typeof loadConfig>[1] = {},
+): Promise<AppConfig> {
+  const config = await loadConfig(env, opts);
+  return envOnly(env) ? config : applyEnvLimits(config, env);
+}
+
+/** Without IMAP_MCP_CONFIG, IMAP_MCP_EMAIL selects the environment-only single account. */
+function envOnly(env: NodeJS.ProcessEnv): boolean {
+  return !nonEmpty(env.IMAP_MCP_CONFIG) && nonEmpty(env.IMAP_MCP_EMAIL) !== undefined;
 }
 
 /** Single-account configuration from IMAP_MCP_* variables (Claude Desktop bundles, containers). */
@@ -222,7 +265,7 @@ export async function loadConfig(
   opts: { secrets?: SecretStore; legacyKeytar?: () => Promise<KeytarReader | null> } = {},
 ): Promise<AppConfig> {
   const explicit = nonEmpty(env.IMAP_MCP_CONFIG);
-  if (!explicit && nonEmpty(env.IMAP_MCP_EMAIL)) return configFromEnv(env);
+  if (envOnly(env)) return configFromEnv(env);
 
   const dir = configDir(env);
   const file = configFilePath(env);

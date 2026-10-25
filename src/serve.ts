@@ -1,5 +1,5 @@
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { loadConfig } from "./config/load.js";
+import { loadServeConfig } from "./config/load.js";
 import { withDetectedEndpoints } from "./onboarding/autoconfig.js";
 import { createAppContext } from "./context.js";
 import { setupAudit } from "./audit/setup.js";
@@ -20,13 +20,13 @@ export async function serve(args: string[] = []): Promise<void> {
   }
   log.initLogger();
 
-  let config: Awaited<ReturnType<typeof loadConfig>>;
+  let config: Awaited<ReturnType<typeof loadServeConfig>>;
   let app: ReturnType<typeof createAppContext>;
   try {
     const secrets = createRuntimeSecretStore(process.env);
     // Bundle users only enter address and password; hosts come from autodetection (IMAP_MCP_NO_AUTOCONFIG=1 limits it to the built-in provider table).
     const env = await withDetectedEndpoints(process.env);
-    config = await loadConfig(env, { secrets });
+    config = await loadServeConfig(env, { secrets });
     app = createAppContext(config, secrets);
     setupAudit(app); // fails closed: a server that cannot write its audit trail does not start
   } catch (err) {

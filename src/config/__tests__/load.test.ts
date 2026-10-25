@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ConfigError, configFromEnv, loadConfig, saveConfig } from "../load.js";
+import { ConfigError, applyEnvLimits, configFromEnv, loadConfig, loadServeConfig, saveConfig } from "../load.js";
+import { ConfigSchema } from "../schema.js";
 import type { SecretKey, SecretStore } from "../../secrets/store.js";
 
 class MemorySecrets implements SecretStore {
@@ -241,6 +242,75 @@ describe("loadConfig", () => {
     it("is applied by loadConfig in environment-only mode", async () => {
       const config = await loadConfig({ ...env, ...base, IMAP_MCP_DENY_FOLDERS: "_NDA_Inbox" });
       expect(config.accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox"]);
+    });
+  });
+
+  describe("limits from the environment for a config file", () => {
+    const twoAccounts = () =>
+      ConfigSchema.parse({
+        version: 2,
+        files: { attachmentDirs: ["/file/attach"], downloadDir: "/file/down" },
+        accounts: [
+          {
+            id: "a",
+            email: "a@example.com",
+            imap: { host: "imap.example.com", port: 993 },
+            permissions: { read: true, write: true, send: false, delete: true },
+            policy: { folders: { deny: ["_NDA_Inbox"] } },
+          },
+          {
+            id: "b",
+            email: "b@example.com",
+            imap: { host: "imap.example.com", port: 993 },
+            permissions: { read: true, write: true, send: true, delete: false },
+          },
+        ],
+      });
+
+    it("caps every account's permissions by IMAP_MCP_MAX_PERMISSIONS", () => {
+      const config = applyEnvLimits(twoAccounts(), { IMAP_MCP_MAX_PERMISSIONS: "read,write,delete" });
+      expect(config.accounts[0].permissions).toEqual({ read: true, write: true, send: false, delete: true });
+      expect(config.accounts[1].permissions).toEqual({ read: true, write: true, send: false, delete: false });
+    });
+
+    it("adds IMAP_MCP_DENY_FOLDERS to every account, after the file's own locks, without duplicates", () => {
+      const config = applyEnvLimits(twoAccounts(), { IMAP_MCP_DENY_FOLDERS: "_NDA_Inbox, Privat" });
+      expect(config.accounts[0].policy.folders.deny).toEqual(["_NDA_Inbox", "Privat"]);
+      expect(config.accounts[1].policy.folders.deny).toEqual(["_NDA_Inbox", "Privat"]);
+    });
+
+    it("lets set attachment and download folders replace the file's and keeps the file's otherwise", () => {
+      const both = applyEnvLimits(twoAccounts(), { IMAP_MCP_ATTACHMENT_DIRS: ["/form/a", "/form/b"].join(path.delimiter), IMAP_MCP_DOWNLOAD_DIR: "/form/down" });
+      expect(both.files).toMatchObject({ attachmentDirs: ["/form/a", "/form/b"], downloadDir: "/form/down" });
+      const onlyDownload = applyEnvLimits(twoAccounts(), { IMAP_MCP_DOWNLOAD_DIR: "/form/down" });
+      expect(onlyDownload.files).toMatchObject({ attachmentDirs: ["/file/attach"], downloadDir: "/form/down" });
+    });
+
+    it("changes nothing when none of the variables is set, and never changes its input", () => {
+      const original = twoAccounts();
+      expect(applyEnvLimits(original, {})).toEqual(twoAccounts());
+      applyEnvLimits(original, { IMAP_MCP_MAX_PERMISSIONS: "read", IMAP_MCP_DENY_FOLDERS: "X", IMAP_MCP_DOWNLOAD_DIR: "/d" });
+      expect(original).toEqual(twoAccounts());
+    });
+
+    it("rejects an unknown permission in IMAP_MCP_MAX_PERMISSIONS and names the variable", () => {
+      expect(() => applyEnvLimits(twoAccounts(), { IMAP_MCP_MAX_PERMISSIONS: "read,admin" })).toThrow(ConfigError);
+      expect(() => applyEnvLimits(twoAccounts(), { IMAP_MCP_MAX_PERMISSIONS: "read,admin" })).toThrow(/IMAP_MCP_MAX_PERMISSIONS.*admin/);
+    });
+
+    it("is applied by loadServeConfig, not by loadConfig, which admin commands use to edit and save the file", async () => {
+      await saveConfig(twoAccounts(), env);
+      const limits = { ...env, IMAP_MCP_MAX_PERMISSIONS: "read,write", IMAP_MCP_DENY_FOLDERS: "Privat" };
+      const served = await loadServeConfig(limits);
+      expect(served.accounts.map((a) => a.permissions.delete || a.permissions.send)).toEqual([false, false]);
+      expect(served.accounts[1].policy.folders.deny).toEqual(["Privat"]);
+      expect(await loadConfig(limits)).toEqual(twoAccounts());
+    });
+
+    it("leaves environment-only mode to configFromEnv", async () => {
+      const config = await loadServeConfig({ ...env, IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com", IMAP_MCP_DENY_FOLDERS: "X", IMAP_MCP_MAX_PERMISSIONS: "read" });
+      expect(config.accounts[0].policy.folders.deny).toEqual(["X"]);
+      expect(config.accounts[0].permissions).toMatchObject({ read: true, write: true });
     });
   });
 

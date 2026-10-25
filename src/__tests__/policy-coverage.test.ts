@@ -138,3 +138,15 @@ describe("policy coverage of tool sources", () => {
     });
   });
 });
+
+describe("server start-up", () => {
+  const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+  it("both servers load their configuration with loadServeConfig, so the form's limits apply", () => {
+    for (const file of ["serve.ts", "cli/serve-http.ts"]) {
+      const source = fs.readFileSync(path.join(SRC, file), "utf8");
+      expect(source, file).toMatch(/\bloadServeConfig\(/);
+      expect(source, file).not.toMatch(/\bloadConfig\(/);
+    }
+  });
+});
