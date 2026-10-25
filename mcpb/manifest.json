@@ -68,7 +68,7 @@
     "email": {
       "type": "string",
       "title": "Email address (leave empty for mailboxes from setup)",
-      "description": "The mailbox Claude may use, e.g. office@your-company.at. Leave it empty to use every mailbox set up with the command-line version (inbox-warden setup); the password, name and Advanced fields are then not used, and the two switches and the locked folders apply to every mailbox.",
+      "description": "The mailbox Claude may use, e.g. office@your-company.at. Leave it empty to use every mailbox set up with the command-line version (inbox-warden setup); the password, name and Advanced fields are then not used, the two switches set the most Claude may do in any mailbox (each mailbox's own setting still applies), and the locked folders are locked in every mailbox.",
       "required": false
     },
     "password": {

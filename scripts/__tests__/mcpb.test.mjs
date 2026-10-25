@@ -60,7 +60,7 @@ describe("mcpb/manifest.json", () => {
   it("leaves the address optional: empty means the mailboxes set up with the command-line version", () => {
     expect(template.user_config.email).toMatchObject({ type: "string", required: false });
     expect(template.user_config.email.default).toBeUndefined();
-    expect(template.user_config.email.description).toMatch(/[Ll]eave it empty.*inbox-warden setup.*switches.*locked folders apply to every mailbox/s);
+    expect(template.user_config.email.description).toMatch(/[Ll]eave it empty.*inbox-warden setup.*switches set the most Claude may do in any mailbox.*own setting.*locked in every mailbox/s);
     expect(template.long_description).toMatch(/[Ss]everal mailboxes.*leave the email address empty/s);
   });
 
