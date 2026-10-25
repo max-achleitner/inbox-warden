@@ -3,9 +3,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { BundleConfigError, applyBundleArgs, applyBundleEnv } from "../bundle-env.js";
-import { loadConfig } from "../load.js";
-import { createSecretStore } from "../../secrets/store.js";
+import { loadConfig, loadServeConfig, saveConfig } from "../load.js";
+import { ConfigSchema } from "../schema.js";
+import { MemorySecretStore } from "../../secrets/memory-store.js";
+import { ChainSecretStore, EnvSecretStore, createSecretStore } from "../../secrets/store.js";
 import { detectProvider, withDetectedEndpoints, type TextFetch } from "../../onboarding/autoconfig.js";
+
+/** A form with an address and a password: the form's own mailbox. */
+const FORM_MAILBOX = { IMAP_MCP_EMAIL: "max@firma.example", IMAP_MCP_PASSWORD: "app-password" };
 
 describe("applyBundleEnv", () => {
   it("drops unresolved MCPB placeholders and empty values", () => {
@@ -94,25 +99,25 @@ describe("applyBundleEnv", () => {
     expect(mixed).toEqual({ IMAP_MCP_NO_AUTOCONFIG: "1" });
   });
 
-  it("maps the two switches onto permissions", () => {
-    const sendOnly: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "true", IMAP_MCP_ALLOW_DELETE: "false" };
+  it("maps the two switches onto the form mailbox's permissions", () => {
+    const sendOnly: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_ALLOW_SEND: "true", IMAP_MCP_ALLOW_DELETE: "false" };
     applyBundleEnv(sendOnly);
-    expect(sendOnly).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,send" });
-    const none: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "false", IMAP_MCP_ALLOW_DELETE: "False" };
+    expect(sendOnly).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read,write,send" });
+    const none: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_ALLOW_SEND: "false", IMAP_MCP_ALLOW_DELETE: "False" };
     applyBundleEnv(none);
-    expect(none).toEqual({ IMAP_MCP_PERMISSIONS: "read,write" });
-    const del: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_DELETE: "1" };
+    expect(none).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read,write" });
+    const del: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_ALLOW_DELETE: "1" };
     applyBundleEnv(del);
-    expect(del).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,delete" });
-    const both: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "TRUE", IMAP_MCP_ALLOW_DELETE: "1" };
+    expect(del).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read,write,delete" });
+    const both: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_ALLOW_SEND: "TRUE", IMAP_MCP_ALLOW_DELETE: "1" };
     applyBundleEnv(both);
-    expect(both).toEqual({ IMAP_MCP_PERMISSIONS: "read,write,send,delete" });
+    expect(both).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read,write,send,delete" });
   });
 
   it("treats an unexpanded switch as off", () => {
-    const env: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "${user_config.allow_send}" };
+    const env: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_ALLOW_SEND: "${user_config.allow_send}" };
     applyBundleEnv(env);
-    expect(env).toEqual({ IMAP_MCP_PERMISSIONS: "read,write" });
+    expect(env).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read,write" });
   });
 
   it("refuses a switch value that is neither on nor off", () => {
@@ -125,9 +130,9 @@ describe("applyBundleEnv", () => {
   });
 
   it("lets explicit permissions win over the switches", () => {
-    const env: NodeJS.ProcessEnv = { IMAP_MCP_PERMISSIONS: "read", IMAP_MCP_ALLOW_SEND: "true" };
+    const env: NodeJS.ProcessEnv = { ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read", IMAP_MCP_ALLOW_SEND: "true" };
     applyBundleEnv(env);
-    expect(env).toEqual({ IMAP_MCP_PERMISSIONS: "read" });
+    expect(env).toEqual({ ...FORM_MAILBOX, IMAP_MCP_PERMISSIONS: "read" });
   });
 
   it.each([
@@ -312,5 +317,71 @@ describe("Claude Desktop form → env-only config (contract with Plans 2 and 4)"
       smtp: { host: "smtp.office365.com", port: 587 },
     });
     expect(account.policy.folders.deny).toEqual([]);
+  });
+});
+
+describe("setup mailboxes: the form's address left empty", () => {
+  /** What Claude Desktop passes when the address was left empty but other fields still hold values. */
+  const leftoverForm = (): NodeJS.ProcessEnv => ({
+    IMAP_MCP_EMAIL: "${user_config.email}",
+    IMAP_MCP_PASSWORD: "from-form",
+    IMAP_MCP_USERNAME: "max",
+    IMAP_MCP_DISPLAY_NAME: "Max",
+    IMAP_MCP_IMAP_HOST: "imap.x:abc",
+    IMAP_MCP_SMTP_HOST: "smtp.x",
+    IMAP_MCP_NO_AUTOCONFIG: "true",
+    IMAP_MCP_ALLOW_SEND: "false",
+    IMAP_MCP_ALLOW_DELETE: "true",
+    IMAP_MCP_DENY_FOLDERS: "_NDA_*",
+  });
+
+  it("uses the setup mailboxes and ignores the fields that describe the form's own mailbox", () => {
+    const env = leftoverForm();
+    applyBundleEnv(env);
+    expect(env).toEqual({ IMAP_MCP_FORM: "setup", IMAP_MCP_MAX_PERMISSIONS: "read,write,delete", IMAP_MCP_DENY_FOLDERS: "_NDA_*" });
+  });
+
+  it("turns the switches into an upper limit for every mailbox", () => {
+    const both: NodeJS.ProcessEnv = { IMAP_MCP_ALLOW_SEND: "true", IMAP_MCP_ALLOW_DELETE: "1" };
+    applyBundleEnv(both);
+    expect(both).toEqual({ IMAP_MCP_FORM: "setup", IMAP_MCP_MAX_PERMISSIONS: "read,write,send,delete" });
+    const unexpanded: NodeJS.ProcessEnv = { IMAP_MCP_EMAIL: "", IMAP_MCP_ALLOW_SEND: "${user_config.allow_send}" };
+    applyBundleEnv(unexpanded);
+    expect(unexpanded).toEqual({ IMAP_MCP_FORM: "setup", IMAP_MCP_MAX_PERMISSIONS: "read,write" });
+  });
+
+  it("does not treat a container without the form's switches as setup mode", () => {
+    const env: NodeJS.ProcessEnv = { IMAP_MCP_CONFIG: "/c.json", IMAP_MCP_PASSWORD_MAIN: "x" };
+    applyBundleEnv(env);
+    expect(env).toEqual({ IMAP_MCP_CONFIG: "/c.json", IMAP_MCP_PASSWORD_MAIN: "x" });
+  });
+
+  it("never lets a leftover form password reach a setup mailbox called main, and caps it by the switches", async () => {
+    const home = mkdtempSync(join(tmpdir(), "inbox-warden-home-"));
+    await saveConfig(
+      ConfigSchema.parse({
+        version: 2,
+        accounts: [
+          {
+            id: "main",
+            email: "office@firma.example",
+            imap: { host: "imap.firma.example", port: 993 },
+            permissions: { read: true, write: true, send: true, delete: false },
+            policy: { folders: { deny: ["Privat"] } },
+          },
+        ],
+      }),
+      { IMAP_MCP_HOME: home },
+    );
+    const keychain = new MemorySecretStore();
+    await keychain.set("main", "password", "from-keychain");
+    const env: NodeJS.ProcessEnv = { ...leftoverForm(), IMAP_MCP_HOME: home, IMAP_MCP_ALLOW_DELETE: "false" };
+    applyBundleEnv(env);
+    const secrets = new ChainSecretStore([new EnvSecretStore(env), keychain], keychain);
+
+    const config = await loadServeConfig(env, { secrets });
+    expect(await secrets.get("main", "password")).toBe("from-keychain");
+    expect(config.accounts[0].permissions).toEqual({ read: true, write: true, send: false, delete: false });
+    expect(config.accounts[0].policy.folders.deny).toEqual(["Privat", "_NDA_*"]);
   });
 });

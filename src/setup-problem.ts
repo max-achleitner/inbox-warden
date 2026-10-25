@@ -14,10 +14,16 @@ function formSetup(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.IMAP_MCP_EMAIL) && !env.IMAP_MCP_CONFIG;
 }
 
+const OPEN_SETTINGS =
+  "Claude Desktop: Settings → Extensions → Inbox Warden → Configure, save, then open a new chat. Claude Code: /plugin → Installed → Inbox Warden → Configure, save, then /mcp → select the server → Reconnect.";
+
 function answer(problem: string, env: NodeJS.ProcessEnv): string {
-  const fix = formSetup(env)
-    ? "To fix it, open the settings, correct the entry and save. Claude Desktop: Settings → Extensions → Inbox Warden → Configure, save, then open a new chat. Claude Code: /plugin → Installed → Inbox Warden → Configure, save, then /mcp → select the server → Reconnect."
-    : `To fix it, run \`${SERVER_NAME} setup\` in a terminal (or \`${SERVER_NAME} doctor\` to see what is wrong), then restart your MCP client or reconnect the server.`;
+  const fix =
+    env.IMAP_MCP_FORM === "setup"
+      ? `The email address in the settings is empty, so the mailboxes set up with the command-line version are used. To fix it, either enter the email address and password of one mailbox in the settings, or set up your mailboxes in a terminal (needs Node.js 20.19 or newer): \`npm install -g ${SERVER_NAME}\`, then \`${SERVER_NAME} setup\` (\`${SERVER_NAME} doctor\` shows what is wrong), and leave the address empty. ${OPEN_SETTINGS}`
+      : formSetup(env)
+        ? `To fix it, open the settings, correct the entry and save. ${OPEN_SETTINGS}`
+        : `To fix it, run \`${SERVER_NAME} setup\` in a terminal (or \`${SERVER_NAME} doctor\` to see what is wrong), then restart your MCP client or reconnect the server.`;
   return `Inbox Warden is not set up correctly, so no mailbox is connected: ${problem}
 Nothing was read, changed or sent. ${fix}`;
 }

@@ -9,7 +9,9 @@
  *
  * It also maps the form onto the variables the server reads: the two switches (send, move to
  * Trash) become IMAP_MCP_PERMISSIONS, "name:port" in a server field is split into host and port,
- * and the other switch becomes IMAP_MCP_NO_AUTOCONFIG.
+ * and the other switch becomes IMAP_MCP_NO_AUTOCONFIG. A form whose address is left empty uses the
+ * mailboxes set up with `setup` instead (IMAP_MCP_FORM=setup): the switches become the upper limit
+ * IMAP_MCP_MAX_PERMISSIONS, and the locked folders apply to every mailbox (loadServeConfig).
  */
 import { isIPv6 } from "node:net";
 import { SERVER_NAME } from "../version.js";
@@ -39,6 +41,17 @@ const SWITCH_LABELS = {
   IMAP_MCP_ALLOW_DELETE: "Claude may move email to Trash",
 };
 const TIERS = ["read", "write", "send", "delete"];
+/** Form fields that only describe the form's own mailbox; unused when its address is left empty. */
+const FORM_MAILBOX_KEYS = [
+  "IMAP_MCP_PASSWORD",
+  "IMAP_MCP_USERNAME",
+  "IMAP_MCP_DISPLAY_NAME",
+  "IMAP_MCP_IMAP_HOST",
+  "IMAP_MCP_IMAP_PORT",
+  "IMAP_MCP_SMTP_HOST",
+  "IMAP_MCP_SMTP_PORT",
+  "IMAP_MCP_NO_AUTOCONFIG",
+];
 const CHOICES: Record<string, { label: string; values: string[] }> = {
   IMAP_MCP_AUTH: { label: "Sign-in method", values: ["password", "microsoft", "google"] },
   IMAP_MCP_SEND_MODE: { label: "Send mode", values: ["drafts-only", "confirm", "direct"] },
@@ -59,6 +72,15 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
     const trimmed = (env[key] ?? "").trim();
     if (trimmed === "" || PLACEHOLDER.test(trimmed)) delete env[key];
     else if (!SECRET_KEYS.has(key)) env[key] = trimmed;
+  }
+
+  // Setup mode: a form without an address uses the mailboxes set up with `setup` (config file and
+  // keychain). The fields that describe the form's own mailbox are dropped unread, so a leftover
+  // password can never reach a setup mailbox called "main" through IMAP_MCP_PASSWORD.
+  const setupMailboxes = switchesPresent && env.IMAP_MCP_EMAIL === undefined;
+  if (setupMailboxes) {
+    for (const key of FORM_MAILBOX_KEYS) delete env[key];
+    env.IMAP_MCP_FORM = "setup";
   }
 
   for (const [key, label] of Object.entries(PORT_LABELS)) {
@@ -93,13 +115,15 @@ export function applyBundleEnv(env: NodeJS.ProcessEnv): void {
   else delete env.IMAP_MCP_NO_AUTOCONFIG;
 
   // The two permission switches stand in for IMAP_MCP_PERMISSIONS unless that is set (containers).
+  // For the setup mailboxes they are an upper limit instead: an account keeps a tier only if its
+  // own configuration and the switch both allow it.
   const allowSend = switchOn(env, "IMAP_MCP_ALLOW_SEND");
   const allowDelete = switchOn(env, "IMAP_MCP_ALLOW_DELETE");
   delete env.IMAP_MCP_ALLOW_SEND;
   delete env.IMAP_MCP_ALLOW_DELETE;
-  if (switchesPresent && env.IMAP_MCP_PERMISSIONS === undefined) {
-    env.IMAP_MCP_PERMISSIONS = ["read", "write", ...(allowSend ? ["send"] : []), ...(allowDelete ? ["delete"] : [])].join(",");
-  }
+  const switched = ["read", "write", ...(allowSend ? ["send"] : []), ...(allowDelete ? ["delete"] : [])].join(",");
+  const target = setupMailboxes ? "IMAP_MCP_MAX_PERMISSIONS" : "IMAP_MCP_PERMISSIONS";
+  if (switchesPresent && env[target] === undefined) env[target] = switched;
 
   if (env.IMAP_MCP_ATTACHMENT_DIRS !== undefined) {
     const dirs = cleanDirectories(env.IMAP_MCP_ATTACHMENT_DIRS.split(path.delimiter));

@@ -56,6 +56,21 @@ describe("setup-problem server", () => {
     expect(text2).toContain("inbox-warden setup");
   });
 
+  it("offers both ways out when the form's address was left empty for the setup mailboxes", async () => {
+    const client = await connect('No configuration found at C:\\Users\\max\\.imap-mcp\\config.json. Run "inbox-warden setup" to configure your mail account.', {
+      IMAP_MCP_FORM: "setup",
+    });
+    const res = await client.callTool({ name: "health_check", arguments: {} });
+    const text = (res.content as Array<{ text: string }>)[0]!.text;
+    expect(text).toContain("Nothing was read, changed or sent.");
+    expect(text).toContain("enter the email address and password");
+    expect(text).toContain("npm install -g inbox-warden");
+    expect(text).toContain("inbox-warden setup");
+    expect(text).toContain("leave the address empty");
+    expect(text).toContain("Settings → Extensions → Inbox Warden → Configure");
+    expect(text).toContain("Reconnect");
+  });
+
   it("never repeats a secret", () => {
     const problem = startupProblem({ IMAP_MCP_PASSWORD: "hunter2", IMAP_MCP_EMAIL: "a@gmail.com", IMAP_MCP_IMAP_PORT: "99999" });
     expect(problem).toContain("IMAP port");
