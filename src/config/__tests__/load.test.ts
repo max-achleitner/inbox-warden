@@ -307,10 +307,17 @@ describe("loadConfig", () => {
       expect(await loadConfig(limits)).toEqual(twoAccounts());
     });
 
-    it("leaves environment-only mode to configFromEnv", async () => {
-      const config = await loadServeConfig({ ...env, IMAP_MCP_EMAIL: "a@example.com", IMAP_MCP_IMAP_HOST: "imap.example.com", IMAP_MCP_DENY_FOLDERS: "X", IMAP_MCP_MAX_PERMISSIONS: "read" });
+    it("caps environment-only mode too, without locking a folder twice", async () => {
+      const config = await loadServeConfig({
+        ...env,
+        IMAP_MCP_EMAIL: "a@example.com",
+        IMAP_MCP_IMAP_HOST: "imap.example.com",
+        IMAP_MCP_PERMISSIONS: "read,write,send",
+        IMAP_MCP_MAX_PERMISSIONS: "read,write",
+        IMAP_MCP_DENY_FOLDERS: "X",
+      });
+      expect(config.accounts[0].permissions).toEqual({ read: true, write: true, send: false, delete: false });
       expect(config.accounts[0].policy.folders.deny).toEqual(["X"]);
-      expect(config.accounts[0].permissions).toMatchObject({ read: true, write: true });
     });
   });
 

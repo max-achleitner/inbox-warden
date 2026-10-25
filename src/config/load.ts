@@ -132,15 +132,15 @@ export function applyEnvLimits(config: AppConfig, env: NodeJS.ProcessEnv): AppCo
 }
 
 /**
- * The configuration a server runs with: loadConfig plus the environment limits for a config file.
- * Admin commands use loadConfig, because they save the file again and must not write the limits into it.
+ * The configuration a server runs with: loadConfig plus the environment limits (environment-only
+ * mode already holds the locks and folders, so for it only the cap changes anything). Admin
+ * commands use loadConfig, because they save the file again and must not write the limits into it.
  */
 export async function loadServeConfig(
   env: NodeJS.ProcessEnv = process.env,
   opts: Parameters<typeof loadConfig>[1] = {},
 ): Promise<AppConfig> {
-  const config = await loadConfig(env, opts);
-  return envOnly(env) ? config : applyEnvLimits(config, env);
+  return applyEnvLimits(await loadConfig(env, opts), env);
 }
 
 /** Without IMAP_MCP_CONFIG, IMAP_MCP_EMAIL selects the environment-only single account. */
