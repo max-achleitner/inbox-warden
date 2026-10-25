@@ -203,6 +203,36 @@ describe("WindowsCredentialStore", () => {
     }
   });
 
+  it("explains Constrained Language Mode (AppLocker, WDAC) instead of passing on PowerShell's noise", async () => {
+    const run = scriptedRun([{ code: 4, stderr: "#< CLIXML <Objs …" }]);
+    const failure = await new WindowsCredentialStore(tempDir(), run, "powershell.exe").get("main", "password").catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(SecretStoreUnavailableError);
+    expect((failure as Error).message).toMatch(/Constrained Language Mode.*address and password.*command-line version/s);
+    expect((failure as Error).message).not.toContain("CLIXML");
+    expect(script(run.calls[0]).split("\n")[0]).toBe("if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { exit 4 }");
+  });
+
+  it.skipIf(process.platform !== "win32")("recognises a real Constrained Language Mode before touching the Credential Manager", async () => {
+    // Runs the store's own script the way a locked-down machine would: decoded first, then executed in CLM.
+    const constrained: RunCommand = (command, args, input) => {
+      const original = Buffer.from(args[3], "base64").toString("utf16le");
+      const wrapper =
+        `$s = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${Buffer.from(original, "utf16le").toString("base64")}')); ` +
+        "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'; Invoke-Expression $s";
+      return runCommand(command, [...args.slice(0, 3), Buffer.from(wrapper, "utf16le").toString("base64")], input);
+    };
+    const failure = await new WindowsCredentialStore(tempDir(), constrained).get(`iw-clm-${Date.now()}`, "password").catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(SecretStoreUnavailableError);
+    expect((failure as Error).message).toContain("Constrained Language Mode");
+  }, 30_000);
+
+  it("reports a PowerShell that cannot be started as an unavailable credential store", async () => {
+    const run = scriptedRun([Object.assign(new Error("spawn powershell.exe EACCES"), { code: "EACCES" })]);
+    const failure = await new WindowsCredentialStore(tempDir(), run, "powershell.exe").get("main", "password").catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(SecretStoreUnavailableError);
+    expect((failure as Error).message).toMatch(/PowerShell could not be started.*EACCES/);
+  });
+
   it("writes in UTF-8, so umlauts in localised Windows messages survive", async () => {
     const run = scriptedRun([{ code: 3 }]);
     await new WindowsCredentialStore(tempDir(), run, "powershell.exe").get("main", "password");

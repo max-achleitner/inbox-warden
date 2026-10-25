@@ -208,10 +208,11 @@ public static class InboxWardenCredential {
 /**
  * One script per operation; its stdin lines are the target (then user name and base64 blob for
  * writing). With redirected streams PowerShell writes its own errors as CLIXML, so every failure
- * (e.g. Add-Type refused in Constrained Language Mode) is caught and written as plain text.
+ * Constrained Language Mode (AppLocker, WDAC) is checked first: there even writing an error fails.
  */
 function credentialScript(call: string): string {
   return [
+    "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { exit 4 }",
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
     "try {",
@@ -233,6 +234,7 @@ const READ_CREDENTIAL = credentialScript(
 const WRITE_CREDENTIAL = credentialScript("$r = [InboxWardenCredential]::Write($l[0], $l[1], $l[2])");
 const DELETE_CREDENTIAL = credentialScript("$r = [InboxWardenCredential]::Delete($l[0])");
 const CREDENTIAL_NOT_FOUND = 3;
+const CONSTRAINED_LANGUAGE = 4;
 /** CRED_MAX_CREDENTIAL_BLOB_SIZE (5 × 512 bytes): 1,280 UTF-16 code units. */
 const MAX_CREDENTIAL_BLOB_BYTES = 2560;
 
@@ -256,7 +258,17 @@ export class WindowsCredentialStore implements SecretStore {
   /** The finished command, or null when the credential does not exist. */
   private async credential(script: string, lines: string[], what: string): Promise<CommandResult | null> {
     const encoded = Buffer.from(script, "utf16le").toString("base64");
-    const result = await this.run(this.powershell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], `${lines.join("\n")}\n`);
+    let result: CommandResult;
+    try {
+      result = await this.run(this.powershell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], `${lines.join("\n")}\n`);
+    } catch (err) {
+      throw new SecretStoreUnavailableError(`${what} failed: PowerShell could not be started (${(err as Error).message})`);
+    }
+    if (result.code === CONSTRAINED_LANGUAGE) {
+      throw new SecretStoreUnavailableError(
+        `${what} failed: PowerShell runs in Constrained Language Mode on this computer (AppLocker or WDAC), so the extension cannot reach the Credential Manager. Enter the address and password of one mailbox in the extension's settings, or use the command-line version instead of the extension`,
+      );
+    }
     if (result.code === CREDENTIAL_NOT_FOUND) return null;
     if (result.code !== 0) throw unavailable(what, result);
     return result;
